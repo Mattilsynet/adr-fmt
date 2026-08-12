@@ -22,14 +22,14 @@ static KEBAB_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[a-z0-9]+(?:-[a-z0-9]+)*$").expect("valid regex"));
 
 pub fn check(record: &AdrRecord, domain_prefixes: &[&str], diags: &mut Vec<Diagnostic>) {
-    let Some(file_name) = record.file_path.file_name().and_then(|f| f.to_str()) else {
+    let Some(file_name) = record.file_path().file_name().and_then(|f| f.to_str()) else {
         return;
     };
 
     if !N001_PATTERN.is_match(file_name) {
         diags.push(Diagnostic::warning(
             "N001",
-            &record.file_path,
+            record.file_path(),
             0,
             format!(
                 "filename `{file_name}` does not match pattern \
@@ -40,40 +40,40 @@ pub fn check(record: &AdrRecord, domain_prefixes: &[&str], diags: &mut Vec<Diagn
     }
 
     if let Some(file_id) = parse_adr_id_from_filename_stem(&file_name[..file_name.len() - 3])
-        && (file_id.prefix != record.id.prefix || file_id.number != record.id.number)
+        && (file_id.prefix() != record.id().prefix() || file_id.number() != record.id().number())
     {
         diags.push(Diagnostic::warning(
             "N002",
-            &record.file_path,
-            record.title_line,
+            record.file_path(),
+            record.title_line(),
             format!(
                 "filename ID `{file_id}` does not match H1 title ID `{}`",
-                record.id
+                record.id()
             ),
         ));
     }
 
-    let prefix_len = record.id.prefix.len() + 6;
+    let prefix_len = record.id().prefix().len() + 6;
     let slug_with_ext = &file_name[prefix_len..];
     let slug = slug_with_ext.strip_suffix(".md").unwrap_or(slug_with_ext);
 
     if !KEBAB_PATTERN.is_match(slug) {
         diags.push(Diagnostic::warning(
             "N003",
-            &record.file_path,
+            record.file_path(),
             0,
             format!("slug `{slug}` is not valid kebab-case (a-z0-9, hyphens only)"),
         ));
     }
 
-    if !domain_prefixes.contains(&record.id.prefix.as_str()) {
+    if !domain_prefixes.contains(&record.id().prefix()) {
         diags.push(Diagnostic::warning(
             "N004",
-            &record.file_path,
+            record.file_path(),
             0,
             format!(
                 "prefix `{}` does not match any configured domain (known: {})",
-                record.id.prefix,
+                record.id().prefix(),
                 domain_prefixes.join(", "),
             ),
         ));
@@ -89,26 +89,22 @@ mod tests {
     const TEST_PREFIXES: &[&str] = &["COM", "CHE", "PAR", "GEN"];
 
     fn make_record(filename: &str, prefix: &str, num: u16) -> AdrRecord {
-        AdrRecord {
-            id: AdrId {
-                prefix: prefix.into(),
-                number: num,
-            },
-            file_path: PathBuf::from(format!("docs/adr/cherry/{filename}")),
-            title: Some("Test".into()),
-            title_line: 1,
-            date: Some("2026-04-25".into()),
-            last_reviewed: Some("2026-04-25".into()),
-            tier: Some(Tier::B),
-            status: Some(Status::Accepted),
-            status_line: 8,
-            status_raw: Some("Accepted".into()),
-            has_related: true,
-            has_context: true,
-            has_decision: true,
-            has_consequences: true,
-            ..AdrRecord::test_sentinel()
-        }
+        let mut record = AdrRecord::test_sentinel();
+        *record.id_mut() = AdrId::test_new(prefix, num);
+        *record.file_path_mut() = PathBuf::from(format!("docs/adr/cherry/{filename}"));
+        *record.title_mut() = Some("Test".into());
+        *record.title_line_mut() = 1;
+        *record.date_mut() = Some("2026-04-25".into());
+        *record.last_reviewed_mut() = Some("2026-04-25".into());
+        *record.tier_mut() = Some(Tier::B);
+        *record.status_mut() = Some(Status::Accepted);
+        *record.status_line_mut() = 8;
+        *record.status_raw_mut() = Some("Accepted".into());
+        *record.has_related_mut() = true;
+        *record.has_context_mut() = true;
+        *record.has_decision_mut() = true;
+        *record.has_consequences_mut() = true;
+        record
     }
 
     #[test]

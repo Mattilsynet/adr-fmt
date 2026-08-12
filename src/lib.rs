@@ -42,7 +42,9 @@ mod rules;
 
 pub use config::{Config, LoadError, ResolveCorpusError, load_quiet, resolve_corpus_root};
 pub use containment::{ContainmentError, contained_join, contained_join_optional};
-pub use model::{AdrId, AdrRecord, DomainDir, RelVerb, Relationship, Status, Tier, parse_adr_id};
+pub use model::{
+    AdrId, AdrIdError, AdrRecord, DomainDir, RelVerb, Relationship, Status, Tier, parse_adr_id,
+};
 pub use parser::{ParseError, ParseOutcome, parse_domain, parse_stale};
 pub use report::{Diagnostic, Severity};
 

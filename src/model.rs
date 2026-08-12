@@ -42,17 +42,145 @@ pub fn layer_to_tier(layer: u8) -> Option<Tier> {
 
 /// Composite ADR identifier: prefix + number (e.g., CHE-0042).
 ///
-/// # Invariants (parser-produced values only)
+/// # Invariants (enforced by construction)
 ///
-/// Values produced by [`parse_adr_id`] or [`parse_adr_id_from_filename_stem`]
-/// satisfy:
+/// Every `AdrId` satisfies:
 /// - `prefix.len() ∈ 2..=4`
 /// - every byte of `prefix` is `b'A'..=b'Z'` (ASCII uppercase)
 /// - `number ∈ 0..=9999` (encoded as exactly 4 digits via `Display`)
+///
+/// Fields are private; the only construction paths are
+/// [`AdrId::try_new`] and `TryFrom<&str>`, both of which validate the
+/// invariants above and reject violations with [`AdrIdError`]. An
+/// invalid `AdrId` has no constructor and therefore cannot exist. See
+/// AFM-0032.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AdrId {
-    pub prefix: String,
-    pub number: u16,
+    prefix: String,
+    number: u16,
+}
+
+/// Error returned by fallible `AdrId` construction ([`AdrId::try_new`],
+/// `TryFrom<&str>`). Implements `Display` + `Debug` + `std::error::Error`
+/// per the AFM-0028:R1 trait floor. See AFM-0032.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AdrIdError {
+    /// `prefix.len()` was not in `2..=4`.
+    PrefixLength {
+        /// The rejected prefix.
+        prefix: String,
+    },
+    /// `prefix` contained a byte outside `b'A'..=b'Z'`.
+    PrefixNotUppercaseAscii {
+        /// The rejected prefix.
+        prefix: String,
+    },
+    /// `number` was outside `0..=9999`.
+    NumberOutOfRange {
+        /// The rejected number.
+        number: u32,
+    },
+    /// The input string was not in `PREFIX-NNNN` form.
+    Malformed {
+        /// The rejected input string.
+        input: String,
+    },
+}
+
+impl fmt::Display for AdrIdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PrefixLength { prefix } => {
+                write!(f, "AdrId prefix {prefix:?} must be 2-4 characters")
+            }
+            Self::PrefixNotUppercaseAscii { prefix } => {
+                write!(f, "AdrId prefix {prefix:?} must be uppercase ASCII")
+            }
+            Self::NumberOutOfRange { number } => {
+                write!(f, "AdrId number {number} is out of range 0..=9999")
+            }
+            Self::Malformed { input } => {
+                write!(f, "AdrId string {input:?} is not in PREFIX-NNNN form")
+            }
+        }
+    }
+}
+
+impl std::error::Error for AdrIdError {}
+
+impl AdrId {
+    /// Validated `AdrId` constructor.
+    ///
+    /// # Errors
+    /// Returns [`AdrIdError::PrefixLength`] when `prefix.len()` is not
+    /// in `2..=4`, [`AdrIdError::PrefixNotUppercaseAscii`] when
+    /// `prefix` contains a non-uppercase-ASCII byte, or
+    /// [`AdrIdError::NumberOutOfRange`] when `number > 9999`.
+    pub fn try_new(prefix: &str, number: u16) -> Result<Self, AdrIdError> {
+        let prefix_len = prefix.len();
+        if !(2..=4).contains(&prefix_len) {
+            return Err(AdrIdError::PrefixLength {
+                prefix: prefix.to_owned(),
+            });
+        }
+        if !prefix.bytes().all(|b| b.is_ascii_uppercase()) {
+            return Err(AdrIdError::PrefixNotUppercaseAscii {
+                prefix: prefix.to_owned(),
+            });
+        }
+        if number > 9999 {
+            return Err(AdrIdError::NumberOutOfRange {
+                number: u32::from(number),
+            });
+        }
+        Ok(Self {
+            prefix: prefix.to_owned(),
+            number,
+        })
+    }
+
+    /// The domain prefix (e.g., `"CHE"`).
+    #[must_use]
+    pub fn prefix(&self) -> &str {
+        &self.prefix
+    }
+
+    /// The numeric identifier (e.g., `42` for `CHE-0042`).
+    #[must_use]
+    pub fn number(&self) -> u16 {
+        self.number
+    }
+}
+
+impl TryFrom<&str> for AdrId {
+    type Error = AdrIdError;
+
+    /// Parse a strict ADR ID like `CHE-0042`.
+    ///
+    /// Accepts exactly `^[A-Z]{2,4}-[0-9]{4}$` — uppercase ASCII prefix
+    /// of 2–4 letters, dash, exactly 4 digits, nothing else. No
+    /// whitespace trimming; callers must pass clean input.
+    ///
+    /// # Errors
+    /// Returns [`AdrIdError::Malformed`] when the input is not in
+    /// `PREFIX-NNNN` form (missing separator, wrong digit count,
+    /// non-digit characters); otherwise delegates prefix/number
+    /// validation to [`AdrId::try_new`].
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let (prefix, num_str) = s.split_once('-').ok_or_else(|| AdrIdError::Malformed {
+            input: s.to_owned(),
+        })?;
+        if num_str.len() != 4 || !num_str.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(AdrIdError::Malformed {
+                input: s.to_owned(),
+            });
+        }
+        let number: u16 = num_str.parse().map_err(|_| AdrIdError::Malformed {
+            input: s.to_owned(),
+        })?;
+        Self::try_new(prefix, number)
+    }
 }
 
 impl fmt::Display for AdrId {
@@ -73,54 +201,46 @@ impl fmt::Display for AdrId {
     reason = "AdrRecord is pinned to the R1 crate-root re-export set (AFM-0026:R1); the bools are independent parser section-presence facts read individually in rules — collapsing would widen the pinned surface beyond R1 without a successor ADR (AFM-0026:R5) and forces an adr-srv re-scrape (AFM-0027:R5)"
 )]
 pub struct AdrRecord {
-    pub id: AdrId,
-    pub file_path: PathBuf,
-    pub title: Option<String>,
-    pub title_line: usize,
-    pub date: Option<String>,
-    pub last_reviewed: Option<String>,
-    pub tier: Option<Tier>,
-    pub status: Option<Status>,
-    pub status_line: usize,
-    pub status_raw: Option<String>,
-    pub relationships: Vec<Relationship>,
-    pub has_related: bool,
-    pub has_context: bool,
-    pub has_decision: bool,
-    pub has_consequences: bool,
-    pub has_retirement: bool,
+    id: AdrId,
+    file_path: PathBuf,
+    title: Option<String>,
+    title_line: usize,
+    date: Option<String>,
+    last_reviewed: Option<String>,
+    tier: Option<Tier>,
+    status: Option<Status>,
+    status_line: usize,
+    status_raw: Option<String>,
+    relationships: Vec<Relationship>,
+    has_related: bool,
+    has_context: bool,
+    has_decision: bool,
+    has_consequences: bool,
+    has_retirement: bool,
     /// True when the ADR file lives in the stale archive directory.
-    pub is_stale: bool,
+    is_stale: bool,
     /// True when status was parsed from the legacy `## Status` section
     /// (not the `Status:` preamble metadata field).
-    pub status_from_section: bool,
-    pub max_code_block_lines: usize,
+    status_from_section: bool,
+    max_code_block_lines: usize,
     /// 1-indexed line number of the opening fence of the largest code
     /// block. 0 if no code blocks exist.
-    pub max_code_block_line: usize,
+    max_code_block_line: usize,
     /// Ordered list of H2 section names as they appear in the file.
-    pub section_order: Vec<String>,
+    section_order: Vec<String>,
     /// Word count per H2 section (section name → count). Code blocks
     /// are excluded from the count.
-    pub section_word_counts: HashMap<String, usize>,
+    section_word_counts: HashMap<String, usize>,
     /// Crates associated with this ADR via `Crates:` metadata field.
-    pub crates: Vec<String>,
+    crates: Vec<String>,
     /// Tagged rules extracted from the Decision section
     /// (`RN [L]: text` pattern). Empty when no tagged rules found.
-    pub decision_rules: Vec<TaggedRule>,
+    decision_rules: Vec<TaggedRule>,
     /// Cross-domain parent exception declared in the preamble via
     /// `Parent-cross-domain: PREFIX-NNNN — reason`. When present and
     /// matching the first `References:` target, suppresses L011
     /// (cross-domain parent edge) for that relationship.
-    ///
-    /// The string carries the parsed target ID. The reason text is
-    /// preserved in `parent_cross_domain_reason` for output.
-    pub parent_cross_domain: Option<AdrId>,
-    /// Free-text reason accompanying `parent_cross_domain`. Empty
-    /// when the field has only the target ID with no reason.
-    /// Currently parsed but not rendered; preserved for future tree
-    /// or lint surfacing (see AFM-0024).
-    pub parent_cross_domain_reason: String,
+    parent_cross_domain: Option<AdrId>,
 }
 
 impl AdrRecord {
@@ -130,6 +250,343 @@ impl AdrRecord {
         self.relationships
             .iter()
             .any(|r| r.verb == RelVerb::Root && r.target == self.id)
+    }
+
+    /// This record's `AdrId`.
+    #[must_use]
+    pub fn id(&self) -> &AdrId {
+        &self.id
+    }
+
+    /// Path to the source ADR file.
+    #[must_use]
+    pub fn file_path(&self) -> &std::path::Path {
+        &self.file_path
+    }
+
+    /// Parsed title, if the preamble had a `# Title` heading.
+    #[must_use]
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    /// Raw `Date:` preamble value, if present.
+    #[must_use]
+    pub fn date(&self) -> Option<&str> {
+        self.date.as_deref()
+    }
+
+    /// Raw `Last-reviewed:` preamble value, if present.
+    #[must_use]
+    pub fn last_reviewed(&self) -> Option<&str> {
+        self.last_reviewed.as_deref()
+    }
+
+    /// Parsed `Tier:` preamble value, if present.
+    #[must_use]
+    pub fn tier(&self) -> Option<Tier> {
+        self.tier
+    }
+
+    /// Parsed lifecycle status, if present.
+    #[must_use]
+    pub fn status(&self) -> Option<&Status> {
+        self.status.as_ref()
+    }
+
+    /// Relationships declared in the `## Related` section.
+    #[must_use]
+    pub fn relationships(&self) -> &[Relationship] {
+        &self.relationships
+    }
+
+    /// 1-indexed line number of the parsed title heading.
+    #[must_use]
+    pub fn title_line(&self) -> usize {
+        self.title_line
+    }
+
+    /// 1-indexed line number of the parsed status line, if any.
+    #[must_use]
+    pub fn status_line(&self) -> usize {
+        self.status_line
+    }
+
+    /// Raw, unparsed status text as it appeared in the source.
+    #[must_use]
+    pub fn status_raw(&self) -> Option<&str> {
+        self.status_raw.as_deref()
+    }
+
+    /// True when a `## Related` section was found.
+    #[must_use]
+    pub fn has_related(&self) -> bool {
+        self.has_related
+    }
+
+    /// True when a `## Context` section was found.
+    #[must_use]
+    pub fn has_context(&self) -> bool {
+        self.has_context
+    }
+
+    /// True when a `## Decision` section was found.
+    #[must_use]
+    pub fn has_decision(&self) -> bool {
+        self.has_decision
+    }
+
+    /// True when a `## Consequences` section was found.
+    #[must_use]
+    pub fn has_consequences(&self) -> bool {
+        self.has_consequences
+    }
+
+    /// True when a `## Retirement` section was found.
+    #[must_use]
+    pub fn has_retirement(&self) -> bool {
+        self.has_retirement
+    }
+
+    /// True when the ADR file lives in the stale archive directory.
+    #[must_use]
+    pub fn is_stale(&self) -> bool {
+        self.is_stale
+    }
+
+    /// True when status was parsed from the legacy `## Status` section
+    /// (not the `Status:` preamble metadata field).
+    #[must_use]
+    pub fn status_from_section(&self) -> bool {
+        self.status_from_section
+    }
+
+    /// Line count of the largest fenced code block. 0 if none.
+    #[must_use]
+    pub fn max_code_block_lines(&self) -> usize {
+        self.max_code_block_lines
+    }
+
+    /// 1-indexed line number of the opening fence of the largest code
+    /// block. 0 if no code blocks exist.
+    #[must_use]
+    pub fn max_code_block_line(&self) -> usize {
+        self.max_code_block_line
+    }
+
+    /// Ordered list of H2 section names as they appear in the file.
+    #[must_use]
+    pub fn section_order(&self) -> &[String] {
+        &self.section_order
+    }
+
+    /// Word count per H2 section (section name → count).
+    #[must_use]
+    pub fn section_word_counts(&self) -> &HashMap<String, usize> {
+        &self.section_word_counts
+    }
+
+    /// Crates associated with this ADR via `Crates:` metadata field.
+    #[must_use]
+    pub fn crates(&self) -> &[String] {
+        &self.crates
+    }
+
+    /// Tagged rules extracted from the Decision section.
+    #[must_use]
+    pub fn decision_rules(&self) -> &[TaggedRule] {
+        &self.decision_rules
+    }
+
+    /// Cross-domain parent exception declared via `Parent-cross-domain:`.
+    #[must_use]
+    pub fn parent_cross_domain(&self) -> Option<&AdrId> {
+        self.parent_cross_domain.as_ref()
+    }
+
+    /// Narrow, in-module constructor used exclusively by the parser
+    /// (`parser::parse_adr_file`) once all fields have been derived
+    /// from the source file. Not part of the public API; establishes
+    /// no additional invariants beyond what the parser itself derives.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors every AdrRecord field 1:1; this is the sole parser-facing constructor per AFM-0032:R3, not a general-purpose builder that would warrant decomposition"
+    )]
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "mirrors AdrRecord's own independent parser-detected section-presence bools (see the struct-level clippy::struct_excessive_bools expect above); same rationale applies to the constructor that assembles them"
+    )]
+    pub(crate) fn from_parser_fields(
+        id: AdrId,
+        file_path: PathBuf,
+        title: Option<String>,
+        title_line: usize,
+        date: Option<String>,
+        last_reviewed: Option<String>,
+        tier: Option<Tier>,
+        status: Option<Status>,
+        status_line: usize,
+        status_raw: Option<String>,
+        relationships: Vec<Relationship>,
+        has_related: bool,
+        has_context: bool,
+        has_decision: bool,
+        has_consequences: bool,
+        has_retirement: bool,
+        is_stale: bool,
+        status_from_section: bool,
+        max_code_block_lines: usize,
+        max_code_block_line: usize,
+        section_order: Vec<String>,
+        section_word_counts: HashMap<String, usize>,
+        crates: Vec<String>,
+        decision_rules: Vec<TaggedRule>,
+        parent_cross_domain: Option<AdrId>,
+    ) -> Self {
+        Self {
+            id,
+            file_path,
+            title,
+            title_line,
+            date,
+            last_reviewed,
+            tier,
+            status,
+            status_line,
+            status_raw,
+            relationships,
+            has_related,
+            has_context,
+            has_decision,
+            has_consequences,
+            has_retirement,
+            is_stale,
+            status_from_section,
+            max_code_block_lines,
+            max_code_block_line,
+            section_order,
+            section_word_counts,
+            crates,
+            decision_rules,
+            parent_cross_domain,
+        }
+    }
+}
+
+#[cfg(test)]
+impl AdrId {
+    /// Test-only unchecked constructor. Bypasses [`AdrId::try_new`]'s
+    /// validation deliberately: test fixtures build both valid and
+    /// invariant-violating sentinels to exercise rules that operate on
+    /// already-parsed records.
+    pub(crate) fn test_new(prefix: impl Into<String>, number: u16) -> Self {
+        Self {
+            prefix: prefix.into(),
+            number,
+        }
+    }
+}
+
+#[cfg(test)]
+impl AdrRecord {
+    pub(crate) fn id_mut(&mut self) -> &mut AdrId {
+        &mut self.id
+    }
+
+    pub(crate) fn file_path_mut(&mut self) -> &mut PathBuf {
+        &mut self.file_path
+    }
+
+    pub(crate) fn title_mut(&mut self) -> &mut Option<String> {
+        &mut self.title
+    }
+
+    pub(crate) fn title_line_mut(&mut self) -> &mut usize {
+        &mut self.title_line
+    }
+
+    pub(crate) fn date_mut(&mut self) -> &mut Option<String> {
+        &mut self.date
+    }
+
+    pub(crate) fn last_reviewed_mut(&mut self) -> &mut Option<String> {
+        &mut self.last_reviewed
+    }
+
+    pub(crate) fn tier_mut(&mut self) -> &mut Option<Tier> {
+        &mut self.tier
+    }
+
+    pub(crate) fn status_mut(&mut self) -> &mut Option<Status> {
+        &mut self.status
+    }
+
+    pub(crate) fn status_line_mut(&mut self) -> &mut usize {
+        &mut self.status_line
+    }
+
+    pub(crate) fn status_raw_mut(&mut self) -> &mut Option<String> {
+        &mut self.status_raw
+    }
+
+    pub(crate) fn relationships_mut(&mut self) -> &mut Vec<Relationship> {
+        &mut self.relationships
+    }
+
+    pub(crate) fn has_related_mut(&mut self) -> &mut bool {
+        &mut self.has_related
+    }
+
+    pub(crate) fn has_context_mut(&mut self) -> &mut bool {
+        &mut self.has_context
+    }
+
+    pub(crate) fn has_decision_mut(&mut self) -> &mut bool {
+        &mut self.has_decision
+    }
+
+    pub(crate) fn has_consequences_mut(&mut self) -> &mut bool {
+        &mut self.has_consequences
+    }
+
+    pub(crate) fn has_retirement_mut(&mut self) -> &mut bool {
+        &mut self.has_retirement
+    }
+
+    pub(crate) fn is_stale_mut(&mut self) -> &mut bool {
+        &mut self.is_stale
+    }
+
+    pub(crate) fn status_from_section_mut(&mut self) -> &mut bool {
+        &mut self.status_from_section
+    }
+
+    pub(crate) fn max_code_block_lines_mut(&mut self) -> &mut usize {
+        &mut self.max_code_block_lines
+    }
+
+    pub(crate) fn max_code_block_line_mut(&mut self) -> &mut usize {
+        &mut self.max_code_block_line
+    }
+
+    pub(crate) fn section_order_mut(&mut self) -> &mut Vec<String> {
+        &mut self.section_order
+    }
+
+    pub(crate) fn section_word_counts_mut(&mut self) -> &mut HashMap<String, usize> {
+        &mut self.section_word_counts
+    }
+
+    pub(crate) fn crates_mut(&mut self) -> &mut Vec<String> {
+        &mut self.crates
+    }
+
+    pub(crate) fn decision_rules_mut(&mut self) -> &mut Vec<TaggedRule> {
+        &mut self.decision_rules
+    }
+
+    pub(crate) fn parent_cross_domain_mut(&mut self) -> &mut Option<AdrId> {
+        &mut self.parent_cross_domain
     }
 }
 
@@ -169,7 +626,6 @@ impl AdrRecord {
             crates: Vec::new(),
             decision_rules: Vec::new(),
             parent_cross_domain: None,
-            parent_cross_domain_reason: String::new(),
         }
     }
 }
@@ -949,5 +1405,69 @@ mod tests {
         assert_eq!(layer_to_tier(0), None);
         assert_eq!(layer_to_tier(13), None);
         assert_eq!(layer_to_tier(255), None);
+    }
+
+    #[test]
+    fn adr_id_try_new_accepts_valid_input() {
+        let id = AdrId::try_new("CHE", 42).unwrap();
+        assert_eq!(id.prefix(), "CHE");
+        assert_eq!(id.number(), 42);
+        assert_eq!(id.to_string(), "CHE-0042");
+    }
+
+    #[test]
+    fn adr_id_try_new_rejects_short_prefix() {
+        let err = AdrId::try_new("C", 1).unwrap_err();
+        assert!(
+            matches!(err, AdrIdError::PrefixLength { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn adr_id_try_new_rejects_long_prefix() {
+        let err = AdrId::try_new("ABCDE", 1).unwrap_err();
+        assert!(
+            matches!(err, AdrIdError::PrefixLength { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn adr_id_try_new_rejects_lowercase_prefix() {
+        let err = AdrId::try_new("che", 1).unwrap_err();
+        assert!(
+            matches!(err, AdrIdError::PrefixNotUppercaseAscii { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn adr_id_try_new_rejects_out_of_range_number() {
+        let err = AdrId::try_new("CHE", 10_000).unwrap_err();
+        assert!(
+            matches!(err, AdrIdError::NumberOutOfRange { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn adr_id_try_from_str_round_trips() {
+        let id = AdrId::try_from("CHE-0042").unwrap();
+        assert_eq!(id.prefix(), "CHE");
+        assert_eq!(id.number(), 42);
+    }
+
+    #[test]
+    fn adr_id_try_from_str_rejects_malformed() {
+        let err = AdrId::try_from("CHE0042").unwrap_err();
+        assert!(matches!(err, AdrIdError::Malformed { .. }), "got {err:?}");
+    }
+
+    #[test]
+    fn adr_id_error_impls_error_trait() {
+        let err = AdrId::try_new("c", 1).unwrap_err();
+        let _: &dyn std::error::Error = &err;
+        assert!(!err.to_string().is_empty());
     }
 }

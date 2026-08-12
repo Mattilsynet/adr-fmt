@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::config::Config;
 use crate::model::{AdrId, AdrRecord, Status};
 use crate::nav::{compute_parent_children, compute_parent_edges, walk_parent_chain};
-use crate::output::{EmittedRule, RootGroup};
+use crate::output::{EmittedRule, GroupRoot, RootGroup};
 
 struct EligibleContext<'a> {
     eligible: HashSet<AdrId>,
@@ -78,15 +78,15 @@ fn collect_eligible_context<'a>(
     let mut eligible_records: HashMap<&AdrId, &AdrRecord> = HashMap::new();
 
     for record in records {
-        if record.is_stale || record.status.as_ref() != Some(&Status::Accepted) {
+        if record.is_stale() || record.status() != Some(&Status::Accepted) {
             continue;
         }
-        if foundation_prefixes.contains(&record.id.prefix.as_str()) {
-            if record.decision_rules.is_empty() {
+        if foundation_prefixes.contains(&record.id().prefix()) {
+            if record.decision_rules().is_empty() {
                 continue;
             }
-            eligible.insert(record.id.clone());
-            eligible_records.insert(&record.id, record);
+            eligible.insert(record.id().clone());
+            eligible_records.insert(record.id(), record);
         }
     }
 
@@ -94,26 +94,24 @@ fn collect_eligible_context<'a>(
         let domain_records: Vec<&AdrRecord> = records
             .iter()
             .filter(|r| {
-                !r.is_stale
-                    && r.id.prefix == *prefix
-                    && r.status.as_ref() == Some(&Status::Accepted)
+                !r.is_stale() && r.id().prefix() == *prefix && r.status() == Some(&Status::Accepted)
             })
             .collect();
 
-        let any_has_crates = domain_records.iter().any(|r| !r.crates.is_empty());
+        let any_has_crates = domain_records.iter().any(|r| !r.crates().is_empty());
 
         for record in &domain_records {
             if any_has_crates
-                && !record.crates.is_empty()
-                && !record.crates.iter().any(|c| c == crate_name)
+                && !record.crates().is_empty()
+                && !record.crates().iter().any(|c| c == crate_name)
             {
                 continue;
             }
-            if record.decision_rules.is_empty() {
+            if record.decision_rules().is_empty() {
                 continue;
             }
-            eligible.insert(record.id.clone());
-            eligible_records.insert(&record.id, record);
+            eligible.insert(record.id().clone());
+            eligible_records.insert(record.id(), record);
         }
     }
 
@@ -134,10 +132,10 @@ fn build_context_groups(
     let root_index: HashSet<AdrId> = records
         .iter()
         .filter(|r| r.is_root())
-        .map(|r| r.id.clone())
+        .map(|r| r.id().clone())
         .collect();
 
-    let record_by_id: HashMap<&AdrId, &AdrRecord> = records.iter().map(|r| (&r.id, r)).collect();
+    let record_by_id: HashMap<&AdrId, &AdrRecord> = records.iter().map(|r| (r.id(), r)).collect();
 
     let assignment = assign_roots(&eligible_context.eligible, &root_index, &parent_edges);
 
@@ -165,19 +163,19 @@ fn build_context_groups(
             a.layer
                 .cmp(&b.layer)
                 .then(a.depth.cmp(&b.depth))
-                .then(a.adr_id.prefix.cmp(&b.adr_id.prefix))
-                .then(a.adr_id.number.cmp(&b.adr_id.number))
+                .then(a.adr_id.prefix().cmp(b.adr_id.prefix()))
+                .then(a.adr_id.number().cmp(&b.adr_id.number()))
                 .then(a.rule_id.cmp(&b.rule_id))
         });
 
         let root_title = record_by_id
             .get(root_id)
-            .and_then(|r| r.title.as_deref())
+            .and_then(|r| r.title())
             .unwrap_or("(untitled)")
             .to_string();
 
         groups.push(RootGroup {
-            root_id: root_id.clone(),
+            root: GroupRoot::Adr(root_id.clone()),
             root_title,
             rules,
         });
@@ -221,14 +219,14 @@ fn sorted_context_roots(
         .collect();
 
     context_roots.sort_by(|a, b| {
-        let a_foundation = foundation_set.contains(a.prefix.as_str());
-        let b_foundation = foundation_set.contains(b.prefix.as_str());
+        let a_foundation = foundation_set.contains(a.prefix());
+        let b_foundation = foundation_set.contains(b.prefix());
 
         b_foundation
             .cmp(&a_foundation)
             .then_with(|| min_rule_layer(a, record_by_id).cmp(&min_rule_layer(b, record_by_id)))
-            .then_with(|| a.prefix.cmp(&b.prefix))
-            .then_with(|| a.number.cmp(&b.number))
+            .then_with(|| a.prefix().cmp(b.prefix()))
+            .then_with(|| a.number().cmp(&b.number()))
     });
 
     context_roots
@@ -236,7 +234,7 @@ fn sorted_context_roots(
 
 fn min_rule_layer(id: &AdrId, record_by_id: &HashMap<&AdrId, &AdrRecord>) -> u8 {
     record_by_id.get(id).map_or(u8::MAX, |r| {
-        r.decision_rules
+        r.decision_rules()
             .iter()
             .map(|rule| rule.layer)
             .min()
@@ -287,7 +285,7 @@ fn push_record_rules(
     eligible_context: &EligibleContext<'_>,
 ) {
     if let Some(record) = eligible_context.records.get(id) {
-        for rule in &record.decision_rules {
+        for rule in record.decision_rules() {
             rules.push(EmittedRule {
                 adr_id: id.clone(),
                 rule_id: rule.id.clone(),
@@ -318,15 +316,12 @@ fn append_unclaimed_group(
         rules.sort_by(|a, b| {
             a.layer
                 .cmp(&b.layer)
-                .then(a.adr_id.prefix.cmp(&b.adr_id.prefix))
-                .then(a.adr_id.number.cmp(&b.adr_id.number))
+                .then(a.adr_id.prefix().cmp(b.adr_id.prefix()))
+                .then(a.adr_id.number().cmp(&b.adr_id.number()))
                 .then(a.rule_id.cmp(&b.rule_id))
         });
         groups.push(RootGroup {
-            root_id: AdrId {
-                prefix: String::new(),
-                number: 0,
-            },
+            root: GroupRoot::Unclaimed,
             root_title: "Unclaimed Rules".to_string(),
             rules,
         });
@@ -340,10 +335,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
-        AdrId {
-            prefix: prefix.into(),
-            number: num,
-        }
+        AdrId::test_new(prefix, num)
     }
 
     fn make_config() -> Config {
@@ -387,42 +379,41 @@ description = "test"
         rels: Vec<(RelVerb, &str, u16)>,
     ) -> AdrRecord {
         let id = make_id(prefix, num);
-        AdrRecord {
-            id: id.clone(),
-            file_path: PathBuf::from(format!("{prefix}-{num:04}-test.md")),
-            title: Some(format!("Test {prefix}-{num:04}")),
-            title_line: 1,
-            tier: Some(Tier::B),
-            status: Some(Status::Accepted),
-            status_raw: Some("Accepted".into()),
-            has_related: true,
-            has_context: true,
-            has_decision: true,
-            has_consequences: true,
-            crates: crates
-                .into_iter()
-                .map(std::borrow::ToOwned::to_owned)
-                .collect(),
-            decision_rules: rules
-                .into_iter()
-                .map(|(rule_id, layer, text)| TaggedRule {
-                    id: rule_id.into(),
-                    text: text.into(),
-                    line: 0,
-                    layer,
-                })
-                .collect(),
-            relationships: rels
-                .into_iter()
-                .enumerate()
-                .map(|(i, (verb, p, n))| Relationship {
-                    verb,
-                    target: make_id(p, n),
-                    line: 10 + i,
-                })
-                .collect(),
-            ..AdrRecord::test_sentinel()
-        }
+        let mut record = AdrRecord::test_sentinel();
+        *record.id_mut() = id.clone();
+        *record.file_path_mut() = PathBuf::from(format!("{prefix}-{num:04}-test.md"));
+        *record.title_mut() = Some(format!("Test {prefix}-{num:04}"));
+        *record.title_line_mut() = 1;
+        *record.tier_mut() = Some(Tier::B);
+        *record.status_mut() = Some(Status::Accepted);
+        *record.status_raw_mut() = Some("Accepted".into());
+        *record.has_related_mut() = true;
+        *record.has_context_mut() = true;
+        *record.has_decision_mut() = true;
+        *record.has_consequences_mut() = true;
+        *record.crates_mut() = crates
+            .into_iter()
+            .map(std::borrow::ToOwned::to_owned)
+            .collect();
+        *record.decision_rules_mut() = rules
+            .into_iter()
+            .map(|(rule_id, layer, text)| TaggedRule {
+                id: rule_id.into(),
+                text: text.into(),
+                line: 0,
+                layer,
+            })
+            .collect();
+        *record.relationships_mut() = rels
+            .into_iter()
+            .enumerate()
+            .map(|(i, (verb, p, n))| Relationship {
+                verb,
+                target: make_id(p, n),
+                line: 10 + i,
+            })
+            .collect();
+        record
     }
 
     /// Collect all unique ADR IDs that emitted rules across all groups.
@@ -466,7 +457,7 @@ description = "test"
         let groups = context_grouped("example-core", &records, &config).unwrap();
 
         let ids = all_emitted_adr_ids(&groups);
-        let prefixes: Vec<&str> = ids.iter().map(|id| id.prefix.as_str()).collect();
+        let prefixes: Vec<&str> = ids.iter().map(AdrId::prefix).collect();
         assert!(prefixes.contains(&"COM"), "should include foundation");
         assert!(prefixes.contains(&"CHE"), "should include domain");
     }
@@ -480,7 +471,7 @@ description = "test"
             vec![("R1", 5, "Draft rule")],
             vec![(RelVerb::References, "CHE", 1)],
         );
-        draft.status = Some(Status::Draft);
+        *draft.status_mut() = Some(Status::Draft);
 
         let records = vec![
             make_record(
@@ -515,7 +506,7 @@ description = "test"
             vec![("R1", 5, "Rejected rule")],
             vec![(RelVerb::References, "CHE", 1)],
         );
-        rejected.status = Some(Status::Rejected);
+        *rejected.status_mut() = Some(Status::Rejected);
 
         let records = vec![
             make_record(
@@ -547,7 +538,7 @@ description = "test"
             vec![("R1", 2, "Proposed rule")],
             vec![(RelVerb::Root, "COM", 1)],
         );
-        proposed.status = Some(Status::Proposed);
+        *proposed.status_mut() = Some(Status::Proposed);
 
         let records = vec![
             proposed,
@@ -618,7 +609,7 @@ description = "test"
             vec![("R1", 5, "Stale rule")],
             vec![(RelVerb::References, "CHE", 1)],
         );
-        stale.is_stale = true;
+        *stale.is_stale_mut() = true;
 
         let records = vec![
             make_record(
@@ -689,7 +680,7 @@ description = "test"
 
         let che1_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 1))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
         let che1_adr_ids: Vec<&AdrId> = che1_group.rules.iter().map(|r| &r.adr_id).collect();
         assert!(
@@ -699,7 +690,7 @@ description = "test"
 
         let che4_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 4))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 4)))
             .unwrap();
         let che4_adr_ids: Vec<&AdrId> = che4_group.rules.iter().map(|r| &r.adr_id).collect();
         assert!(
@@ -738,7 +729,7 @@ description = "test"
 
         let che1_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 1))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
         let adr_ids: Vec<&AdrId> = che1_group.rules.iter().map(|r| &r.adr_id).collect();
         assert!(
@@ -844,9 +835,15 @@ description = "test"
         let config = make_config();
         let groups = context_grouped("example-core", &records, &config).unwrap();
 
-        let root_ids: Vec<&AdrId> = groups.iter().map(|g| &g.root_id).collect();
-        let com_pos = root_ids.iter().position(|id| id.prefix == "COM").unwrap();
-        let che_pos = root_ids.iter().position(|id| id.prefix == "CHE").unwrap();
+        let root_ids: Vec<&AdrId> = groups
+            .iter()
+            .filter_map(|g| match &g.root {
+                GroupRoot::Adr(id) => Some(id),
+                GroupRoot::Unclaimed => None,
+            })
+            .collect();
+        let com_pos = root_ids.iter().position(|id| id.prefix() == "COM").unwrap();
+        let che_pos = root_ids.iter().position(|id| id.prefix() == "CHE").unwrap();
         assert!(com_pos < che_pos, "COM should appear before CHE");
     }
 
@@ -881,7 +878,7 @@ description = "test"
 
         let che_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 1))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
         let layers: Vec<u8> = che_group.rules.iter().map(|r| r.layer).collect();
         assert_eq!(
@@ -915,9 +912,9 @@ description = "test"
 
         let che_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 1))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
-        let adr_nums: Vec<u16> = che_group.rules.iter().map(|r| r.adr_id.number).collect();
+        let adr_nums: Vec<u16> = che_group.rules.iter().map(|r| r.adr_id.number()).collect();
         assert_eq!(
             adr_nums,
             vec![2, 3],
@@ -942,7 +939,7 @@ description = "test"
 
         let che_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 1))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
         assert_eq!(
             che_group.rules.len(),
@@ -978,7 +975,7 @@ description = "test"
             vec![("R1", 5, "Draft rule")],
             vec![(RelVerb::References, "CHE", 1)],
         );
-        draft.status = Some(Status::Draft);
+        *draft.status_mut() = Some(Status::Draft);
 
         let records = vec![
             make_record(
@@ -1029,9 +1026,46 @@ description = "test"
 
         let unclaimed = groups.iter().find(|g| g.root_title == "Unclaimed Rules");
         assert!(unclaimed.is_some(), "should have unclaimed section");
+        assert_eq!(
+            unclaimed.unwrap().root,
+            GroupRoot::Unclaimed,
+            "synthetic root must be the Unclaimed variant, never a forged AdrId"
+        );
         let unclaimed_ids: Vec<&AdrId> =
             unclaimed.unwrap().rules.iter().map(|r| &r.adr_id).collect();
         assert!(unclaimed_ids.contains(&&make_id("CHE", 2)));
+    }
+
+    /// No production path can construct a `RootGroup` whose `root` wraps
+    /// an invalid `AdrId`: the unclaimed fallback is `GroupRoot::Unclaimed`,
+    /// a distinct variant carrying no `AdrId` at all, and every
+    /// `GroupRoot::Adr` payload passed through `context_grouped` originates
+    /// from a real parsed `AdrId` (never from a sentinel). Illegal states
+    /// are unrepresentable by construction (R16) — this is the compile-time
+    /// counterpart to the runtime assertion above.
+    #[test]
+    fn unclaimed_group_root_carries_no_adr_id() {
+        let records = vec![make_record(
+            "CHE",
+            2,
+            vec![],
+            vec![("R1", 5, "Orphan rule")],
+            vec![],
+        )];
+        let config = make_config();
+        let groups = context_grouped("example-core", &records, &config).unwrap();
+
+        for group in &groups {
+            match &group.root {
+                GroupRoot::Adr(id) => {
+                    assert!(
+                        AdrId::try_new(id.prefix(), id.number()).is_ok(),
+                        "every GroupRoot::Adr payload must satisfy AdrId's invariants"
+                    );
+                }
+                GroupRoot::Unclaimed => {}
+            }
+        }
     }
 
     #[test]
@@ -1096,8 +1130,8 @@ description = "test"
 
         let groups_b = context_grouped("example-core", &[r4b, r2b, r1b], &config).unwrap();
 
-        let roots_a: Vec<&AdrId> = groups_a.iter().map(|g| &g.root_id).collect();
-        let roots_b: Vec<&AdrId> = groups_b.iter().map(|g| &g.root_id).collect();
+        let roots_a: Vec<&GroupRoot> = groups_a.iter().map(|g| &g.root).collect();
+        let roots_b: Vec<&GroupRoot> = groups_b.iter().map(|g| &g.root).collect();
         assert_eq!(roots_a, roots_b, "root order should be deterministic");
 
         let count_a = total_rule_count(&groups_a);

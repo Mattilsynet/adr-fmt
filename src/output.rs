@@ -29,10 +29,33 @@ struct TreeRenderState<'a> {
     record_by_id: HashMap<&'a AdrId, &'a AdrRecord>,
 }
 
+/// The root of a `RootGroup`: either a real parsed ADR, or the
+/// synthetic "Unclaimed Rules" fallback for eligible rules no root's
+/// BFS reached.
+///
+/// Modelled as a distinct variant rather than a sentinel `AdrId` so the
+/// synthetic case is representable without forging an
+/// invariant-violating `AdrId` — an invalid `AdrId` has no constructor
+/// and cannot exist (see `AdrId`'s doc comment, AFM-0032).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GroupRoot {
+    Adr(AdrId),
+    Unclaimed,
+}
+
+impl std::fmt::Display for GroupRoot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Adr(id) => write!(f, "{id}"),
+            Self::Unclaimed => f.write_str("Unclaimed"),
+        }
+    }
+}
+
 /// A group of rules emitted under a single root ADR in `--context` mode.
 #[derive(Debug)]
 pub struct RootGroup {
-    pub root_id: AdrId,
+    pub root: GroupRoot,
     pub root_title: String,
     pub rules: Vec<EmittedRule>,
 }
@@ -174,7 +197,7 @@ pub fn render_root_groups(crate_name: &str, groups: &[RootGroup]) -> String {
         }
 
         writeln!(out).unwrap();
-        writeln!(out, "### {}. {}", group.root_id, group.root_title).unwrap();
+        writeln!(out, "### {}. {}", group.root, group.root_title).unwrap();
 
         for rule in &group.rules {
             writeln!(
@@ -228,7 +251,7 @@ pub fn render_tree(
         by_prefix: active_records_by_prefix(records),
         parent_edges: compute_parent_edges(records),
         parent_children: compute_parent_children(records),
-        record_by_id: records.iter().map(|r| (&r.id, r)).collect(),
+        record_by_id: records.iter().map(|r| (r.id(), r)).collect(),
     };
 
     for dir in &dirs {
@@ -254,8 +277,11 @@ fn sorted_domain_dirs<'a>(
 fn active_records_by_prefix(records: &[AdrRecord]) -> HashMap<&str, Vec<&AdrRecord>> {
     let mut by_prefix: HashMap<&str, Vec<&AdrRecord>> = HashMap::new();
     for record in records {
-        if !record.is_stale {
-            by_prefix.entry(&record.id.prefix).or_default().push(record);
+        if !record.is_stale() {
+            by_prefix
+                .entry(record.id().prefix())
+                .or_default()
+                .push(record);
         }
     }
     by_prefix
@@ -300,11 +326,11 @@ fn render_rooted_records(
         .copied()
         .filter(|r| r.is_root())
         .collect();
-    roots.sort_by_key(|r| r.id.number);
+    roots.sort_by_key(|r| r.id().number());
 
     let mut reached: std::collections::HashSet<AdrId> = std::collections::HashSet::new();
     for root in &roots {
-        render_tree_node(out, &root.id, ctx, &mut reached, &mut Vec::new(), true);
+        render_tree_node(out, root.id(), ctx, &mut reached, &mut Vec::new(), true);
     }
     reached
 }
@@ -318,16 +344,16 @@ fn render_cross_domain_roots(
     let mut cross_domain_roots: Vec<&AdrRecord> = domain_records
         .iter()
         .copied()
-        .filter(|r| !r.is_root() && !reached.contains(&r.id))
+        .filter(|r| !r.is_root() && !reached.contains(r.id()))
         .filter(|r| validated_cross_domain_parent(r).is_some())
         .collect();
-    cross_domain_roots.sort_by_key(|r| r.id.number);
+    cross_domain_roots.sort_by_key(|r| r.id().number());
 
     for record in &cross_domain_roots {
         let Some(cross_parent) = validated_cross_domain_parent(record) else {
             continue;
         };
-        render_cross_domain_tree_node(out, &record.id, &cross_parent, ctx, reached);
+        render_cross_domain_tree_node(out, record.id(), &cross_parent, ctx, reached);
     }
 }
 
@@ -340,14 +366,14 @@ fn render_orphans(
     let mut sorted_orphans: Vec<&AdrRecord> = domain_records
         .iter()
         .copied()
-        .filter(|r| !reached.contains(&r.id))
+        .filter(|r| !reached.contains(r.id()))
         .collect();
 
     if sorted_orphans.is_empty() {
         return;
     }
 
-    sorted_orphans.sort_by_key(|r| r.id.number);
+    sorted_orphans.sort_by_key(|r| r.id().number());
     writeln!(out, "  (orphans — not reachable from any root)").unwrap();
     for record in &sorted_orphans {
         render_orphan(out, record, parent_edges);
@@ -355,11 +381,10 @@ fn render_orphans(
 }
 
 fn render_orphan(out: &mut String, record: &AdrRecord, parent_edges: &HashMap<AdrId, AdrId>) {
-    let title = record.title.as_deref().unwrap_or("(untitled)");
-    let tier = record.tier.map_or_else(|| "?".into(), |t| format!("{t}"));
+    let title = record.title().unwrap_or("(untitled)");
+    let tier = record.tier().map_or_else(|| "?".into(), |t| format!("{t}"));
     let status = record
-        .status
-        .as_ref()
+        .status()
         .map_or_else(|| "?".into(), super::model::Status::short_display);
     let also = format_also_references(record, parent_edges);
     let reason = orphan_reason(record, parent_edges);
@@ -367,14 +392,14 @@ fn render_orphan(out: &mut String, record: &AdrRecord, parent_edges: &HashMap<Ad
     writeln!(
         out,
         "  {} {title} [{tier}] {status}{reason}{also}",
-        record.id
+        record.id()
     )
     .unwrap();
 }
 
 fn orphan_reason(record: &AdrRecord, parent_edges: &HashMap<AdrId, AdrId>) -> &'static str {
-    if parent_edges.contains_key(&record.id) {
-        match crate::nav::walk_parent_chain(&record.id, parent_edges) {
+    if parent_edges.contains_key(record.id()) {
+        match crate::nav::walk_parent_chain(record.id(), parent_edges) {
             Ok(_) => " (chain ends at non-root)",
             Err(_) => " (cycle)",
         }
@@ -386,7 +411,7 @@ fn orphan_reason(record: &AdrRecord, parent_edges: &HashMap<AdrId, AdrId>) -> &'
 fn render_stale_count(out: &mut String, dir: &DomainDir, records: &[AdrRecord]) {
     let stale_count = records
         .iter()
-        .filter(|r| r.is_stale && r.id.prefix == dir.prefix)
+        .filter(|r| r.is_stale() && r.id().prefix() == dir.prefix)
         .count();
     if stale_count > 0 {
         writeln!(out, "  ({stale_count} stale)").unwrap();
@@ -428,11 +453,10 @@ fn render_tree_node(
         "├─ "
     };
 
-    let title = record.title.as_deref().unwrap_or("(untitled)");
-    let tier = record.tier.map_or_else(|| "?".into(), |t| format!("{t}"));
+    let title = record.title().unwrap_or("(untitled)");
+    let tier = record.tier().map_or_else(|| "?".into(), |t| format!("{t}"));
     let status = record
-        .status
-        .as_ref()
+        .status()
         .map_or_else(|| "?".into(), super::model::Status::short_display);
 
     let also = format_also_references_full(record);
@@ -440,7 +464,7 @@ fn render_tree_node(
     writeln!(
         out,
         "{indent}{connector}{} {title} [{tier}] {status}{also}",
-        record.id
+        record.id()
     )
     .unwrap();
 
@@ -450,7 +474,7 @@ fn render_tree_node(
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter(|c| c.prefix == ctx.domain_prefix)
+        .filter(|c| c.prefix() == ctx.domain_prefix)
         .collect();
 
     let n = children.len();
@@ -481,11 +505,10 @@ fn render_cross_domain_tree_node(
         return;
     };
 
-    let title = record.title.as_deref().unwrap_or("(untitled)");
-    let tier = record.tier.map_or_else(|| "?".into(), |t| format!("{t}"));
+    let title = record.title().unwrap_or("(untitled)");
+    let tier = record.tier().map_or_else(|| "?".into(), |t| format!("{t}"));
     let status = record
-        .status
-        .as_ref()
+        .status()
         .map_or_else(|| "?".into(), super::model::Status::short_display);
 
     let also = format_also_references_skipping_first_ref(record);
@@ -493,7 +516,7 @@ fn render_cross_domain_tree_node(
     writeln!(
         out,
         "  {} {title} [{tier}] {status} ↑ {cross_parent}{also}",
-        record.id
+        record.id()
     )
     .unwrap();
 
@@ -503,7 +526,7 @@ fn render_cross_domain_tree_node(
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter(|c| c.prefix == ctx.domain_prefix)
+        .filter(|c| c.prefix() == ctx.domain_prefix)
         .collect();
 
     let n = children.len();
@@ -520,11 +543,11 @@ fn render_cross_domain_tree_node(
 fn format_also_references_skipping_first_ref(record: &AdrRecord) -> String {
     let mut first_ref_seen = false;
     let mut others: Vec<String> = Vec::new();
-    for rel in &record.relationships {
+    for rel in record.relationships() {
         if rel.verb.is_reverse() {
             continue;
         }
-        if rel.verb == RelVerb::Root && rel.target == record.id {
+        if rel.verb == RelVerb::Root && rel.target == *record.id() {
             continue;
         }
         if !first_ref_seen && rel.verb == RelVerb::References {
@@ -543,13 +566,13 @@ fn format_also_references_skipping_first_ref(record: &AdrRecord) -> String {
 /// Format the "also references" annotation using the parent-edge map
 /// (used for orphan section where parent may be missing).
 fn format_also_references(record: &AdrRecord, parent_edges: &HashMap<AdrId, AdrId>) -> String {
-    let parent = parent_edges.get(&record.id);
+    let parent = parent_edges.get(record.id());
     let mut others: Vec<String> = Vec::new();
-    for rel in &record.relationships {
+    for rel in record.relationships() {
         if rel.verb.is_reverse() {
             continue;
         }
-        if rel.verb == RelVerb::Root && rel.target == record.id {
+        if rel.verb == RelVerb::Root && rel.target == *record.id() {
             continue;
         }
         if Some(&rel.target) == parent {
@@ -571,11 +594,11 @@ fn format_also_references(record: &AdrRecord, parent_edges: &HashMap<AdrId, AdrI
 fn format_also_references_full(record: &AdrRecord) -> String {
     let mut parent_seen = false;
     let mut others: Vec<String> = Vec::new();
-    for rel in &record.relationships {
+    for rel in record.relationships() {
         if rel.verb.is_reverse() {
             continue;
         }
-        if rel.verb == RelVerb::Root && rel.target == record.id {
+        if rel.verb == RelVerb::Root && rel.target == *record.id() {
             continue;
         }
         if !parent_seen && rel.verb == RelVerb::References {
@@ -604,9 +627,9 @@ fn format_also_references_full(record: &AdrRecord) -> String {
 /// declared, structurally-honoured cross-domain parent."
 #[must_use]
 pub fn validated_cross_domain_parent(record: &AdrRecord) -> Option<AdrId> {
-    let declared = record.parent_cross_domain.as_ref()?;
+    let declared = record.parent_cross_domain()?;
     let first_ref_target = record
-        .relationships
+        .relationships()
         .iter()
         .find(|r| r.verb == RelVerb::References)
         .map(|r| &r.target)?;
@@ -620,10 +643,7 @@ mod tests {
     use crate::model::Tier;
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
-        AdrId {
-            prefix: prefix.into(),
-            number: num,
-        }
+        AdrId::test_new(prefix, num)
     }
 
     #[test]
@@ -745,7 +765,7 @@ mod tests {
     #[test]
     fn render_root_groups_basic() {
         let groups = vec![RootGroup {
-            root_id: make_id("COM", 1),
+            root: GroupRoot::Adr(make_id("COM", 1)),
             root_title: "Foundation Principle".into(),
             rules: vec![EmittedRule {
                 adr_id: make_id("COM", 1),
@@ -776,12 +796,12 @@ mod tests {
     fn render_root_groups_empty_group_skipped() {
         let groups = vec![
             RootGroup {
-                root_id: make_id("COM", 1),
+                root: GroupRoot::Adr(make_id("COM", 1)),
                 root_title: "Empty Root".into(),
                 rules: vec![],
             },
             RootGroup {
-                root_id: make_id("CHE", 1),
+                root: GroupRoot::Adr(make_id("CHE", 1)),
                 root_title: "Non-empty Root".into(),
                 rules: vec![EmittedRule {
                     adr_id: make_id("CHE", 2),
@@ -807,7 +827,7 @@ mod tests {
     fn render_root_groups_multiple_roots_ordering() {
         let groups = vec![
             RootGroup {
-                root_id: make_id("COM", 1),
+                root: GroupRoot::Adr(make_id("COM", 1)),
                 root_title: "Foundation".into(),
                 rules: vec![EmittedRule {
                     adr_id: make_id("COM", 1),
@@ -818,7 +838,7 @@ mod tests {
                 }],
             },
             RootGroup {
-                root_id: make_id("CHE", 1),
+                root: GroupRoot::Adr(make_id("CHE", 1)),
                 root_title: "Domain Root".into(),
                 rules: vec![EmittedRule {
                     adr_id: make_id("CHE", 5),
@@ -845,7 +865,7 @@ mod tests {
     #[test]
     fn render_root_groups_all_empty_produces_preamble_only() {
         let groups = vec![RootGroup {
-            root_id: make_id("COM", 1),
+            root: GroupRoot::Adr(make_id("COM", 1)),
             root_title: "Empty".into(),
             rules: vec![],
         }];
@@ -860,7 +880,7 @@ mod tests {
     #[test]
     fn render_root_groups_multiple_adrs_under_one_root() {
         let groups = vec![RootGroup {
-            root_id: make_id("CHE", 1),
+            root: GroupRoot::Adr(make_id("CHE", 1)),
             root_title: "Design Priority".into(),
             rules: vec![
                 EmittedRule {

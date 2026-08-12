@@ -38,11 +38,11 @@ pub fn compute_children(records: &[AdrRecord]) -> HashMap<AdrId, Vec<ChildEntry>
     let mut children: HashMap<AdrId, Vec<ChildEntry>> = HashMap::new();
 
     for record in records {
-        for rel in &record.relationships {
+        for rel in record.relationships() {
             if rel.verb.is_reverse() {
                 continue;
             }
-            if rel.verb == RelVerb::Root && rel.target == record.id {
+            if rel.verb == RelVerb::Root && rel.target == *record.id() {
                 continue;
             }
 
@@ -51,7 +51,7 @@ pub fn compute_children(records: &[AdrRecord]) -> HashMap<AdrId, Vec<ChildEntry>
                 .or_default()
                 .push(ChildEntry {
                     verb: rel.verb,
-                    child: record.id.clone(),
+                    child: record.id().clone(),
                 });
         }
     }
@@ -59,9 +59,9 @@ pub fn compute_children(records: &[AdrRecord]) -> HashMap<AdrId, Vec<ChildEntry>
     for entries in children.values_mut() {
         entries.sort_by(|a, b| {
             a.child
-                .prefix
-                .cmp(&b.child.prefix)
-                .then(a.child.number.cmp(&b.child.number))
+                .prefix()
+                .cmp(b.child.prefix())
+                .then(a.child.number().cmp(&b.child.number()))
         });
     }
 
@@ -90,9 +90,9 @@ pub fn compute_parent_edges(records: &[AdrRecord]) -> HashMap<AdrId, AdrId> {
         if record.is_root() {
             continue;
         }
-        for rel in &record.relationships {
+        for rel in record.relationships() {
             if rel.verb == RelVerb::References {
-                edges.insert(record.id.clone(), rel.target.clone());
+                edges.insert(record.id().clone(), rel.target.clone());
                 break;
             }
         }
@@ -119,7 +119,7 @@ pub fn compute_parent_children(records: &[AdrRecord]) -> HashMap<AdrId, Vec<AdrI
     }
 
     for entries in children.values_mut() {
-        entries.sort_by(|a, b| a.prefix.cmp(&b.prefix).then(a.number.cmp(&b.number)));
+        entries.sort_by(|a, b| a.prefix().cmp(b.prefix()).then(a.number().cmp(&b.number())));
     }
 
     children
@@ -170,10 +170,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
-        AdrId {
-            prefix: prefix.into(),
-            number: num,
-        }
+        AdrId::test_new(prefix, num)
     }
 
     fn make_record(prefix: &str, num: u16, rels: Vec<(RelVerb, AdrId)>) -> AdrRecord {
@@ -188,22 +185,21 @@ mod tests {
             })
             .collect();
 
-        AdrRecord {
-            id,
-            file_path: PathBuf::from(format!("docs/adr/test/{prefix}-{num:04}-test.md")),
-            title: Some(format!("Test {prefix}-{num:04}")),
-            title_line: 1,
-            date: Some("2026-04-25".into()),
-            tier: Some(Tier::B),
-            status: Some(Status::Accepted),
-            status_raw: Some("Accepted".into()),
-            relationships,
-            has_related: true,
-            has_context: true,
-            has_decision: true,
-            has_consequences: true,
-            ..AdrRecord::test_sentinel()
-        }
+        let mut record = AdrRecord::test_sentinel();
+        *record.id_mut() = id;
+        *record.file_path_mut() = PathBuf::from(format!("docs/adr/test/{prefix}-{num:04}-test.md"));
+        *record.title_mut() = Some(format!("Test {prefix}-{num:04}"));
+        *record.title_line_mut() = 1;
+        *record.date_mut() = Some("2026-04-25".into());
+        *record.tier_mut() = Some(Tier::B);
+        *record.status_mut() = Some(Status::Accepted);
+        *record.status_raw_mut() = Some("Accepted".into());
+        *record.relationships_mut() = relationships;
+        *record.has_related_mut() = true;
+        *record.has_context_mut() = true;
+        *record.has_decision_mut() = true;
+        *record.has_consequences_mut() = true;
+        record
     }
 
     #[test]
@@ -265,9 +261,9 @@ mod tests {
         let children = compute_children(&records);
         let che1 = children.get(&make_id("CHE", 1)).unwrap();
         assert_eq!(che1.len(), 3);
-        assert_eq!(che1[0].child.number, 2);
-        assert_eq!(che1[1].child.number, 3);
-        assert_eq!(che1[2].child.number, 5);
+        assert_eq!(che1[0].child.number(), 2);
+        assert_eq!(che1[1].child.number(), 3);
+        assert_eq!(che1[2].child.number(), 5);
     }
 
     #[test]
@@ -383,8 +379,8 @@ mod tests {
         let pc = compute_parent_children(&records);
         let che1 = pc.get(&make_id("CHE", 1)).unwrap();
         assert_eq!(che1.len(), 2);
-        assert_eq!(che1[0].number, 2);
-        assert_eq!(che1[1].number, 3);
+        assert_eq!(che1[0].number(), 2);
+        assert_eq!(che1[1].number(), 3);
     }
 
     #[test]

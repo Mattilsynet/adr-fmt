@@ -1,0 +1,54 @@
+# adr-fmt configuration
+#
+# This file is the workspace-root SSOT discovery marker for adr-fmt.
+# Domain definitions, crate mappings, corpus location, and stale
+# directory live here. Rules are hardcoded in the binary; only
+# rule-parameter overrides are configurable.
+#
+# Rationale, governance philosophy, and rule semantics live in the
+# ADRs under docs/adr/adr-fmt/ (start with AFM-0001).
+#
+# Single-domain corpus: adr-fmt governs itself. No foundation domain
+# is declared (AFM-0015 does not require one to exist; R1's foundation
+# inclusion is simply a no-op when the foundation set is empty).
+
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+# ── Domain definitions ──────────────────────────────────────────────
+
+[[domains]]
+prefix = "AFM"
+name = "adr-fmt Domain"
+directory = "adr-fmt"
+description = """\
+    ADR governance tooling: CLI design, MADR template enforcement, \
+    markdown parsing strategy, diagnostic output, safe-write \
+    semantics, naming conventions, relationship vocabulary, tier \
+    classification, and domain management. Covers the adr-fmt \
+    binary's own architectural decisions as a Rust CLI tool."""
+crates = ["adr-fmt"]
+
+# ── Rule parameter overrides ────────────────────────────────────────
+#
+# Only declare rules whose defaults you want to change.
+# Hardcoded defaults: T015 min_words=7, max_words=100
+#                     T016 max_rules=10, min_rule_words=7, max_rule_words=60
+#                     T019 asymmetric leverage-bound: fires iff rule_rank < adr_rank (no carve-outs; not configurable)
+#                     T020 max_refs per tier: S=3 A=5 B=7 C=8 D=5 (not configurable)
+#
+# T015 and T016 limits are scaled by tier factor (S=1.5 A=1.2 B=1.0 C=0.8 D=0.6).
+# All four are signals, not gates. Exceeding the limit flags
+# an ADR for review — it may be overloaded or genuinely need the
+# space. A warning here is interesting, not necessarily wrong.
+
+[[rules]]
+id = "T015"
+params = { min_words = 7, max_words = 120 }
+
+[[rules]]
+id = "T016"
+params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
