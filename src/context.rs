@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::config::Config;
 use crate::model::{AdrId, AdrRecord, Status};
 use crate::nav::{compute_parent_children, compute_parent_edges, walk_parent_chain};
-use crate::output::{EmittedRule, RootGroup};
+use crate::output::{EmittedRule, GroupRoot, RootGroup};
 
 struct EligibleContext<'a> {
     eligible: HashSet<AdrId>,
@@ -175,7 +175,7 @@ fn build_context_groups(
             .to_string();
 
         groups.push(RootGroup {
-            root_id: root_id.clone(),
+            root: GroupRoot::Adr(root_id.clone()),
             root_title,
             rules,
         });
@@ -321,7 +321,7 @@ fn append_unclaimed_group(
                 .then(a.rule_id.cmp(&b.rule_id))
         });
         groups.push(RootGroup {
-            root_id: AdrId::placeholder(),
+            root: GroupRoot::Unclaimed,
             root_title: "Unclaimed Rules".to_string(),
             rules,
         });
@@ -680,7 +680,7 @@ description = "test"
 
         let che1_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 1))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
         let che1_adr_ids: Vec<&AdrId> = che1_group.rules.iter().map(|r| &r.adr_id).collect();
         assert!(
@@ -690,7 +690,7 @@ description = "test"
 
         let che4_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 4))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 4)))
             .unwrap();
         let che4_adr_ids: Vec<&AdrId> = che4_group.rules.iter().map(|r| &r.adr_id).collect();
         assert!(
@@ -729,7 +729,7 @@ description = "test"
 
         let che1_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 1))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
         let adr_ids: Vec<&AdrId> = che1_group.rules.iter().map(|r| &r.adr_id).collect();
         assert!(
@@ -835,7 +835,13 @@ description = "test"
         let config = make_config();
         let groups = context_grouped("example-core", &records, &config).unwrap();
 
-        let root_ids: Vec<&AdrId> = groups.iter().map(|g| &g.root_id).collect();
+        let root_ids: Vec<&AdrId> = groups
+            .iter()
+            .filter_map(|g| match &g.root {
+                GroupRoot::Adr(id) => Some(id),
+                GroupRoot::Unclaimed => None,
+            })
+            .collect();
         let com_pos = root_ids.iter().position(|id| id.prefix() == "COM").unwrap();
         let che_pos = root_ids.iter().position(|id| id.prefix() == "CHE").unwrap();
         assert!(com_pos < che_pos, "COM should appear before CHE");
@@ -872,7 +878,7 @@ description = "test"
 
         let che_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 1))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
         let layers: Vec<u8> = che_group.rules.iter().map(|r| r.layer).collect();
         assert_eq!(
@@ -906,7 +912,7 @@ description = "test"
 
         let che_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 1))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
         let adr_nums: Vec<u16> = che_group.rules.iter().map(|r| r.adr_id.number()).collect();
         assert_eq!(
@@ -933,7 +939,7 @@ description = "test"
 
         let che_group = groups
             .iter()
-            .find(|g| g.root_id == make_id("CHE", 1))
+            .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
         assert_eq!(
             che_group.rules.len(),
@@ -1020,9 +1026,46 @@ description = "test"
 
         let unclaimed = groups.iter().find(|g| g.root_title == "Unclaimed Rules");
         assert!(unclaimed.is_some(), "should have unclaimed section");
+        assert_eq!(
+            unclaimed.unwrap().root,
+            GroupRoot::Unclaimed,
+            "synthetic root must be the Unclaimed variant, never a forged AdrId"
+        );
         let unclaimed_ids: Vec<&AdrId> =
             unclaimed.unwrap().rules.iter().map(|r| &r.adr_id).collect();
         assert!(unclaimed_ids.contains(&&make_id("CHE", 2)));
+    }
+
+    /// No production path can construct a `RootGroup` whose `root` wraps
+    /// an invalid `AdrId`: the unclaimed fallback is `GroupRoot::Unclaimed`,
+    /// a distinct variant carrying no `AdrId` at all, and every
+    /// `GroupRoot::Adr` payload passed through `context_grouped` originates
+    /// from a real parsed `AdrId` (never from a sentinel). Illegal states
+    /// are unrepresentable by construction (R16) — this is the compile-time
+    /// counterpart to the runtime assertion above.
+    #[test]
+    fn unclaimed_group_root_carries_no_adr_id() {
+        let records = vec![make_record(
+            "CHE",
+            2,
+            vec![],
+            vec![("R1", 5, "Orphan rule")],
+            vec![],
+        )];
+        let config = make_config();
+        let groups = context_grouped("example-core", &records, &config).unwrap();
+
+        for group in &groups {
+            match &group.root {
+                GroupRoot::Adr(id) => {
+                    assert!(
+                        AdrId::try_new(id.prefix(), id.number()).is_ok(),
+                        "every GroupRoot::Adr payload must satisfy AdrId's invariants"
+                    );
+                }
+                GroupRoot::Unclaimed => {}
+            }
+        }
     }
 
     #[test]
@@ -1087,8 +1130,8 @@ description = "test"
 
         let groups_b = context_grouped("example-core", &[r4b, r2b, r1b], &config).unwrap();
 
-        let roots_a: Vec<&AdrId> = groups_a.iter().map(|g| &g.root_id).collect();
-        let roots_b: Vec<&AdrId> = groups_b.iter().map(|g| &g.root_id).collect();
+        let roots_a: Vec<&GroupRoot> = groups_a.iter().map(|g| &g.root).collect();
+        let roots_b: Vec<&GroupRoot> = groups_b.iter().map(|g| &g.root).collect();
         assert_eq!(roots_a, roots_b, "root order should be deterministic");
 
         let count_a = total_rule_count(&groups_a);

@@ -29,10 +29,33 @@ struct TreeRenderState<'a> {
     record_by_id: HashMap<&'a AdrId, &'a AdrRecord>,
 }
 
+/// The root of a `RootGroup`: either a real parsed ADR, or the
+/// synthetic "Unclaimed Rules" fallback for eligible rules no root's
+/// BFS reached.
+///
+/// Modelled as a distinct variant rather than a sentinel `AdrId` so the
+/// synthetic case is representable without forging an
+/// invariant-violating `AdrId` — an invalid `AdrId` has no constructor
+/// and cannot exist (see `AdrId`'s doc comment, AFM-0032).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GroupRoot {
+    Adr(AdrId),
+    Unclaimed,
+}
+
+impl std::fmt::Display for GroupRoot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Adr(id) => write!(f, "{id}"),
+            Self::Unclaimed => f.write_str("Unclaimed"),
+        }
+    }
+}
+
 /// A group of rules emitted under a single root ADR in `--context` mode.
 #[derive(Debug)]
 pub struct RootGroup {
-    pub root_id: AdrId,
+    pub root: GroupRoot,
     pub root_title: String,
     pub rules: Vec<EmittedRule>,
 }
@@ -174,7 +197,7 @@ pub fn render_root_groups(crate_name: &str, groups: &[RootGroup]) -> String {
         }
 
         writeln!(out).unwrap();
-        writeln!(out, "### {}. {}", group.root_id, group.root_title).unwrap();
+        writeln!(out, "### {}. {}", group.root, group.root_title).unwrap();
 
         for rule in &group.rules {
             writeln!(
@@ -742,7 +765,7 @@ mod tests {
     #[test]
     fn render_root_groups_basic() {
         let groups = vec![RootGroup {
-            root_id: make_id("COM", 1),
+            root: GroupRoot::Adr(make_id("COM", 1)),
             root_title: "Foundation Principle".into(),
             rules: vec![EmittedRule {
                 adr_id: make_id("COM", 1),
@@ -773,12 +796,12 @@ mod tests {
     fn render_root_groups_empty_group_skipped() {
         let groups = vec![
             RootGroup {
-                root_id: make_id("COM", 1),
+                root: GroupRoot::Adr(make_id("COM", 1)),
                 root_title: "Empty Root".into(),
                 rules: vec![],
             },
             RootGroup {
-                root_id: make_id("CHE", 1),
+                root: GroupRoot::Adr(make_id("CHE", 1)),
                 root_title: "Non-empty Root".into(),
                 rules: vec![EmittedRule {
                     adr_id: make_id("CHE", 2),
@@ -804,7 +827,7 @@ mod tests {
     fn render_root_groups_multiple_roots_ordering() {
         let groups = vec![
             RootGroup {
-                root_id: make_id("COM", 1),
+                root: GroupRoot::Adr(make_id("COM", 1)),
                 root_title: "Foundation".into(),
                 rules: vec![EmittedRule {
                     adr_id: make_id("COM", 1),
@@ -815,7 +838,7 @@ mod tests {
                 }],
             },
             RootGroup {
-                root_id: make_id("CHE", 1),
+                root: GroupRoot::Adr(make_id("CHE", 1)),
                 root_title: "Domain Root".into(),
                 rules: vec![EmittedRule {
                     adr_id: make_id("CHE", 5),
@@ -842,7 +865,7 @@ mod tests {
     #[test]
     fn render_root_groups_all_empty_produces_preamble_only() {
         let groups = vec![RootGroup {
-            root_id: make_id("COM", 1),
+            root: GroupRoot::Adr(make_id("COM", 1)),
             root_title: "Empty".into(),
             rules: vec![],
         }];
@@ -857,7 +880,7 @@ mod tests {
     #[test]
     fn render_root_groups_multiple_adrs_under_one_root() {
         let groups = vec![RootGroup {
-            root_id: make_id("CHE", 1),
+            root: GroupRoot::Adr(make_id("CHE", 1)),
             root_title: "Design Priority".into(),
             rules: vec![
                 EmittedRule {

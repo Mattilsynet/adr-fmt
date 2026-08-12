@@ -151,20 +151,6 @@ impl AdrId {
     pub fn number(&self) -> u16 {
         self.number
     }
-
-    /// Sentinel `AdrId` for a synthetic grouping that has no
-    /// corresponding parsed ADR (e.g. the "Unclaimed Rules" root
-    /// group). Deliberately outside the invariants documented on
-    /// [`AdrId`]: never emitted as, or compared equal to, a real
-    /// parsed ADR identifier. Not reachable via [`AdrId::try_new`]
-    /// or `TryFrom<&str>` since no valid input produces it.
-    #[must_use]
-    pub(crate) fn placeholder() -> Self {
-        Self {
-            prefix: String::new(),
-            number: 0,
-        }
-    }
 }
 
 impl TryFrom<&str> for AdrId {
