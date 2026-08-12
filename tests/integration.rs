@@ -1943,36 +1943,29 @@ fn parser_no_p_codes_for_valid_corpus() {
         .stdout(predicate::str::contains("warning[P").not());
 }
 
-/// Locate the workspace root directory (containing `adr-fmt.toml`)
-/// from this crate's manifest dir. Workspace layout:
-/// `<root>/crates/adr-fmt/Cargo.toml`.
-fn workspace_root() -> std::path::PathBuf {
-    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("workspace root exists")
-        .to_owned()
+/// Locate the ADR root directory inside a synthetic corpus tempdir.
+///
+/// Standalone-repo replacement for the former "real corpus" fixture:
+/// the crate no longer lives inside the gh-report monorepo, so there
+/// is no repo-wide `docs/adr/` to walk up to. `setup_cross_domain_tree_corpus`
+/// builds a self-contained, structurally-clean, cross-domain-referenced
+/// corpus that exercises the same invariants.
+fn synthetic_corpus_root(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    dir.path().join("docs/adr")
 }
 
-/// Build a Command with cwd set to the real workspace root, so
-/// adr-fmt's discovery walks up to the workspace `adr-fmt.toml`.
-fn adr_fmt_at_workspace() -> Command {
-    let mut cmd = adr_fmt();
-    cmd.current_dir(workspace_root());
-    cmd
-}
-
-/// The real corpus must produce ZERO structural-defect diagnostics
-/// (L010/L011/L012/L013/L014/L017). L015 (root-first heuristic) and
-/// L016 (lower-tier parent) are migration-pending and may fire.
+/// The synthetic multi-domain corpus must produce ZERO structural-defect
+/// diagnostics (L010/L011/L012/L013/L014/L017). L015 (root-first
+/// heuristic) and L016 (lower-tier parent) are migration-pending and
+/// may fire.
 ///
 /// Failure mode: a parent-edge or cycle-detection regression makes
 /// previously-clean ADRs trip a rule that does not reflect a real
 /// authoring defect.
 #[test]
-fn real_corpus_clean_of_structural_defects() {
-    let output = adr_fmt_at_workspace()
+fn synthetic_corpus_clean_of_structural_defects() {
+    let dir = setup_cross_domain_tree_corpus();
+    let output = adr_fmt_in(&dir)
         .args(["--lint"])
         .output()
         .expect("binary runs");
@@ -1981,7 +1974,7 @@ fn real_corpus_clean_of_structural_defects() {
         let bracket = format!("warning[{rule}]");
         assert!(
             !stdout.contains(&bracket),
-            "{rule} fired against the real corpus, which should be \
+            "{rule} fired against the synthetic corpus, which should be \
              structurally clean. Output excerpt:\n{}\n\nIf this is a \
              genuine new defect, fix the corpus; if it is a model \
              regression, fix the rule.",
@@ -1995,7 +1988,7 @@ fn real_corpus_clean_of_structural_defects() {
     }
 }
 
-/// `--tree` against the real corpus must render every non-stale
+/// `--tree` against the synthetic corpus must render every non-stale
 /// ADR somewhere — either as a node in a parent-edge tree OR in the
 /// per-domain orphan section (categorized as "no References", "chain
 /// ends at non-root", or "cycle"). No ADR may silently disappear.
@@ -2008,11 +2001,9 @@ fn real_corpus_clean_of_structural_defects() {
 /// Counting strategy: walk `docs/adr/` directly (excluding `stale/`)
 /// rather than parsing the lint summary, which is format-coupled.
 #[test]
-fn real_corpus_tree_covers_every_adr() {
-    let root = workspace_root()
-        .join("docs/adr")
-        .to_string_lossy()
-        .into_owned();
+fn synthetic_corpus_tree_covers_every_adr() {
+    let dir = setup_cross_domain_tree_corpus();
+    let root = synthetic_corpus_root(&dir).to_string_lossy().into_owned();
 
     let non_stale_count = count_non_stale_adrs(&root);
     assert!(
@@ -2020,7 +2011,7 @@ fn real_corpus_tree_covers_every_adr() {
         "corpus has zero non-stale ADRs — test setup broken"
     );
 
-    let tree_out = adr_fmt_at_workspace()
+    let tree_out = adr_fmt_in(&dir)
         .args(["--tree", "--"])
         .output()
         .expect("binary runs");

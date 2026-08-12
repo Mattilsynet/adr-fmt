@@ -37,9 +37,10 @@ See this repository's own `adr-fmt.toml` for a worked example.
 
 Starting from an empty repository (no existing ADRs):
 
-1. **Install.** `cargo install --path crates/adr-fmt` (this checkout)
-   or build a release binary with `cargo build --release -p adr-fmt`
-   and copy `target/release/adr-fmt` onto your `PATH`.
+1. **Install.** `cargo install --path .` (this checkout) or
+   `cargo install adr-fmt` once published, or build a release binary
+   with `cargo build --release` and copy `target/release/adr-fmt`
+   onto your `PATH`.
 
 2. **Pick an ADR root.** Conventional choice: `docs/adr/`.
 
@@ -77,17 +78,17 @@ so step 6 works from any subdirectory.
 ## Usage
 
 ```bash
-cargo run -p adr-fmt -- --lint
-cargo run -p adr-fmt -- --tree
-cargo run -p adr-fmt -- --refs AFM-0001
-cargo run -p adr-fmt -- --context adr-fmt
+cargo run -- --lint
+cargo run -- --tree
+cargo run -- --refs AFM-0001
+cargo run -- --context adr-fmt
 ```
 
 ## Build
 
 ```bash
-cargo build -p adr-fmt
-cargo test -p adr-fmt
+cargo build
+cargo test
 ```
 
 ### Cargo.lock policy
@@ -106,15 +107,10 @@ project's `Cargo.lock` takes over and this one is ignored.
 
 ## Governance
 
-This tool's own decisions live under `docs/adr/adr-fmt/` (prefix `AFM`).
-The repository also retains a multi-domain reference corpus
-(`cherry`, `common`, `flow`, `ground`, `rust`, `security`)
-used to validate the tool against non-trivial real-world ADR sets.
-
-Cross-domain governance documents:
-
-- `docs/adr/TEMPLATE.md` — ADR template
-- `adr-fmt.toml` — workspace-root configuration consumed by this tool
+This tool's own design decisions are tracked in the originating
+monorepo (Mattilsynet/gh-report) under `docs/adr/adr-fmt/` (prefix
+`AFM`); this standalone repository does not yet carry its own ADR
+corpus.
 
 ## License
 
