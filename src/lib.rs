@@ -250,27 +250,9 @@ fn scan_corpus(
     })
 }
 
-/// Walk up from CWD for `adr-fmt.toml` with a structurally valid
-/// `[corpus]` table. See [`try_marker`] for per-marker validation.
-///
-/// A malformed TOML, missing `[corpus]` table, or containment
-/// violation is skipped with a `note:` to stderr; walk-up continues
-/// so one stray marker cannot mask a valid parent. An unreadable
-/// existing `adr-fmt.toml` is a hard error (`Err(msg)`) — skipping
-/// it would defeat the SSOT intent.
-///
-/// CWD is canonicalized once before the loop (handles symlinked
-/// CWDs, e.g. macOS `/var` → `/private/var`); the returned marker
-/// directory is also canonical.
-///
-/// `Ok(None)` if no valid marker is found, or `getcwd` fails.
-/// Callers at the binary edge map `Err` to `eprintln! + return 1`
-/// (lift per oracle bd `adr-fmt-d7ao` T2; AFM-0001:R1 governs the
-/// binary's contract, not the library).
 fn discover_marker() -> Result<Option<(PathBuf, Config)>, String> {
-    let Ok(cwd) = std::env::current_dir() else {
-        return Ok(None);
-    };
+    let cwd =
+        std::env::current_dir().map_err(|e| format!("cannot determine current directory: {e}"))?;
     let canon_cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
     let mut dir = canon_cwd.as_path();
     loop {
@@ -379,4 +361,50 @@ fn discover_domains(root: &Path, config: &Config) -> Result<Vec<DomainDir>, Stri
         }
     }
     Ok(dirs)
+}
+
+#[cfg(test)]
+mod discover_marker_tests {
+    use super::discover_marker;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    static CWD_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct CwdRestoreGuard {
+        original: PathBuf,
+    }
+
+    impl CwdRestoreGuard {
+        fn capture() -> Self {
+            Self {
+                original: std::env::current_dir().expect("capture current dir"),
+            }
+        }
+    }
+
+    impl Drop for CwdRestoreGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.original);
+        }
+    }
+
+    #[test]
+    fn cwd_failure_is_distinct_from_no_marker_found() {
+        let _lock = CWD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _guard = CwdRestoreGuard::capture();
+
+        let vanished = tempfile::tempdir().expect("create temp dir");
+        std::env::set_current_dir(vanished.path()).expect("cd into temp dir");
+        drop(vanished);
+
+        let result = discover_marker();
+
+        assert!(
+            result.is_err(),
+            "cwd unavailable must surface as Err, not Ok(None) (no-marker-found)"
+        );
+    }
 }
