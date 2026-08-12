@@ -1,0 +1,77 @@
+name: Reusable CI
+
+on:
+  workflow_call:
+
+# Third-party actions are pinned by full commit SHA, not floating tag,
+# to mitigate supply-chain compromise of the action publisher
+# (per kerkour.com/rust-supply-chain-nightmare and AGENTS.md). The
+# trailing `# v<tag>` comment is human-readable provenance; Dependabot
+# (.github/dependabot.yml) keeps the SHAs current.
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  build-test-lint:
+    name: build, test, lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.97.0
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo build --all-features --locked
+      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+        if: always()
+      - run: cargo fmt --check
+        if: always()
+      - run: cargo test --all-features --locked
+        if: always()
+
+  # Tripwire: ban crate/module-level inner `dead_code` suppression in library
+  # and binary source (`src/**`). A blanket `#![allow(dead_code)]` (or
+  # `#![expect(dead_code)]`, or a `cfg_attr`-wrapped inner form) silences the
+  # unused-code lint for an entire module and masks genuinely dead code — the
+  # exact failure that hid an entire test-only journal module behind one inner
+  # allow. Targeted OUTER item-level suppressions (`#[allow(dead_code, reason
+  # = "...")]`, `#[expect(dead_code, ...)]`, `#[cfg_attr(..., allow(dead_code,
+  # ...))]`) remain permitted: they are item-local and reasoned. Scope is
+  # `src/` only — integration `tests/**` type-witness files legitimately use
+  # file-level suppression and are out of scope.
+  dead-code-inner-suppression-tripwire:
+    name: ban module-level dead_code suppression (src)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: ban inner #![allow/expect(dead_code)] in crate src
+        run: |
+          set -euo pipefail
+          offenders=$(grep -RIn --include='*.rs' -E \
+            '#!\[.*(allow|expect)\(.*\bdead_code\b' \
+            src || true)
+          if [ -n "$offenders" ]; then
+            echo "::error::crate/module-level inner dead_code suppression is banned in src"
+            echo "::error::use a targeted OUTER item-level #[expect(dead_code, reason=\"...\")] instead, or delete/cfg-gate the dead item"
+            echo "$offenders"
+            exit 1
+          fi
+
+  supply-chain:
+    name: supply-chain (audit + deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo install --locked cargo-audit
+      - run: cargo audit
+      - run: cargo install --locked cargo-deny
+        if: always()
+      - run: cargo deny check
+        if: always()
