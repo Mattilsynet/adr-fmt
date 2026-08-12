@@ -84,9 +84,9 @@ R5 [5]: The trait surfaces, accessor signatures, and constructor
   invariants; the type system enforces what prose previously
   asserted and what a `pub(crate)` first draft only pretended to
   enforce.
-+ becomes easier: `AdrIdError` is nameable and exhaustively matchable
-  by external callers via the crate-root re-export, closing the gap
-  the first draft left open.
++ becomes easier: `AdrIdError` is nameable and matchable with a
+  wildcard arm by external callers via the crate-root re-export,
+  closing the gap the first draft left open.
 − becomes harder: every new `AdrRecord` field needs its accessor in
   the same change (R3); a genuinely new external constructor for
   either type needs a successor ADR.
