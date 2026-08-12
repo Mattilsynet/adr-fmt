@@ -56,8 +56,8 @@ pub fn layer_to_tier(layer: u8) -> Option<Tier> {
 /// AFM-0032.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AdrId {
-    pub(crate) prefix: String,
-    pub(crate) number: u16,
+    prefix: String,
+    number: u16,
 }
 
 /// Error returned by fallible `AdrId` construction ([`AdrId::try_new`],
@@ -151,6 +151,20 @@ impl AdrId {
     pub fn number(&self) -> u16 {
         self.number
     }
+
+    /// Sentinel `AdrId` for a synthetic grouping that has no
+    /// corresponding parsed ADR (e.g. the "Unclaimed Rules" root
+    /// group). Deliberately outside the invariants documented on
+    /// [`AdrId`]: never emitted as, or compared equal to, a real
+    /// parsed ADR identifier. Not reachable via [`AdrId::try_new`]
+    /// or `TryFrom<&str>` since no valid input produces it.
+    #[must_use]
+    pub(crate) fn placeholder() -> Self {
+        Self {
+            prefix: String::new(),
+            number: 0,
+        }
+    }
 }
 
 impl TryFrom<&str> for AdrId {
@@ -201,58 +215,46 @@ impl fmt::Display for AdrId {
     reason = "AdrRecord is pinned to the R1 crate-root re-export set (AFM-0026:R1); the bools are independent parser section-presence facts read individually in rules — collapsing would widen the pinned surface beyond R1 without a successor ADR (AFM-0026:R5) and forces an adr-srv re-scrape (AFM-0027:R5)"
 )]
 pub struct AdrRecord {
-    pub(crate) id: AdrId,
-    pub(crate) file_path: PathBuf,
-    pub(crate) title: Option<String>,
-    pub(crate) title_line: usize,
-    pub(crate) date: Option<String>,
-    pub(crate) last_reviewed: Option<String>,
-    pub(crate) tier: Option<Tier>,
-    pub(crate) status: Option<Status>,
-    pub(crate) status_line: usize,
-    pub(crate) status_raw: Option<String>,
-    pub(crate) relationships: Vec<Relationship>,
-    pub(crate) has_related: bool,
-    pub(crate) has_context: bool,
-    pub(crate) has_decision: bool,
-    pub(crate) has_consequences: bool,
-    pub(crate) has_retirement: bool,
+    id: AdrId,
+    file_path: PathBuf,
+    title: Option<String>,
+    title_line: usize,
+    date: Option<String>,
+    last_reviewed: Option<String>,
+    tier: Option<Tier>,
+    status: Option<Status>,
+    status_line: usize,
+    status_raw: Option<String>,
+    relationships: Vec<Relationship>,
+    has_related: bool,
+    has_context: bool,
+    has_decision: bool,
+    has_consequences: bool,
+    has_retirement: bool,
     /// True when the ADR file lives in the stale archive directory.
-    pub(crate) is_stale: bool,
+    is_stale: bool,
     /// True when status was parsed from the legacy `## Status` section
     /// (not the `Status:` preamble metadata field).
-    pub(crate) status_from_section: bool,
-    pub(crate) max_code_block_lines: usize,
+    status_from_section: bool,
+    max_code_block_lines: usize,
     /// 1-indexed line number of the opening fence of the largest code
     /// block. 0 if no code blocks exist.
-    pub(crate) max_code_block_line: usize,
+    max_code_block_line: usize,
     /// Ordered list of H2 section names as they appear in the file.
-    pub(crate) section_order: Vec<String>,
+    section_order: Vec<String>,
     /// Word count per H2 section (section name → count). Code blocks
     /// are excluded from the count.
-    pub(crate) section_word_counts: HashMap<String, usize>,
+    section_word_counts: HashMap<String, usize>,
     /// Crates associated with this ADR via `Crates:` metadata field.
-    pub(crate) crates: Vec<String>,
+    crates: Vec<String>,
     /// Tagged rules extracted from the Decision section
     /// (`RN [L]: text` pattern). Empty when no tagged rules found.
-    pub(crate) decision_rules: Vec<TaggedRule>,
+    decision_rules: Vec<TaggedRule>,
     /// Cross-domain parent exception declared in the preamble via
     /// `Parent-cross-domain: PREFIX-NNNN — reason`. When present and
     /// matching the first `References:` target, suppresses L011
     /// (cross-domain parent edge) for that relationship.
-    ///
-    /// The string carries the parsed target ID. The reason text is
-    /// preserved in `parent_cross_domain_reason` for output.
-    pub(crate) parent_cross_domain: Option<AdrId>,
-    /// Free-text reason accompanying `parent_cross_domain`. Empty
-    /// when the field has only the target ID with no reason.
-    /// Currently parsed but not rendered; preserved for future tree
-    /// or lint surfacing (see AFM-0024).
-    #[allow(
-        dead_code,
-        reason = "parsed and preserved for future tree/lint surfacing per AFM-0024; not yet read anywhere, and pub(crate) (post-AFM-0032 privatisation) makes that visible to dead_code where pub previously masked it — allow not expect because the lint fires under --lib but not --all-targets (test-only writers in rules/links.rs)"
-    )]
-    pub(crate) parent_cross_domain_reason: String,
+    parent_cross_domain: Option<AdrId>,
 }
 
 impl AdrRecord {
@@ -311,6 +313,295 @@ impl AdrRecord {
     pub fn relationships(&self) -> &[Relationship] {
         &self.relationships
     }
+
+    /// 1-indexed line number of the parsed title heading.
+    #[must_use]
+    pub fn title_line(&self) -> usize {
+        self.title_line
+    }
+
+    /// 1-indexed line number of the parsed status line, if any.
+    #[must_use]
+    pub fn status_line(&self) -> usize {
+        self.status_line
+    }
+
+    /// Raw, unparsed status text as it appeared in the source.
+    #[must_use]
+    pub fn status_raw(&self) -> Option<&str> {
+        self.status_raw.as_deref()
+    }
+
+    /// True when a `## Related` section was found.
+    #[must_use]
+    pub fn has_related(&self) -> bool {
+        self.has_related
+    }
+
+    /// True when a `## Context` section was found.
+    #[must_use]
+    pub fn has_context(&self) -> bool {
+        self.has_context
+    }
+
+    /// True when a `## Decision` section was found.
+    #[must_use]
+    pub fn has_decision(&self) -> bool {
+        self.has_decision
+    }
+
+    /// True when a `## Consequences` section was found.
+    #[must_use]
+    pub fn has_consequences(&self) -> bool {
+        self.has_consequences
+    }
+
+    /// True when a `## Retirement` section was found.
+    #[must_use]
+    pub fn has_retirement(&self) -> bool {
+        self.has_retirement
+    }
+
+    /// True when the ADR file lives in the stale archive directory.
+    #[must_use]
+    pub fn is_stale(&self) -> bool {
+        self.is_stale
+    }
+
+    /// True when status was parsed from the legacy `## Status` section
+    /// (not the `Status:` preamble metadata field).
+    #[must_use]
+    pub fn status_from_section(&self) -> bool {
+        self.status_from_section
+    }
+
+    /// Line count of the largest fenced code block. 0 if none.
+    #[must_use]
+    pub fn max_code_block_lines(&self) -> usize {
+        self.max_code_block_lines
+    }
+
+    /// 1-indexed line number of the opening fence of the largest code
+    /// block. 0 if no code blocks exist.
+    #[must_use]
+    pub fn max_code_block_line(&self) -> usize {
+        self.max_code_block_line
+    }
+
+    /// Ordered list of H2 section names as they appear in the file.
+    #[must_use]
+    pub fn section_order(&self) -> &[String] {
+        &self.section_order
+    }
+
+    /// Word count per H2 section (section name → count).
+    #[must_use]
+    pub fn section_word_counts(&self) -> &HashMap<String, usize> {
+        &self.section_word_counts
+    }
+
+    /// Crates associated with this ADR via `Crates:` metadata field.
+    #[must_use]
+    pub fn crates(&self) -> &[String] {
+        &self.crates
+    }
+
+    /// Tagged rules extracted from the Decision section.
+    #[must_use]
+    pub fn decision_rules(&self) -> &[TaggedRule] {
+        &self.decision_rules
+    }
+
+    /// Cross-domain parent exception declared via `Parent-cross-domain:`.
+    #[must_use]
+    pub fn parent_cross_domain(&self) -> Option<&AdrId> {
+        self.parent_cross_domain.as_ref()
+    }
+
+    /// Narrow, in-module constructor used exclusively by the parser
+    /// (`parser::parse_adr_file`) once all fields have been derived
+    /// from the source file. Not part of the public API; establishes
+    /// no additional invariants beyond what the parser itself derives.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors every AdrRecord field 1:1; this is the sole parser-facing constructor per AFM-0032:R3, not a general-purpose builder that would warrant decomposition"
+    )]
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "mirrors AdrRecord's own independent parser-detected section-presence bools (see the struct-level clippy::struct_excessive_bools expect above); same rationale applies to the constructor that assembles them"
+    )]
+    pub(crate) fn from_parser_fields(
+        id: AdrId,
+        file_path: PathBuf,
+        title: Option<String>,
+        title_line: usize,
+        date: Option<String>,
+        last_reviewed: Option<String>,
+        tier: Option<Tier>,
+        status: Option<Status>,
+        status_line: usize,
+        status_raw: Option<String>,
+        relationships: Vec<Relationship>,
+        has_related: bool,
+        has_context: bool,
+        has_decision: bool,
+        has_consequences: bool,
+        has_retirement: bool,
+        is_stale: bool,
+        status_from_section: bool,
+        max_code_block_lines: usize,
+        max_code_block_line: usize,
+        section_order: Vec<String>,
+        section_word_counts: HashMap<String, usize>,
+        crates: Vec<String>,
+        decision_rules: Vec<TaggedRule>,
+        parent_cross_domain: Option<AdrId>,
+    ) -> Self {
+        Self {
+            id,
+            file_path,
+            title,
+            title_line,
+            date,
+            last_reviewed,
+            tier,
+            status,
+            status_line,
+            status_raw,
+            relationships,
+            has_related,
+            has_context,
+            has_decision,
+            has_consequences,
+            has_retirement,
+            is_stale,
+            status_from_section,
+            max_code_block_lines,
+            max_code_block_line,
+            section_order,
+            section_word_counts,
+            crates,
+            decision_rules,
+            parent_cross_domain,
+        }
+    }
+}
+
+#[cfg(test)]
+impl AdrId {
+    /// Test-only unchecked constructor. Bypasses [`AdrId::try_new`]'s
+    /// validation deliberately: test fixtures build both valid and
+    /// invariant-violating sentinels to exercise rules that operate on
+    /// already-parsed records.
+    pub(crate) fn test_new(prefix: impl Into<String>, number: u16) -> Self {
+        Self {
+            prefix: prefix.into(),
+            number,
+        }
+    }
+}
+
+#[cfg(test)]
+impl AdrRecord {
+    pub(crate) fn id_mut(&mut self) -> &mut AdrId {
+        &mut self.id
+    }
+
+    pub(crate) fn file_path_mut(&mut self) -> &mut PathBuf {
+        &mut self.file_path
+    }
+
+    pub(crate) fn title_mut(&mut self) -> &mut Option<String> {
+        &mut self.title
+    }
+
+    pub(crate) fn title_line_mut(&mut self) -> &mut usize {
+        &mut self.title_line
+    }
+
+    pub(crate) fn date_mut(&mut self) -> &mut Option<String> {
+        &mut self.date
+    }
+
+    pub(crate) fn last_reviewed_mut(&mut self) -> &mut Option<String> {
+        &mut self.last_reviewed
+    }
+
+    pub(crate) fn tier_mut(&mut self) -> &mut Option<Tier> {
+        &mut self.tier
+    }
+
+    pub(crate) fn status_mut(&mut self) -> &mut Option<Status> {
+        &mut self.status
+    }
+
+    pub(crate) fn status_line_mut(&mut self) -> &mut usize {
+        &mut self.status_line
+    }
+
+    pub(crate) fn status_raw_mut(&mut self) -> &mut Option<String> {
+        &mut self.status_raw
+    }
+
+    pub(crate) fn relationships_mut(&mut self) -> &mut Vec<Relationship> {
+        &mut self.relationships
+    }
+
+    pub(crate) fn has_related_mut(&mut self) -> &mut bool {
+        &mut self.has_related
+    }
+
+    pub(crate) fn has_context_mut(&mut self) -> &mut bool {
+        &mut self.has_context
+    }
+
+    pub(crate) fn has_decision_mut(&mut self) -> &mut bool {
+        &mut self.has_decision
+    }
+
+    pub(crate) fn has_consequences_mut(&mut self) -> &mut bool {
+        &mut self.has_consequences
+    }
+
+    pub(crate) fn has_retirement_mut(&mut self) -> &mut bool {
+        &mut self.has_retirement
+    }
+
+    pub(crate) fn is_stale_mut(&mut self) -> &mut bool {
+        &mut self.is_stale
+    }
+
+    pub(crate) fn status_from_section_mut(&mut self) -> &mut bool {
+        &mut self.status_from_section
+    }
+
+    pub(crate) fn max_code_block_lines_mut(&mut self) -> &mut usize {
+        &mut self.max_code_block_lines
+    }
+
+    pub(crate) fn max_code_block_line_mut(&mut self) -> &mut usize {
+        &mut self.max_code_block_line
+    }
+
+    pub(crate) fn section_order_mut(&mut self) -> &mut Vec<String> {
+        &mut self.section_order
+    }
+
+    pub(crate) fn section_word_counts_mut(&mut self) -> &mut HashMap<String, usize> {
+        &mut self.section_word_counts
+    }
+
+    pub(crate) fn crates_mut(&mut self) -> &mut Vec<String> {
+        &mut self.crates
+    }
+
+    pub(crate) fn decision_rules_mut(&mut self) -> &mut Vec<TaggedRule> {
+        &mut self.decision_rules
+    }
+
+    pub(crate) fn parent_cross_domain_mut(&mut self) -> &mut Option<AdrId> {
+        &mut self.parent_cross_domain
+    }
 }
 
 #[cfg(test)]
@@ -349,7 +640,6 @@ impl AdrRecord {
             crates: Vec::new(),
             decision_rules: Vec::new(),
             parent_cross_domain: None,
-            parent_cross_domain_reason: String::new(),
         }
     }
 }

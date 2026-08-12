@@ -69,3 +69,16 @@ fn lib_api_modules_resolve() {
 
     let _: fn() -> Vec<adr_fmt::AdrRecord> = || Vec::new();
 }
+
+#[test]
+fn adr_id_error_reachable_and_matchable_at_crate_root() {
+    let err = adr_fmt::AdrId::try_new("x", 0).unwrap_err();
+    let named: adr_fmt::AdrIdError = err;
+    match named {
+        adr_fmt::AdrIdError::PrefixLength { .. }
+        | adr_fmt::AdrIdError::PrefixNotUppercaseAscii { .. }
+        | adr_fmt::AdrIdError::NumberOutOfRange { .. }
+        | adr_fmt::AdrIdError::Malformed { .. } => {}
+        _ => panic!("unexpected AdrIdError variant"),
+    }
+}

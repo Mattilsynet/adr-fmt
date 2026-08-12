@@ -130,7 +130,7 @@ pub fn parse_domain(dir: &DomainDir) -> Result<ParseOutcome, ParseError> {
         }
     }
 
-    outcome.records.sort_by_key(|r| r.id.number);
+    outcome.records.sort_by_key(|r| r.id().number());
     Ok(outcome)
 }
 
@@ -201,7 +201,7 @@ pub fn parse_stale(stale_dir: &Path, config: &Config) -> Result<ParseOutcome, Pa
         }
     }
 
-    outcome.records.sort_by_key(|r| r.id.number);
+    outcome.records.sort_by_key(|r| r.id().number());
     Ok(outcome)
 }
 
@@ -274,17 +274,17 @@ pub fn parse_adr_file(
 
     let crates = find_crates_field(&lines);
 
-    let (parent_cross_domain, parent_cross_domain_reason) = find_parent_cross_domain_field(&lines);
+    let (parent_cross_domain, _parent_cross_domain_reason) = find_parent_cross_domain_field(&lines);
 
     let decision_rules = extract_tagged_rules(&lines);
 
     let (max_code_block_lines, _code_block_count, max_code_block_line) =
         measure_code_blocks(&lines);
 
-    outcome.record = Some(AdrRecord {
+    outcome.record = Some(AdrRecord::from_parser_fields(
         id,
-        file_path: path.to_owned(),
-        title: Some(title),
+        path.to_owned(),
+        Some(title),
         title_line,
         date,
         last_reviewed,
@@ -307,8 +307,7 @@ pub fn parse_adr_file(
         crates,
         decision_rules,
         parent_cross_domain,
-        parent_cross_domain_reason,
-    });
+    ));
     Ok(outcome)
 }
 
@@ -318,7 +317,7 @@ fn parse_title(lines: &[&str], expected_prefix: &str) -> Option<(AdrId, String, 
         if let Some(rest) = line.strip_prefix("# ")
             && let Some(dot_pos) = rest.find(". ")
             && let Some(id) = parse_adr_id(&rest[..dot_pos])
-            && id.prefix == expected_prefix
+            && id.prefix() == expected_prefix
         {
             let title = rest[dot_pos + 2..].to_owned();
             return Some((id, title, i + 1));
@@ -682,8 +681,8 @@ mod tests {
             "Date: 2026-04-25",
         ];
         let (id, title, line) = parse_title(&lines, "CHE").unwrap();
-        assert_eq!(id.prefix, "CHE");
-        assert_eq!(id.number, 42);
+        assert_eq!(id.prefix(), "CHE");
+        assert_eq!(id.number(), 42);
         assert_eq!(title, "Event Envelope Construction Invariants");
         assert_eq!(line, 1);
     }
@@ -733,8 +732,8 @@ mod tests {
         assert!(found);
         assert_eq!(rels.len(), 1);
         assert_eq!(rels[0].verb, RelVerb::Root);
-        assert_eq!(rels[0].target.prefix, "CHE");
-        assert_eq!(rels[0].target.number, 1);
+        assert_eq!(rels[0].target.prefix(), "CHE");
+        assert_eq!(rels[0].target.number(), 1);
     }
 
     #[test]
@@ -932,10 +931,7 @@ mod tests {
     fn self_referencing_detected() {
         let lines = vec!["## Related", "", "Root: CHE-0001", "", "## Context"];
         let (rels, _, _) = find_relationships(&lines);
-        let id = AdrId {
-            prefix: "CHE".into(),
-            number: 1,
-        };
+        let id = AdrId::test_new("CHE", 1);
         let is_self_ref = rels
             .iter()
             .any(|rel| rel.verb == RelVerb::Root && rel.target == id);
@@ -946,10 +942,7 @@ mod tests {
     fn self_referencing_wrong_id_not_detected() {
         let lines = vec!["## Related", "", "Root: CHE-0002", "", "## Context"];
         let (rels, _, _) = find_relationships(&lines);
-        let id = AdrId {
-            prefix: "CHE".into(),
-            number: 1,
-        };
+        let id = AdrId::test_new("CHE", 1);
         let is_self_ref = rels
             .iter()
             .any(|rel| rel.verb == RelVerb::Root && rel.target == id);
@@ -995,8 +988,8 @@ mod tests {
             "## Status",
         ];
         let (id, reason) = find_parent_cross_domain_field(&lines);
-        assert_eq!(id.as_ref().unwrap().prefix, "COM");
-        assert_eq!(id.unwrap().number, 1);
+        assert_eq!(id.as_ref().unwrap().prefix(), "COM");
+        assert_eq!(id.unwrap().number(), 1);
         assert_eq!(reason, "bridges principle to architecture");
     }
 
@@ -1502,7 +1495,7 @@ crates = []
         assert!(found);
         assert_eq!(rels.len(), 1);
         assert_eq!(rels[0].verb, RelVerb::References);
-        assert_eq!(rels[0].target.number, 5);
+        assert_eq!(rels[0].target.number(), 5);
     }
 
     #[test]
@@ -1518,8 +1511,8 @@ crates = []
         assert!(found);
         assert_eq!(rels.len(), 3);
         assert_eq!(rels[0].verb, RelVerb::Root);
-        assert_eq!(rels[1].target.number, 2);
-        assert_eq!(rels[2].target.number, 3);
+        assert_eq!(rels[1].target.number(), 2);
+        assert_eq!(rels[2].target.number(), 3);
     }
 
     #[test]
@@ -1555,9 +1548,9 @@ crates = []
         assert_eq!(rels.len(), 3);
         assert_eq!(rels[0].verb, RelVerb::Root);
         assert_eq!(rels[1].verb, RelVerb::References);
-        assert_eq!(rels[1].target.number, 2);
+        assert_eq!(rels[1].target.number(), 2);
         assert_eq!(rels[2].verb, RelVerb::References);
-        assert_eq!(rels[2].target.number, 3);
+        assert_eq!(rels[2].target.number(), 3);
     }
 
     #[test]

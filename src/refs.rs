@@ -50,7 +50,7 @@ pub struct RefsReport {
 /// Returns [`RefsError::TargetNotFound`] when `target` is not present
 /// in the parsed corpus.
 pub fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, RefsError> {
-    let Some(target_record) = records.iter().find(|r| r.id == *target) else {
+    let Some(target_record) = records.iter().find(|r| r.id() == target) else {
         return Err(RefsError::TargetNotFound {
             target: target.clone(),
         });
@@ -62,7 +62,7 @@ pub fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, Re
 
     if let Some(entries) = children.get(target) {
         let by_id: std::collections::HashMap<&AdrId, &AdrRecord> =
-            records.iter().map(|r| (&r.id, r)).collect();
+            records.iter().map(|r| (r.id(), r)).collect();
 
         for entry in entries {
             if !matches!(entry.verb, RelVerb::References | RelVerb::Supersedes) {
@@ -74,15 +74,15 @@ pub fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, Re
             let Some(source) = by_id.get(&entry.child) else {
                 continue;
             };
-            if source.is_stale {
+            if source.is_stale() {
                 continue;
             }
             refs.push(RefEntry {
-                source_id: source.id.clone(),
+                source_id: source.id().clone(),
                 verb: entry.verb,
-                source_tier: source.tier,
-                source_status: source.status.clone(),
-                source_title: source.title.clone(),
+                source_tier: source.tier(),
+                source_status: source.status().cloned(),
+                source_title: source.title().map(str::to_owned),
             });
         }
     }
@@ -91,16 +91,16 @@ pub fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, Re
         let ta = a.source_tier.map_or(255, Tier::rank);
         let tb = b.source_tier.map_or(255, Tier::rank);
         ta.cmp(&tb)
-            .then(a.source_id.prefix.cmp(&b.source_id.prefix))
-            .then(a.source_id.number.cmp(&b.source_id.number))
+            .then(a.source_id.prefix().cmp(b.source_id.prefix()))
+            .then(a.source_id.number().cmp(&b.source_id.number()))
             .then(verb_sort_key(a.verb).cmp(&verb_sort_key(b.verb)))
     });
 
     Ok(RefsReport {
-        target_id: target_record.id.clone(),
-        target_title: target_record.title.clone(),
-        target_tier: target_record.tier,
-        target_status: target_record.status.clone(),
+        target_id: target_record.id().clone(),
+        target_title: target_record.title().map(str::to_owned),
+        target_tier: target_record.tier(),
+        target_status: target_record.status().cloned(),
         refs,
     })
 }
@@ -141,10 +141,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
-        AdrId {
-            prefix: prefix.into(),
-            number: num,
-        }
+        AdrId::test_new(prefix, num)
     }
 
     fn make_record(prefix: &str, num: u16, rels: Vec<(RelVerb, AdrId)>) -> AdrRecord {
@@ -159,21 +156,20 @@ mod tests {
             })
             .collect();
 
-        AdrRecord {
-            id,
-            file_path: PathBuf::from(format!("nonexistent/{prefix}-{num:04}-test.md")),
-            title: Some(format!("Test {prefix}-{num:04}")),
-            title_line: 1,
-            tier: Some(Tier::B),
-            status: Some(Status::Accepted),
-            status_raw: Some("Accepted".into()),
-            relationships,
-            has_related: true,
-            has_context: true,
-            has_decision: true,
-            has_consequences: true,
-            ..AdrRecord::test_sentinel()
-        }
+        let mut record = AdrRecord::test_sentinel();
+        *record.id_mut() = id;
+        *record.file_path_mut() = PathBuf::from(format!("nonexistent/{prefix}-{num:04}-test.md"));
+        *record.title_mut() = Some(format!("Test {prefix}-{num:04}"));
+        *record.title_line_mut() = 1;
+        *record.tier_mut() = Some(Tier::B);
+        *record.status_mut() = Some(Status::Accepted);
+        *record.status_raw_mut() = Some("Accepted".into());
+        *record.relationships_mut() = relationships;
+        *record.has_related_mut() = true;
+        *record.has_context_mut() = true;
+        *record.has_decision_mut() = true;
+        *record.has_consequences_mut() = true;
+        record
     }
 
     #[test]
@@ -185,7 +181,7 @@ mod tests {
             make_record("CHE", 3, vec![(RelVerb::References, make_id("CHE", 1))]),
         ];
         let report = find_refs(&make_id("CHE", 1), &records).unwrap();
-        let nums: Vec<u16> = report.refs.iter().map(|r| r.source_id.number).collect();
+        let nums: Vec<u16> = report.refs.iter().map(|r| r.source_id.number()).collect();
         assert_eq!(nums, vec![2, 3, 5]);
     }
 
@@ -257,7 +253,7 @@ mod tests {
     #[test]
     fn status_supersededby_excluded() {
         let mut deprecated = make_record("CHE", 2, vec![(RelVerb::Root, make_id("CHE", 2))]);
-        deprecated.status = Some(Status::SupersededBy(make_id("CHE", 1)));
+        *deprecated.status_mut() = Some(Status::SupersededBy(make_id("CHE", 1)));
         let records = vec![
             make_record("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]),
             deprecated,
@@ -272,7 +268,7 @@ mod tests {
     #[test]
     fn stale_referrer_excluded() {
         let mut stale = make_record("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        stale.is_stale = true;
+        *stale.is_stale_mut() = true;
         let records = vec![
             make_record("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]),
             stale,
@@ -284,9 +280,9 @@ mod tests {
     #[test]
     fn stale_target_returns_live_referrers() {
         let mut stale_target = make_record("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
-        stale_target.is_stale = true;
+        *stale_target.is_stale_mut() = true;
         let mut stale_ref = make_record("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        stale_ref.is_stale = true;
+        *stale_ref.is_stale_mut() = true;
         let live_ref = make_record("CHE", 3, vec![(RelVerb::References, make_id("CHE", 1))]);
         let records = vec![stale_target, stale_ref, live_ref];
         let report = find_refs(&make_id("CHE", 1), &records).unwrap();
@@ -311,15 +307,15 @@ mod tests {
     #[test]
     fn sort_order_tier_prefix_number_verb() {
         let mut s_record = make_record("ZZZ", 9, vec![(RelVerb::References, make_id("CHE", 1))]);
-        s_record.tier = Some(Tier::S);
+        *s_record.tier_mut() = Some(Tier::S);
         let mut a_record = make_record("AAA", 5, vec![(RelVerb::References, make_id("CHE", 1))]);
-        a_record.tier = Some(Tier::A);
+        *a_record.tier_mut() = Some(Tier::A);
         let mut b_record_high_num =
             make_record("CHE", 10, vec![(RelVerb::References, make_id("CHE", 1))]);
-        b_record_high_num.tier = Some(Tier::B);
+        *b_record_high_num.tier_mut() = Some(Tier::B);
         let mut b_record_low_num =
             make_record("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        b_record_low_num.tier = Some(Tier::B);
+        *b_record_low_num.tier_mut() = Some(Tier::B);
         let records = vec![
             make_record("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]),
             s_record,
@@ -331,7 +327,7 @@ mod tests {
         let order: Vec<(String, u16)> = report
             .refs
             .iter()
-            .map(|r| (r.source_id.prefix.clone(), r.source_id.number))
+            .map(|r| (r.source_id.prefix().to_owned(), r.source_id.number()))
             .collect();
         assert_eq!(
             order,
@@ -369,10 +365,10 @@ mod tests {
     #[test]
     fn missing_tier_sorts_last_and_title_none_preserved() {
         let mut tier_b = make_record("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        tier_b.tier = Some(Tier::B);
+        *tier_b.tier_mut() = Some(Tier::B);
         let mut no_tier = make_record("CHE", 3, vec![(RelVerb::References, make_id("CHE", 1))]);
-        no_tier.tier = None;
-        no_tier.title = None;
+        *no_tier.tier_mut() = None;
+        *no_tier.title_mut() = None;
         let records = vec![
             make_record("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]),
             no_tier,
@@ -380,8 +376,8 @@ mod tests {
         ];
         let report = find_refs(&make_id("CHE", 1), &records).unwrap();
         assert_eq!(report.refs.len(), 2);
-        assert_eq!(report.refs[0].source_id.number, 2, "B-tier first");
-        assert_eq!(report.refs[1].source_id.number, 3, "missing-tier last");
+        assert_eq!(report.refs[0].source_id.number(), 2, "B-tier first");
+        assert_eq!(report.refs[1].source_id.number(), 3, "missing-tier last");
         assert!(report.refs[1].source_title.is_none());
     }
 }
