@@ -42,17 +42,145 @@ pub fn layer_to_tier(layer: u8) -> Option<Tier> {
 
 /// Composite ADR identifier: prefix + number (e.g., CHE-0042).
 ///
-/// # Invariants (parser-produced values only)
+/// # Invariants (enforced by construction)
 ///
-/// Values produced by [`parse_adr_id`] or [`parse_adr_id_from_filename_stem`]
-/// satisfy:
+/// Every `AdrId` satisfies:
 /// - `prefix.len() ∈ 2..=4`
 /// - every byte of `prefix` is `b'A'..=b'Z'` (ASCII uppercase)
 /// - `number ∈ 0..=9999` (encoded as exactly 4 digits via `Display`)
+///
+/// Fields are private; the only construction paths are
+/// [`AdrId::try_new`] and `TryFrom<&str>`, both of which validate the
+/// invariants above and reject violations with [`AdrIdError`]. An
+/// invalid `AdrId` has no constructor and therefore cannot exist. See
+/// AFM-0032.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AdrId {
-    pub prefix: String,
-    pub number: u16,
+    pub(crate) prefix: String,
+    pub(crate) number: u16,
+}
+
+/// Error returned by fallible `AdrId` construction ([`AdrId::try_new`],
+/// `TryFrom<&str>`). Implements `Display` + `Debug` + `std::error::Error`
+/// per the AFM-0028:R1 trait floor. See AFM-0032.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AdrIdError {
+    /// `prefix.len()` was not in `2..=4`.
+    PrefixLength {
+        /// The rejected prefix.
+        prefix: String,
+    },
+    /// `prefix` contained a byte outside `b'A'..=b'Z'`.
+    PrefixNotUppercaseAscii {
+        /// The rejected prefix.
+        prefix: String,
+    },
+    /// `number` was outside `0..=9999`.
+    NumberOutOfRange {
+        /// The rejected number.
+        number: u32,
+    },
+    /// The input string was not in `PREFIX-NNNN` form.
+    Malformed {
+        /// The rejected input string.
+        input: String,
+    },
+}
+
+impl fmt::Display for AdrIdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PrefixLength { prefix } => {
+                write!(f, "AdrId prefix {prefix:?} must be 2-4 characters")
+            }
+            Self::PrefixNotUppercaseAscii { prefix } => {
+                write!(f, "AdrId prefix {prefix:?} must be uppercase ASCII")
+            }
+            Self::NumberOutOfRange { number } => {
+                write!(f, "AdrId number {number} is out of range 0..=9999")
+            }
+            Self::Malformed { input } => {
+                write!(f, "AdrId string {input:?} is not in PREFIX-NNNN form")
+            }
+        }
+    }
+}
+
+impl std::error::Error for AdrIdError {}
+
+impl AdrId {
+    /// Validated `AdrId` constructor.
+    ///
+    /// # Errors
+    /// Returns [`AdrIdError::PrefixLength`] when `prefix.len()` is not
+    /// in `2..=4`, [`AdrIdError::PrefixNotUppercaseAscii`] when
+    /// `prefix` contains a non-uppercase-ASCII byte, or
+    /// [`AdrIdError::NumberOutOfRange`] when `number > 9999`.
+    pub fn try_new(prefix: &str, number: u16) -> Result<Self, AdrIdError> {
+        let prefix_len = prefix.len();
+        if !(2..=4).contains(&prefix_len) {
+            return Err(AdrIdError::PrefixLength {
+                prefix: prefix.to_owned(),
+            });
+        }
+        if !prefix.bytes().all(|b| b.is_ascii_uppercase()) {
+            return Err(AdrIdError::PrefixNotUppercaseAscii {
+                prefix: prefix.to_owned(),
+            });
+        }
+        if number > 9999 {
+            return Err(AdrIdError::NumberOutOfRange {
+                number: u32::from(number),
+            });
+        }
+        Ok(Self {
+            prefix: prefix.to_owned(),
+            number,
+        })
+    }
+
+    /// The domain prefix (e.g., `"CHE"`).
+    #[must_use]
+    pub fn prefix(&self) -> &str {
+        &self.prefix
+    }
+
+    /// The numeric identifier (e.g., `42` for `CHE-0042`).
+    #[must_use]
+    pub fn number(&self) -> u16 {
+        self.number
+    }
+}
+
+impl TryFrom<&str> for AdrId {
+    type Error = AdrIdError;
+
+    /// Parse a strict ADR ID like `CHE-0042`.
+    ///
+    /// Accepts exactly `^[A-Z]{2,4}-[0-9]{4}$` — uppercase ASCII prefix
+    /// of 2–4 letters, dash, exactly 4 digits, nothing else. No
+    /// whitespace trimming; callers must pass clean input.
+    ///
+    /// # Errors
+    /// Returns [`AdrIdError::Malformed`] when the input is not in
+    /// `PREFIX-NNNN` form (missing separator, wrong digit count,
+    /// non-digit characters); otherwise delegates prefix/number
+    /// validation to [`AdrId::try_new`].
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let (prefix, num_str) = s.split_once('-').ok_or_else(|| AdrIdError::Malformed {
+            input: s.to_owned(),
+        })?;
+        if num_str.len() != 4 || !num_str.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(AdrIdError::Malformed {
+                input: s.to_owned(),
+            });
+        }
+        let number: u16 = num_str.parse().map_err(|_| AdrIdError::Malformed {
+            input: s.to_owned(),
+        })?;
+        Self::try_new(prefix, number)
+    }
 }
 
 impl fmt::Display for AdrId {
@@ -73,41 +201,41 @@ impl fmt::Display for AdrId {
     reason = "AdrRecord is pinned to the R1 crate-root re-export set (AFM-0026:R1); the bools are independent parser section-presence facts read individually in rules — collapsing would widen the pinned surface beyond R1 without a successor ADR (AFM-0026:R5) and forces an adr-srv re-scrape (AFM-0027:R5)"
 )]
 pub struct AdrRecord {
-    pub id: AdrId,
-    pub file_path: PathBuf,
-    pub title: Option<String>,
-    pub title_line: usize,
-    pub date: Option<String>,
-    pub last_reviewed: Option<String>,
-    pub tier: Option<Tier>,
-    pub status: Option<Status>,
-    pub status_line: usize,
-    pub status_raw: Option<String>,
-    pub relationships: Vec<Relationship>,
-    pub has_related: bool,
-    pub has_context: bool,
-    pub has_decision: bool,
-    pub has_consequences: bool,
-    pub has_retirement: bool,
+    pub(crate) id: AdrId,
+    pub(crate) file_path: PathBuf,
+    pub(crate) title: Option<String>,
+    pub(crate) title_line: usize,
+    pub(crate) date: Option<String>,
+    pub(crate) last_reviewed: Option<String>,
+    pub(crate) tier: Option<Tier>,
+    pub(crate) status: Option<Status>,
+    pub(crate) status_line: usize,
+    pub(crate) status_raw: Option<String>,
+    pub(crate) relationships: Vec<Relationship>,
+    pub(crate) has_related: bool,
+    pub(crate) has_context: bool,
+    pub(crate) has_decision: bool,
+    pub(crate) has_consequences: bool,
+    pub(crate) has_retirement: bool,
     /// True when the ADR file lives in the stale archive directory.
-    pub is_stale: bool,
+    pub(crate) is_stale: bool,
     /// True when status was parsed from the legacy `## Status` section
     /// (not the `Status:` preamble metadata field).
-    pub status_from_section: bool,
-    pub max_code_block_lines: usize,
+    pub(crate) status_from_section: bool,
+    pub(crate) max_code_block_lines: usize,
     /// 1-indexed line number of the opening fence of the largest code
     /// block. 0 if no code blocks exist.
-    pub max_code_block_line: usize,
+    pub(crate) max_code_block_line: usize,
     /// Ordered list of H2 section names as they appear in the file.
-    pub section_order: Vec<String>,
+    pub(crate) section_order: Vec<String>,
     /// Word count per H2 section (section name → count). Code blocks
     /// are excluded from the count.
-    pub section_word_counts: HashMap<String, usize>,
+    pub(crate) section_word_counts: HashMap<String, usize>,
     /// Crates associated with this ADR via `Crates:` metadata field.
-    pub crates: Vec<String>,
+    pub(crate) crates: Vec<String>,
     /// Tagged rules extracted from the Decision section
     /// (`RN [L]: text` pattern). Empty when no tagged rules found.
-    pub decision_rules: Vec<TaggedRule>,
+    pub(crate) decision_rules: Vec<TaggedRule>,
     /// Cross-domain parent exception declared in the preamble via
     /// `Parent-cross-domain: PREFIX-NNNN — reason`. When present and
     /// matching the first `References:` target, suppresses L011
@@ -115,12 +243,16 @@ pub struct AdrRecord {
     ///
     /// The string carries the parsed target ID. The reason text is
     /// preserved in `parent_cross_domain_reason` for output.
-    pub parent_cross_domain: Option<AdrId>,
+    pub(crate) parent_cross_domain: Option<AdrId>,
     /// Free-text reason accompanying `parent_cross_domain`. Empty
     /// when the field has only the target ID with no reason.
     /// Currently parsed but not rendered; preserved for future tree
     /// or lint surfacing (see AFM-0024).
-    pub parent_cross_domain_reason: String,
+    #[allow(
+        dead_code,
+        reason = "parsed and preserved for future tree/lint surfacing per AFM-0024; not yet read anywhere, and pub(crate) (post-AFM-0032 privatisation) makes that visible to dead_code where pub previously masked it — allow not expect because the lint fires under --lib but not --all-targets (test-only writers in rules/links.rs)"
+    )]
+    pub(crate) parent_cross_domain_reason: String,
 }
 
 impl AdrRecord {
@@ -130,6 +262,54 @@ impl AdrRecord {
         self.relationships
             .iter()
             .any(|r| r.verb == RelVerb::Root && r.target == self.id)
+    }
+
+    /// This record's `AdrId`.
+    #[must_use]
+    pub fn id(&self) -> &AdrId {
+        &self.id
+    }
+
+    /// Path to the source ADR file.
+    #[must_use]
+    pub fn file_path(&self) -> &std::path::Path {
+        &self.file_path
+    }
+
+    /// Parsed title, if the preamble had a `# Title` heading.
+    #[must_use]
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    /// Raw `Date:` preamble value, if present.
+    #[must_use]
+    pub fn date(&self) -> Option<&str> {
+        self.date.as_deref()
+    }
+
+    /// Raw `Last-reviewed:` preamble value, if present.
+    #[must_use]
+    pub fn last_reviewed(&self) -> Option<&str> {
+        self.last_reviewed.as_deref()
+    }
+
+    /// Parsed `Tier:` preamble value, if present.
+    #[must_use]
+    pub fn tier(&self) -> Option<Tier> {
+        self.tier
+    }
+
+    /// Parsed lifecycle status, if present.
+    #[must_use]
+    pub fn status(&self) -> Option<&Status> {
+        self.status.as_ref()
+    }
+
+    /// Relationships declared in the `## Related` section.
+    #[must_use]
+    pub fn relationships(&self) -> &[Relationship] {
+        &self.relationships
     }
 }
 
@@ -949,5 +1129,69 @@ mod tests {
         assert_eq!(layer_to_tier(0), None);
         assert_eq!(layer_to_tier(13), None);
         assert_eq!(layer_to_tier(255), None);
+    }
+
+    #[test]
+    fn adr_id_try_new_accepts_valid_input() {
+        let id = AdrId::try_new("CHE", 42).unwrap();
+        assert_eq!(id.prefix(), "CHE");
+        assert_eq!(id.number(), 42);
+        assert_eq!(id.to_string(), "CHE-0042");
+    }
+
+    #[test]
+    fn adr_id_try_new_rejects_short_prefix() {
+        let err = AdrId::try_new("C", 1).unwrap_err();
+        assert!(
+            matches!(err, AdrIdError::PrefixLength { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn adr_id_try_new_rejects_long_prefix() {
+        let err = AdrId::try_new("ABCDE", 1).unwrap_err();
+        assert!(
+            matches!(err, AdrIdError::PrefixLength { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn adr_id_try_new_rejects_lowercase_prefix() {
+        let err = AdrId::try_new("che", 1).unwrap_err();
+        assert!(
+            matches!(err, AdrIdError::PrefixNotUppercaseAscii { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn adr_id_try_new_rejects_out_of_range_number() {
+        let err = AdrId::try_new("CHE", 10_000).unwrap_err();
+        assert!(
+            matches!(err, AdrIdError::NumberOutOfRange { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn adr_id_try_from_str_round_trips() {
+        let id = AdrId::try_from("CHE-0042").unwrap();
+        assert_eq!(id.prefix(), "CHE");
+        assert_eq!(id.number(), 42);
+    }
+
+    #[test]
+    fn adr_id_try_from_str_rejects_malformed() {
+        let err = AdrId::try_from("CHE0042").unwrap_err();
+        assert!(matches!(err, AdrIdError::Malformed { .. }), "got {err:?}");
+    }
+
+    #[test]
+    fn adr_id_error_impls_error_trait() {
+        let err = AdrId::try_new("c", 1).unwrap_err();
+        let _: &dyn std::error::Error = &err;
+        assert!(!err.to_string().is_empty());
     }
 }
