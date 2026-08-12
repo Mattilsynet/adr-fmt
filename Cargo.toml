@@ -6,10 +6,12 @@ edition = "2024"
 rust-version = "1.97"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/Mattilsynet/adr-fmt"
+documentation = "https://docs.rs/adr-fmt"
 readme = "README.md"
 authors = ["acje"]
 keywords = ["adr", "documentation", "lint", "governance"]
 categories = ["command-line-utilities", "development-tools"]
+exclude = [".github/", ".gitignore"]
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

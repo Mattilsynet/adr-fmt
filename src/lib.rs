@@ -93,6 +93,7 @@ struct Cli {
 ///
 /// Panics only through clap's built-in `--help`/`--version` termination
 /// path, which exits the process before returning to the caller.
+#[must_use]
 pub fn run<I, T>(args: I) -> i32
 where
     I: IntoIterator<Item = T>,

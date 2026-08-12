@@ -75,7 +75,7 @@ impl fmt::Display for AdrId {
 #[derive(Debug, Clone)]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "AdrRecord is frozen v0.1 public API (AFM-0026:R1); the bools are independent parser section-presence facts read individually in rules — collapsing reshapes the public contract (AFM-0026:R5) and forces an adr-srv re-scrape (AFM-0027:R5)"
+    reason = "AdrRecord is pinned to the R1 crate-root re-export set (AFM-0026:R1); the bools are independent parser section-presence facts read individually in rules — collapsing would widen the pinned surface beyond R1 without a successor ADR (AFM-0026:R5) and forces an adr-srv re-scrape (AFM-0027:R5)"
 )]
 pub struct AdrRecord {
     pub id: AdrId,
