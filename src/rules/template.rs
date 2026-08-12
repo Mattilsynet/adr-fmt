@@ -763,7 +763,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
                 "Consequences".into(),
             ],
             section_word_counts: word_counts,
-            ..AdrRecord::default()
+            ..AdrRecord::test_sentinel()
         }
     }
 

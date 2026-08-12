@@ -421,7 +421,7 @@ description = "test"
                     line: 10 + i,
                 })
                 .collect(),
-            ..AdrRecord::default()
+            ..AdrRecord::test_sentinel()
         }
     }
 

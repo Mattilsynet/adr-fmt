@@ -670,7 +670,7 @@ mod tests {
             has_context: true,
             has_decision: true,
             has_consequences: true,
-            ..AdrRecord::default()
+            ..AdrRecord::test_sentinel()
         }
     }
 

@@ -49,11 +49,6 @@ pub fn layer_to_tier(layer: u8) -> Option<Tier> {
 /// - `prefix.len() ∈ 2..=4`
 /// - every byte of `prefix` is `b'A'..=b'Z'` (ASCII uppercase)
 /// - `number ∈ 0..=9999` (encoded as exactly 4 digits via `Display`)
-///
-/// Values produced by [`AdrRecord::default`] (and other manual
-/// construction sites) do not satisfy these invariants — `prefix`
-/// is the empty string. Manual construction is restricted to
-/// sentinel/uninitialized contexts.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AdrId {
     pub prefix: String,
@@ -138,8 +133,13 @@ impl AdrRecord {
     }
 }
 
-impl Default for AdrRecord {
-    fn default() -> Self {
+#[cfg(test)]
+impl AdrRecord {
+    /// Test-only sentinel builder. Not `Default` — an `AdrId` with an
+    /// empty `prefix` violates the invariants documented on `AdrId`, so
+    /// this exists solely for `..AdrRecord::test_sentinel()` struct-update
+    /// syntax in test fixtures, never as a production construction path.
+    pub(crate) fn test_sentinel() -> Self {
         Self {
             id: AdrId {
                 prefix: String::new(),
@@ -863,8 +863,8 @@ mod tests {
     }
 
     #[test]
-    fn default_adr_record() {
-        let record = AdrRecord::default();
+    fn sentinel_adr_record() {
+        let record = AdrRecord::test_sentinel();
         assert_eq!(record.id.prefix, "");
         assert_eq!(record.id.number, 0);
         assert!(record.crates.is_empty());
