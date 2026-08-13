@@ -1943,6 +1943,175 @@ fn parser_no_p_codes_for_valid_corpus() {
         .stdout(predicate::str::contains("warning[P").not());
 }
 
+#[test]
+fn parser_p003_bad_separator_emits_warning() {
+    let adr = "\
+# TST-0002. Bad Separator Test ADR
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Related
+
+Root - TST-0002
+
+## Context
+
+This ADR documents a malformed Related separator for the F2 regression test.
+
+## Decision
+
+R1 [5]: We decided to create a minimal but complete ADR that satisfies all template rules.
+
+## Consequences
+
++ becomes easier: nothing, this is a test fixture.
+";
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            ("TST-0002-bad-separator.md", adr),
+        ],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--lint"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("warning[P003]"))
+        .stdout(predicate::str::contains("TST-0002-bad-separator.md"));
+}
+
+#[test]
+fn parser_p003_bad_verb_emits_warning() {
+    let adr = "\
+# TST-0002. Bad Verb Test ADR
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Related
+
+Sees: TST-0002
+
+## Context
+
+This ADR documents a malformed Related verb for the F2 regression test.
+
+## Decision
+
+R1 [5]: We decided to create a minimal but complete ADR that satisfies all template rules.
+
+## Consequences
+
++ becomes easier: nothing, this is a test fixture.
+";
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            ("TST-0002-bad-verb.md", adr),
+        ],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--lint"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("warning[P003]"))
+        .stdout(predicate::str::contains("TST-0002-bad-verb.md"));
+}
+
+#[test]
+fn parser_p003_bad_target_emits_warning() {
+    let adr = "\
+# TST-0002. Bad Target Test ADR
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Related
+
+References: not-an-adr-id
+
+## Context
+
+This ADR documents a malformed Related target for the F2 regression test.
+
+## Decision
+
+R1 [5]: We decided to create a minimal but complete ADR that satisfies all template rules.
+
+## Consequences
+
++ becomes easier: nothing, this is a test fixture.
+";
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            ("TST-0002-bad-target.md", adr),
+        ],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--lint"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("warning[P003]"))
+        .stdout(predicate::str::contains("TST-0002-bad-target.md"));
+}
+
+#[test]
+fn parser_p003_mixed_valid_and_invalid_targets() {
+    let adr = "\
+# TST-0002. Mixed Targets Test ADR
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Related
+
+References: TST-0001, not-an-adr-id
+
+## Context
+
+This ADR documents mixed valid/invalid Related targets for the F2 regression test.
+
+## Decision
+
+R1 [5]: We decided to create a minimal but complete ADR that satisfies all template rules.
+
+## Consequences
+
++ becomes easier: nothing, this is a test fixture.
+";
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            ("TST-0002-mixed-targets.md", adr),
+        ],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--lint"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("warning[P003]"))
+        .stdout(predicate::str::contains("TST-0002-mixed-targets.md"))
+        .stdout(predicate::str::contains("L001").not());
+}
+
 /// Locate the ADR root directory inside a synthetic corpus tempdir.
 ///
 /// Standalone-repo replacement for the former "real corpus" fixture:

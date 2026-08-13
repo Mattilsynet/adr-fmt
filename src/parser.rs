@@ -22,7 +22,8 @@ use regex::Regex;
 
 use crate::config::Config;
 use crate::model::{
-    AdrId, AdrRecord, DomainDir, RelVerb, Relationship, Status, TaggedRule, Tier, parse_adr_id,
+    AdrId, AdrRecord, DomainDir, MalformedReason, RelVerb, Related, Relationship, Status,
+    TaggedRule, Tier, parse_adr_id,
 };
 use crate::report::Diagnostic;
 
@@ -263,7 +264,8 @@ pub fn parse_adr_file(
     let (status, status_line, status_raw) = find_status_field(&lines);
     let status_from_section = status.is_none() && has_heading(&lines, "Status");
 
-    let (relationships, has_related, _related_has_placeholder) = find_relationships(&lines);
+    let (related, _related_has_placeholder, related_diagnostics) = find_relationships(&lines, path);
+    outcome.diagnostics.extend(related_diagnostics);
 
     let has_context = has_heading(&lines, "Context");
     let has_decision = has_heading(&lines, "Decision");
@@ -292,8 +294,7 @@ pub fn parse_adr_file(
         status,
         status_line,
         status_raw,
-        relationships,
-        has_related,
+        related,
         has_context,
         has_decision,
         has_consequences,
@@ -374,16 +375,13 @@ fn find_status_field(lines: &[&str]) -> (Option<Status>, usize, Option<String>) 
     (None, 0, None)
 }
 
-/// Find all relationships in the `## Related` section.
-///
-/// Parses pipe-separated format: `Verb: TARGET1, TARGET2 | Verb: TARGET3`
-/// Each segment is `Verb: targets` where targets are comma-separated ADR IDs.
-/// A single segment without pipes is also valid: `Root: OWN-ID`.
-fn find_relationships(lines: &[&str]) -> (Vec<Relationship>, bool, bool) {
+fn find_relationships(lines: &[&str], path: &Path) -> (Related, bool, Vec<Diagnostic>) {
     let mut rels = Vec::new();
     let mut in_related = false;
     let mut found_section = false;
     let mut has_placeholder = false;
+    let mut malformed: Option<(String, MalformedReason)> = None;
+    let mut diagnostics = Vec::new();
 
     for (i, line) in lines.iter().enumerate() {
         if *line == "## Related" {
@@ -391,46 +389,114 @@ fn find_relationships(lines: &[&str]) -> (Vec<Relationship>, bool, bool) {
             found_section = true;
             continue;
         }
-        if in_related {
-            if line.is_empty() {
+        if !in_related {
+            continue;
+        }
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with("## ") {
+            break;
+        }
+        let trimmed = line.trim();
+        if trimmed == "—" || trimmed == "- —" {
+            has_placeholder = true;
+            continue;
+        }
+        for segment in trimmed.split(" | ") {
+            let segment = segment.trim();
+            if segment.is_empty() {
                 continue;
             }
-            if line.starts_with("## ") {
-                break;
-            }
-            let trimmed = line.trim();
-            if trimmed == "—" || trimmed == "- —" {
-                has_placeholder = true;
-                continue;
-            }
-            let segments: Vec<&str> = trimmed.split(" | ").collect();
-            for segment in &segments {
-                let segment = segment.trim();
-                if segment.is_empty() {
-                    continue;
-                }
-                if let Some(colon_pos) = segment.find(": ") {
-                    let verb_str = &segment[..colon_pos];
-                    let targets_str = &segment[colon_pos + 2..];
-
-                    if let Some(verb) = RelVerb::parse(verb_str) {
-                        for target_str in targets_str.split(", ") {
-                            let clean = strip_annotation(target_str);
-                            if let Some(target_id) = parse_adr_id(clean) {
-                                rels.push(Relationship {
-                                    verb,
-                                    target: target_id,
-                                    line: i + 1,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
+            parse_related_segment(
+                segment,
+                line,
+                i + 1,
+                path,
+                &mut rels,
+                &mut malformed,
+                &mut diagnostics,
+            );
         }
     }
 
-    (rels, found_section, has_placeholder)
+    let related = match malformed {
+        Some((line, reason)) => Related::Malformed {
+            line,
+            reason,
+            relationships: rels,
+        },
+        None if found_section => Related::Parsed(rels),
+        None => Related::Absent,
+    };
+
+    (related, has_placeholder, diagnostics)
+}
+
+fn parse_related_segment(
+    segment: &str,
+    line: &str,
+    line_no: usize,
+    path: &Path,
+    rels: &mut Vec<Relationship>,
+    malformed: &mut Option<(String, MalformedReason)>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(colon_pos) = segment.find(": ") else {
+        diagnostics.push(Diagnostic::warning(
+            "P003",
+            path,
+            line_no,
+            format!("malformed `## Related` segment (missing `Verb: ` separator): `{segment}`"),
+        ));
+        malformed.get_or_insert_with(|| (line.to_owned(), MalformedReason::MissingSeparator));
+        return;
+    };
+    let verb_str = &segment[..colon_pos];
+    let targets_str = &segment[colon_pos + 2..];
+
+    let Some(verb) = RelVerb::parse(verb_str) else {
+        diagnostics.push(Diagnostic::warning(
+            "P003",
+            path,
+            line_no,
+            format!("malformed `## Related` segment (unrecognized verb `{verb_str}`): `{segment}`"),
+        ));
+        malformed.get_or_insert_with(|| {
+            (
+                line.to_owned(),
+                MalformedReason::UnknownVerb(verb_str.to_owned()),
+            )
+        });
+        return;
+    };
+
+    for target_str in targets_str.split(", ") {
+        let clean = strip_annotation(target_str);
+        if let Some(target_id) = parse_adr_id(clean) {
+            rels.push(Relationship {
+                verb,
+                target: target_id,
+                line: line_no,
+            });
+        } else {
+            diagnostics.push(Diagnostic::warning(
+                "P003",
+                path,
+                line_no,
+                format!(
+                    "malformed `## Related` segment (unparseable target `{target_str}`): \
+                     `{segment}`"
+                ),
+            ));
+            malformed.get_or_insert_with(|| {
+                (
+                    line.to_owned(),
+                    MalformedReason::UnparseableTarget(target_str.trim().to_owned()),
+                )
+            });
+        }
+    }
 }
 
 /// Analyze H2 sections: extract ordering and word counts.
@@ -715,8 +781,9 @@ mod tests {
             "",
             "## Context",
         ];
-        let (rels, found, _placeholder) = find_relationships(&lines);
-        assert!(found);
+        let (related, _placeholder, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        let rels = related.relationships();
         assert_eq!(rels.len(), 3);
         assert_eq!(rels[0].verb, RelVerb::References);
         assert_eq!(rels[0].target, parse_adr_id("CHE-0006").unwrap());
@@ -728,8 +795,9 @@ mod tests {
     #[test]
     fn find_relationships_parses_root_verb() {
         let lines = vec!["## Related", "", "Root: CHE-0001", "", "## Context"];
-        let (rels, found, _) = find_relationships(&lines);
-        assert!(found);
+        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        let rels = related.relationships();
         assert_eq!(rels.len(), 1);
         assert_eq!(rels[0].verb, RelVerb::Root);
         assert_eq!(rels[0].target.prefix(), "CHE");
@@ -834,27 +902,27 @@ mod tests {
     #[test]
     fn find_relationships_detects_placeholder() {
         let lines = vec!["## Related", "", "- —", "", "## Context"];
-        let (rels, found, placeholder) = find_relationships(&lines);
-        assert!(found);
-        assert!(rels.is_empty());
+        let (related, placeholder, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        assert!(related.relationships().is_empty());
         assert!(placeholder, "should detect `- —` as placeholder");
     }
 
     #[test]
     fn find_relationships_detects_bare_dash_placeholder() {
         let lines = vec!["## Related", "", "—", "", "## Context"];
-        let (rels, found, placeholder) = find_relationships(&lines);
-        assert!(found);
-        assert!(rels.is_empty());
+        let (related, placeholder, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        assert!(related.relationships().is_empty());
         assert!(placeholder, "should detect bare `—` as placeholder");
     }
 
     #[test]
     fn find_relationships_no_placeholder_with_rels() {
         let lines = vec!["## Related", "", "References: CHE-0001", "", "## Context"];
-        let (rels, found, placeholder) = find_relationships(&lines);
-        assert!(found);
-        assert_eq!(rels.len(), 1);
+        let (related, placeholder, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        assert_eq!(related.relationships().len(), 1);
         assert!(
             !placeholder,
             "should not detect placeholder when rels exist"
@@ -930,7 +998,8 @@ mod tests {
     #[test]
     fn self_referencing_detected() {
         let lines = vec!["## Related", "", "Root: CHE-0001", "", "## Context"];
-        let (rels, _, _) = find_relationships(&lines);
+        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let rels = related.relationships();
         let id = AdrId::test_new("CHE", 1);
         let is_self_ref = rels
             .iter()
@@ -941,7 +1010,8 @@ mod tests {
     #[test]
     fn self_referencing_wrong_id_not_detected() {
         let lines = vec!["## Related", "", "Root: CHE-0002", "", "## Context"];
-        let (rels, _, _) = find_relationships(&lines);
+        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let rels = related.relationships();
         let id = AdrId::test_new("CHE", 1);
         let is_self_ref = rels
             .iter()
@@ -1468,8 +1538,9 @@ crates = []
     #[test]
     fn find_relationships_empty_section_returns_no_rels() {
         let lines = vec!["## Related", "", "", "## Context"];
-        let (rels, found, _) = find_relationships(&lines);
-        assert!(found);
+        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        let rels = related.relationships();
         assert!(rels.is_empty());
     }
 
@@ -1483,16 +1554,18 @@ crates = []
             "",
             "## Context",
         ];
-        let (rels, found, _) = find_relationships(&lines);
-        assert!(found);
+        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        let rels = related.relationships();
         assert!(rels.is_empty());
     }
 
     #[test]
     fn find_relationships_single_verb_no_pipe() {
         let lines = vec!["## Related", "", "References: CHE-0005", "", "## Context"];
-        let (rels, found, _) = find_relationships(&lines);
-        assert!(found);
+        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        let rels = related.relationships();
         assert_eq!(rels.len(), 1);
         assert_eq!(rels[0].verb, RelVerb::References);
         assert_eq!(rels[0].target.number(), 5);
@@ -1507,8 +1580,9 @@ crates = []
             "",
             "## Context",
         ];
-        let (rels, found, _) = find_relationships(&lines);
-        assert!(found);
+        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        let rels = related.relationships();
         assert_eq!(rels.len(), 3);
         assert_eq!(rels[0].verb, RelVerb::Root);
         assert_eq!(rels[1].target.number(), 2);
@@ -1524,8 +1598,9 @@ crates = []
             "",
             "## Context",
         ];
-        let (rels, found, _) = find_relationships(&lines);
-        assert!(found);
+        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        let rels = related.relationships();
         assert!(
             rels.is_empty(),
             "no-space pipe should not split into segments and strict ID parser \
@@ -1543,8 +1618,9 @@ crates = []
             "",
             "## Context",
         ];
-        let (rels, found, _) = find_relationships(&lines);
-        assert!(found);
+        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        assert!(!matches!(related, Related::Absent));
+        let rels = related.relationships();
         assert_eq!(rels.len(), 3);
         assert_eq!(rels[0].verb, RelVerb::Root);
         assert_eq!(rels[1].verb, RelVerb::References);
