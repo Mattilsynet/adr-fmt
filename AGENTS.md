@@ -46,6 +46,7 @@ before changing behaviour they govern. Read them with `adr-fmt --tree`
 `docs/adr/adr-fmt/` — look there first, not next to the ADR files.
 
 `cargo test`/`clippy` above verify code, not corpus health. AFM-0003:R3
-warning-threshold enforcement on the ADR corpus itself is CI-only —
-there is no locally-runnable wrapper for it; a clean local build does
-not mean the corpus is clean.
+warning-threshold enforcement on the ADR corpus itself is unimplemented
+— in CI and locally; a clean local build does not mean the corpus is
+clean. Measured baseline: `adr-fmt --lint` reports `## Diagnostics: 25
+warning(s) across 32 ADR(s)` and exits 0 by design.

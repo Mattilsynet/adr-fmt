@@ -37,6 +37,18 @@ and names these three types directly. They were already public on
 `model`; the amendment moves them into the pinned crate-root re-export
 set so `adr-srv` does not name a private path. No new types.
 
+Amendment 2026-08-13 (M1 cleanup): R1 broadened to add
+`config::ResolveCorpusError` and `parser::ParseError`; R2 extended
+to name the `index` module in its crate-private enumeration. Both
+error types are the `Err` of `Result`s returned by functions already
+pinned in R1 (`config::resolve_corpus_root`, `parser::parse_domain`,
+`parser::parse_stale`); a consumer cannot call the pinned API without
+naming them, so this pins existing reality rather than widening the
+surface (per AFM-0029:R2 in-place amendment, AFM-0028:R4 error-type
+inheritance). `index` is a private module of the binary's `run()`
+entry point, matching the R2 enumeration's existing members. Current
+consumer: `adr-srv`, via the three functions above.
+
 ## Decision
 
 Pin the `adr-fmt` library API to a flat re-export set at the crate
@@ -45,22 +57,22 @@ CLI shape unchanged (AFM-0001:R1), and the library forbidden from
 calling `std::process::exit`.
 
 R1 [5]: The library exposes exactly these items at the crate root via
-  flat `pub use` per CHE-0030:R1; underlying modules are private and
-  internal reorganisation is non-breaking for consumers:
-  `config::{Config, LoadError, load_quiet, resolve_corpus_root}`,
+  flat `pub use` per CHE-0030:R1; underlying modules are private, and
+  internal reorganisation is non-breaking:
+  `config::{Config, LoadError, load_quiet, resolve_corpus_root, ResolveCorpusError}`,
   `containment::{ContainmentError, contained_join, contained_join_optional}`,
   `model::{AdrRecord, DomainDir, AdrId, Tier, Status, Relationship, RelVerb, parse_adr_id}`,
-  `parser::{parse_domain, parse_stale, ParseOutcome}`,
+  `parser::{parse_domain, parse_stale, ParseOutcome, ParseError}`,
   `report::{Diagnostic, Severity}`.
   `config::load` is intentionally absent; adding it requires a
   current-consumer justification per COM-0013:R1.
 
-R2 [5]: Modules `context`, `nav`, `output`, `refs`, `rules`, and
-  `guidelines` are crate-private. They are implementation details of
-  the binary's `run()` entry point and MUST NOT be named by external
-  consumers. Internal restructuring of these modules — splitting,
-  merging, renaming — is a non-breaking change for downstream crates
-  and requires no ADR.
+R2 [5]: Modules `context`, `nav`, `output`, `refs`, `rules`,
+  `guidelines`, and `index` are crate-private. They are implementation
+  details of the binary's `run()` entry point and MUST NOT be named by
+  external consumers. Internal restructuring of these modules —
+  splitting, merging, renaming — is a non-breaking change for
+  downstream crates and requires no ADR.
 
 R3 [5]: The `report::Diagnostic` struct's public-field shape is part
   of the v0.1 contract: fields `severity`, `rule`, `file`, `line`,
