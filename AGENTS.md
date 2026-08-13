@@ -38,6 +38,14 @@ a pull request — never a direct push to `main`.
 
 ## Governance
 
-This tool's own design decisions are tracked upstream in
-`Mattilsynet/gh-report` under `docs/adr/adr-fmt/` (prefix `AFM`); this
-repo does not yet carry its own ADR corpus.
+This repo carries its own ADR corpus at `docs/adr/adr-fmt/` (prefix
+`AFM`, 22 Accepted). These ADRs are binding — read the relevant ones
+before changing behaviour they govern. Read them with `adr-fmt --tree`
+/ `adr-fmt --context <prefix>` or directly as markdown; the config file
+`adr-fmt.toml` lives at the **project root**, not inside
+`docs/adr/adr-fmt/` — look there first, not next to the ADR files.
+
+`cargo test`/`clippy` above verify code, not corpus health. AFM-0003:R3
+warning-threshold enforcement on the ADR corpus itself is CI-only —
+there is no locally-runnable wrapper for it; a clean local build does
+not mean the corpus is clean.
