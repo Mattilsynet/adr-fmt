@@ -245,6 +245,10 @@ fn print_template() {
     println!("  Parser-stage rules:");
     println!("    P001  ADR file unreadable (filesystem error during read)");
     println!("    P002  Missing or malformed H1 title (\"# PREFIX-NNNN. Title\")");
+    println!("    P003  Malformed `## Related` segment: missing `Verb: ` separator,");
+    println!("          unrecognized verb, or unparseable target. The malformed");
+    println!("          segment is skipped; other valid segments on the same");
+    println!("          line still parse and link.");
     println!();
 }
 
