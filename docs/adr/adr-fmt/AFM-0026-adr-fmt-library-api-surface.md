@@ -1,7 +1,7 @@
 # AFM-0026. adr-fmt Library API Surface
 
 Date: 2026-05-18
-Last-reviewed: 2026-05-19
+Last-reviewed: 2026-08-13
 Tier: S
 Status: Accepted
 
@@ -71,7 +71,7 @@ R3 [5]: The `report::Diagnostic` struct's public-field shape is part
   and simplicity dominates.
 
 R4 [5]: Library code MUST NOT call `std::process::exit`. Errors
-  surface as `Result` to the caller; `crates/adr-fmt/src/main.rs` is
+  surface as `Result` to the caller; `src/main.rs` is
   the only authorised exit-code site. Pins the T2 lift landed in
   commit `ebe791f` against regression and reflects SEC-0004:R2
   (authority passed explicitly, never via global process state).
