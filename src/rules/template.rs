@@ -14,7 +14,7 @@
 //! relationship verbs in stale stubs.
 
 use crate::config::Config;
-use crate::model::{AdrRecord, RelVerb, Status, Tier, layer_to_tier};
+use crate::model::{AdrRecord, RelVerb, Related, Status, Tier, layer_to_tier};
 use crate::report::Diagnostic;
 
 /// Maximum lines in a single fenced code block before T011 fires.
@@ -203,7 +203,7 @@ fn check_status_validity(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     if record.is_stale() {
         return;
     }
-    if !record.has_related() {
+    if matches!(record.related(), Related::Absent) {
         diags.push(Diagnostic::warning(
             "T007",
             record.file_path(),
@@ -211,14 +211,18 @@ fn check_status_validity(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
             "missing `## Related` section".into(),
         ));
     } else if record.relationships().is_empty() {
-        diags.push(Diagnostic::warning(
-            "T007",
-            record.file_path(),
-            0,
+        let message = if let Some(summary) = record.related().malformed_summary() {
+            format!(
+                "Related section has no relationships — every ADR must \
+                 have at least one relation (use `Root: ID` for tree roots) \
+                 (P003 already reported: {summary})"
+            )
+        } else {
             "Related section has no relationships — every ADR must \
              have at least one relation (use `Root: ID` for tree roots)"
-                .into(),
-        ));
+                .to_owned()
+        };
+        diags.push(Diagnostic::warning("T007", record.file_path(), 0, message));
     }
 }
 
@@ -750,7 +754,6 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         *record.status_mut() = Some(Status::Accepted);
         *record.status_line_mut() = 8;
         *record.status_raw_mut() = Some("Accepted".into());
-        *record.has_related_mut() = true;
         *record.has_context_mut() = true;
         *record.has_decision_mut() = true;
         *record.has_consequences_mut() = true;
@@ -846,7 +849,6 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     #[test]
     fn empty_related_produces_t007() {
         let mut record = make_record();
-        *record.has_related_mut() = true;
         *record.relationships_mut() = vec![];
         let config = make_config();
         let mut diags = Vec::new();
@@ -2229,8 +2231,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     #[test]
     fn t007_skipped_for_stale_with_no_related_section() {
         let mut record = make_stale_stub();
-        *record.has_related_mut() = false;
-        record.relationships_mut().clear();
+        record.set_related(Related::Absent);
         *record.section_order_mut() = vec!["Retirement".into()];
         let config = make_config();
         let mut diags = Vec::new();
@@ -2263,8 +2264,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t007_still_fires_on_active_missing_related() {
         let mut record = make_record();
         *record.is_stale_mut() = false;
-        *record.has_related_mut() = false;
-        record.relationships_mut().clear();
+        record.set_related(Related::Absent);
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);

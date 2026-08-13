@@ -166,7 +166,7 @@ pub fn walk_parent_chain<S: std::hash::BuildHasher>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{AdrId, Relationship, Status, Tier};
+    use crate::model::{AdrId, Related, Relationship, Status, Tier};
     use std::path::PathBuf;
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
@@ -194,8 +194,7 @@ mod tests {
         *record.tier_mut() = Some(Tier::B);
         *record.status_mut() = Some(Status::Accepted);
         *record.status_raw_mut() = Some("Accepted".into());
-        *record.relationships_mut() = relationships;
-        *record.has_related_mut() = true;
+        record.set_related(Related::Parsed(relationships));
         *record.has_context_mut() = true;
         *record.has_decision_mut() = true;
         *record.has_consequences_mut() = true;

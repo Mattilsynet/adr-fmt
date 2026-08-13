@@ -641,7 +641,7 @@ fn emit_cycle_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{AdrId, Status, Tier};
+    use crate::model::{AdrId, Related, Status, Tier};
     use std::path::PathBuf;
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
@@ -672,8 +672,7 @@ mod tests {
         *record.status_mut() = Some(Status::Accepted);
         *record.status_line_mut() = 8;
         *record.status_raw_mut() = Some("Accepted".into());
-        *record.relationships_mut() = relationships;
-        *record.has_related_mut() = true;
+        record.set_related(Related::Parsed(relationships));
         *record.has_context_mut() = true;
         *record.has_decision_mut() = true;
         *record.has_consequences_mut() = true;

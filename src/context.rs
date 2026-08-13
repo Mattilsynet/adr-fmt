@@ -331,7 +331,9 @@ fn append_unclaimed_group(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{AdrId, AdrRecord, RelVerb, Relationship, Status, TaggedRule, Tier};
+    use crate::model::{
+        AdrId, AdrRecord, RelVerb, Related, Relationship, Status, TaggedRule, Tier,
+    };
     use std::path::PathBuf;
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
@@ -387,7 +389,6 @@ description = "test"
         *record.tier_mut() = Some(Tier::B);
         *record.status_mut() = Some(Status::Accepted);
         *record.status_raw_mut() = Some("Accepted".into());
-        *record.has_related_mut() = true;
         *record.has_context_mut() = true;
         *record.has_decision_mut() = true;
         *record.has_consequences_mut() = true;
@@ -404,15 +405,16 @@ description = "test"
                 layer,
             })
             .collect();
-        *record.relationships_mut() = rels
-            .into_iter()
-            .enumerate()
-            .map(|(i, (verb, p, n))| Relationship {
-                verb,
-                target: make_id(p, n),
-                line: 10 + i,
-            })
-            .collect();
+        record.set_related(Related::Parsed(
+            rels.into_iter()
+                .enumerate()
+                .map(|(i, (verb, p, n))| Relationship {
+                    verb,
+                    target: make_id(p, n),
+                    line: 10 + i,
+                })
+                .collect(),
+        ));
         record
     }
 

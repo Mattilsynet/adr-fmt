@@ -211,8 +211,7 @@ pub struct AdrRecord {
     status: Option<Status>,
     status_line: usize,
     status_raw: Option<String>,
-    relationships: Vec<Relationship>,
-    has_related: bool,
+    related: Related,
     has_context: bool,
     has_decision: bool,
     has_consequences: bool,
@@ -247,7 +246,7 @@ impl AdrRecord {
     /// True if this ADR declares itself as a tree root via `Root: OWN-ID`.
     #[must_use]
     pub fn is_root(&self) -> bool {
-        self.relationships
+        self.relationships()
             .iter()
             .any(|r| r.verb == RelVerb::Root && r.target == self.id)
     }
@@ -297,7 +296,7 @@ impl AdrRecord {
     /// Relationships declared in the `## Related` section.
     #[must_use]
     pub fn relationships(&self) -> &[Relationship] {
-        &self.relationships
+        self.related.relationships()
     }
 
     /// 1-indexed line number of the parsed title heading.
@@ -318,10 +317,8 @@ impl AdrRecord {
         self.status_raw.as_deref()
     }
 
-    /// True when a `## Related` section was found.
-    #[must_use]
-    pub fn has_related(&self) -> bool {
-        self.has_related
+    pub(crate) fn related(&self) -> &Related {
+        &self.related
     }
 
     /// True when a `## Context` section was found.
@@ -427,8 +424,7 @@ impl AdrRecord {
         status: Option<Status>,
         status_line: usize,
         status_raw: Option<String>,
-        relationships: Vec<Relationship>,
-        has_related: bool,
+        related: Related,
         has_context: bool,
         has_decision: bool,
         has_consequences: bool,
@@ -454,8 +450,7 @@ impl AdrRecord {
             status,
             status_line,
             status_raw,
-            relationships,
-            has_related,
+            related,
             has_context,
             has_decision,
             has_consequences,
@@ -529,12 +524,18 @@ impl AdrRecord {
         &mut self.status_raw
     }
 
-    pub(crate) fn relationships_mut(&mut self) -> &mut Vec<Relationship> {
-        &mut self.relationships
+    pub(crate) fn set_related(&mut self, related: Related) {
+        self.related = related;
     }
 
-    pub(crate) fn has_related_mut(&mut self) -> &mut bool {
-        &mut self.has_related
+    pub(crate) fn relationships_mut(&mut self) -> &mut Vec<Relationship> {
+        if !matches!(self.related, Related::Parsed(_)) {
+            self.related = Related::Parsed(Vec::new());
+        }
+        match &mut self.related {
+            Related::Parsed(v) => v,
+            Related::Absent | Related::Malformed { .. } => unreachable!(),
+        }
     }
 
     pub(crate) fn has_context_mut(&mut self) -> &mut bool {
@@ -611,8 +612,7 @@ impl AdrRecord {
             status: None,
             status_line: 0,
             status_raw: None,
-            relationships: Vec::new(),
-            has_related: false,
+            related: Related::Absent,
             has_context: false,
             has_decision: false,
             has_consequences: false,
@@ -859,6 +859,53 @@ pub struct Relationship {
     pub verb: RelVerb,
     pub target: AdrId,
     pub line: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum Related {
+    Absent,
+    Parsed(Vec<Relationship>),
+    Malformed {
+        line: String,
+        reason: MalformedReason,
+        relationships: Vec<Relationship>,
+    },
+}
+
+impl Related {
+    pub(crate) fn relationships(&self) -> &[Relationship] {
+        match self {
+            Self::Parsed(v)
+            | Self::Malformed {
+                relationships: v, ..
+            } => v,
+            Self::Absent => &[],
+        }
+    }
+
+    pub(crate) fn malformed_summary(&self) -> Option<String> {
+        match self {
+            Self::Malformed { line, reason, .. } => Some(format!("{reason} in `{line}`")),
+            Self::Parsed(_) | Self::Absent => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum MalformedReason {
+    MissingSeparator,
+    UnknownVerb(String),
+    UnparseableTarget(String),
+}
+
+impl fmt::Display for MalformedReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingSeparator => write!(f, "missing `Verb: ` separator"),
+            Self::UnknownVerb(v) => write!(f, "unrecognized verb `{v}`"),
+            Self::UnparseableTarget(t) => write!(f, "unparseable target `{t}`"),
+        }
+    }
 }
 
 /// Relationship verb vocabulary.
