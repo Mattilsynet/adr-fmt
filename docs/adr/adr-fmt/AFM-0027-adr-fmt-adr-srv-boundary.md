@@ -1,7 +1,7 @@
 # AFM-0027. adr-fmt ↔ adr-srv Boundary
 
 Date: 2026-05-18
-Last-reviewed: 2026-05-18
+Last-reviewed: 2026-08-13
 Tier: S
 Status: Accepted
 
@@ -78,8 +78,8 @@ R5 [7]: When `adr-fmt`'s parser shape changes — a new `P0xx` code per
 
 R6 [5]: Discovery is composable. `adr-srv` MAY use
   `adr_fmt::load_quiet` plus `resolve_corpus_root` (re-exported per
-  AFM-0026:R1) for walk-up parity with the binary's AFM-0001:R1
-  semantics, OR pass a pre-resolved corpus root from its own
+  AFM-0026:R1) for walk-up parity with the binary's corpus-root
+  discovery behaviour, OR pass a pre-resolved corpus root from its own
   service-level configuration. Both modes are supported by
   AFM-0026:R1 and neither is preferred at the ADR level. Per oracle
   bd `adr-fmt-d7ao` Q5.
