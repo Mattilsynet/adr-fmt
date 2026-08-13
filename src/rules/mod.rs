@@ -9,11 +9,6 @@ use crate::index::CorpusIndex;
 use crate::model::AdrRecord;
 use crate::report::Diagnostic;
 
-/// Run all rule modules and collect diagnostics.
-///
-/// `index` is the pre-validated [`CorpusIndex`] built once, before any
-/// rule runs (audit F1 / AFM-0008:R3) — no rule module builds its own
-/// corpus-wide `AdrId` map.
 #[must_use]
 pub fn run_all(records: &[AdrRecord], config: &Config, index: &CorpusIndex<'_>) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();

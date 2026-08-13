@@ -337,11 +337,6 @@ mod tests {
     };
     use std::path::PathBuf;
 
-    /// Test-only shim, shadowing `context_grouped` (imported via `use
-    /// super::*`): builds the `CorpusIndex` every call site below
-    /// needs, so existing `context_grouped(name, &records, &config)`
-    /// calls keep compiling against the new 4-arg production
-    /// signature.
     fn context_grouped(
         crate_name: &str,
         records: &[AdrRecord],
@@ -1053,13 +1048,6 @@ description = "test"
         assert!(unclaimed_ids.contains(&&make_id("CHE", 2)));
     }
 
-    /// No production path can construct a `RootGroup` whose `root` wraps
-    /// an invalid `AdrId`: the unclaimed fallback is `GroupRoot::Unclaimed`,
-    /// a distinct variant carrying no `AdrId` at all, and every
-    /// `GroupRoot::Adr` payload passed through `context_grouped` originates
-    /// from a real parsed `AdrId` (never from a sentinel). Illegal states
-    /// are unrepresentable by construction (R16) — this is the compile-time
-    /// counterpart to the runtime assertion above.
     #[test]
     fn unclaimed_group_root_carries_no_adr_id() {
         let records = vec![make_record(

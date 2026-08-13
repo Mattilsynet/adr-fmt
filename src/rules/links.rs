@@ -26,10 +26,6 @@ use crate::model::{AdrId, AdrRecord, RelVerb, Relationship, Status};
 use crate::nav::{compute_parent_edges, walk_parent_chain};
 use crate::report::Diagnostic;
 
-/// Runs every link/relationship/tree-structure check against a
-/// pre-validated [`CorpusIndex`] (audit F1 / AFM-0008:R3). The index is
-/// built once, before rule evaluation, by the caller — this function
-/// cannot construct a last-write-wins map of its own.
 pub fn check(records: &[AdrRecord], by_id: &CorpusIndex<'_>, diags: &mut Vec<Diagnostic>) {
     for record in records {
         check_root_references_coexistence(record, diags);
@@ -647,14 +643,6 @@ mod tests {
     use crate::model::{AdrId, Related, Status, Tier};
     use std::path::PathBuf;
 
-    /// Test-only shim: builds a `CorpusIndex` over `records` and calls
-    /// the real `check`. Shadows the `check` brought in via `use
-    /// super::*`, so every existing `check(&records, &mut diags)` call
-    /// below keeps compiling unchanged against the new 3-arg
-    /// production signature. Fixture ids are assumed unique here —
-    /// the duplicate-id / scan-order-independence property now lives
-    /// in `index::tests` (`build_is_scan_order_independent`), the
-    /// layer where it is actually enforced post-fix.
     fn check(records: &[AdrRecord], diags: &mut Vec<Diagnostic>) {
         let index = CorpusIndex::build(records).expect("test fixture ids must be unique");
         super::check(records, &index, diags);
@@ -695,13 +683,6 @@ mod tests {
         record
     }
 
-    /// F1 (audit) / AFM-0008:R3: `check` takes an already-built
-    /// `CorpusIndex`, never `&[AdrRecord]` alone, so it cannot
-    /// construct a last-write-wins map of its own (R16 — the illegal
-    /// state is unrepresentable at this boundary). Colliding records
-    /// never reach `check` at all: `CorpusIndex::build` rejects them
-    /// first. The scan-order-independence property itself is proved at
-    /// that boundary — `index::tests::build_is_scan_order_independent`.
     #[test]
     fn duplicate_id_is_rejected_before_check_ever_sees_it() {
         let mut a = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);

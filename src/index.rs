@@ -1,44 +1,20 @@
-//! Corpus-wide `AdrId -> AdrRecord` index.
-//!
-//! Per AFM-0008:R3 (permanent, globally unambiguous `PREFIX-NNNN`
-//! identity) and audit finding F1, two records sharing an `AdrId` must
-//! never resolve to an arbitrary survivor. [`CorpusIndex::build`] is
-//! the single fallible pre-rule step every downstream consumer (link
-//! checks, `--context`, `--refs`, `--tree`) shares: a corpus containing
-//! a collision cannot produce a `CorpusIndex` at all, so no last-write-
-//! wins map is reachable past this point (R16).
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::model::{AdrId, AdrRecord};
 
-/// Two records claim the same `AdrId`. Carries both conflicting file
-/// paths, sorted so the reported pair does not depend on which record
-/// was scanned first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuplicateId {
     pub id: AdrId,
     pub paths: [PathBuf; 2],
 }
 
-/// Corpus-wide `AdrId -> AdrRecord` lookup, built once as a pre-rule
-/// step (audit finding F1).
 #[derive(Debug)]
 pub struct CorpusIndex<'a> {
     by_id: HashMap<&'a AdrId, &'a AdrRecord>,
 }
 
 impl<'a> CorpusIndex<'a> {
-    /// Build the index over the full corpus.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DuplicateId`] when two records share an `AdrId`.
-    /// `records` is sorted by `(prefix, number, file_path)` before
-    /// indexing, so the detected collision — and the order of the two
-    /// reported paths — is identical regardless of the order `records`
-    /// arrives in.
     pub fn build(records: &'a [AdrRecord]) -> Result<Self, DuplicateId> {
         let mut ordered: Vec<&'a AdrRecord> = records.iter().collect();
         ordered.sort_by(|a, b| {
@@ -136,8 +112,6 @@ mod tests {
         );
     }
 
-    /// Load-bearing property (audit F1): the reported collision must
-    /// not depend on which record the directory scan visited first.
     #[test]
     fn build_is_scan_order_independent() {
         let a = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md");

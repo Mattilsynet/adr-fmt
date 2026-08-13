@@ -142,10 +142,6 @@ mod tests {
     use crate::model::{AdrId, AdrRecord, RelVerb, Related, Relationship, Status, Tier};
     use std::path::PathBuf;
 
-    /// Test-only shim, shadowing `find_refs` (imported via `use
-    /// super::*`): builds the `CorpusIndex` every call site below
-    /// needs, so existing `find_refs(&target, &records)` calls keep
-    /// compiling against the new 3-arg production signature.
     fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, RefsError> {
         let index = CorpusIndex::build(records).expect("test fixture ids must be unique");
         super::find_refs(target, records, &index)
