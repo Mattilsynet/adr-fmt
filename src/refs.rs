@@ -49,7 +49,11 @@ pub struct RefsReport {
 ///
 /// Returns [`RefsError::TargetNotFound`] when `target` is not present
 /// in the parsed corpus.
-pub fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, RefsError> {
+pub fn find_refs(
+    target: &AdrId,
+    records: &[AdrRecord],
+    index: &crate::index::CorpusIndex<'_>,
+) -> Result<RefsReport, RefsError> {
     let Some(target_record) = records.iter().find(|r| r.id() == target) else {
         return Err(RefsError::TargetNotFound {
             target: target.clone(),
@@ -61,9 +65,6 @@ pub fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, Re
     let mut refs: Vec<RefEntry> = Vec::new();
 
     if let Some(entries) = children.get(target) {
-        let by_id: std::collections::HashMap<&AdrId, &AdrRecord> =
-            records.iter().map(|r| (r.id(), r)).collect();
-
         for entry in entries {
             if !matches!(entry.verb, RelVerb::References | RelVerb::Supersedes) {
                 continue;
@@ -71,7 +72,7 @@ pub fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, Re
             if entry.child == *target {
                 continue;
             }
-            let Some(source) = by_id.get(&entry.child) else {
+            let Some(source) = index.get(&entry.child) else {
                 continue;
             };
             if source.is_stale() {
@@ -137,8 +138,18 @@ impl std::error::Error for RefsError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::index::CorpusIndex;
     use crate::model::{AdrId, AdrRecord, RelVerb, Related, Relationship, Status, Tier};
     use std::path::PathBuf;
+
+    /// Test-only shim, shadowing `find_refs` (imported via `use
+    /// super::*`): builds the `CorpusIndex` every call site below
+    /// needs, so existing `find_refs(&target, &records)` calls keep
+    /// compiling against the new 3-arg production signature.
+    fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, RefsError> {
+        let index = CorpusIndex::build(records).expect("test fixture ids must be unique");
+        super::find_refs(target, records, &index)
+    }
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
         AdrId::test_new(prefix, num)

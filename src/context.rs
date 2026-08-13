@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::config::Config;
+use crate::index::CorpusIndex;
 use crate::model::{AdrId, AdrRecord, Status};
 use crate::nav::{compute_parent_children, compute_parent_edges, walk_parent_chain};
 use crate::output::{EmittedRule, GroupRoot, RootGroup};
@@ -41,6 +42,7 @@ pub fn context_grouped(
     crate_name: &str,
     records: &[AdrRecord],
     config: &Config,
+    index: &CorpusIndex<'_>,
 ) -> Result<Vec<RootGroup>, String> {
     let candidate_domains: Vec<&str> = config
         .domains
@@ -58,7 +60,7 @@ pub fn context_grouped(
     let eligible_context =
         collect_eligible_context(crate_name, records, config, &candidate_domains);
 
-    Ok(build_context_groups(records, &eligible_context))
+    Ok(build_context_groups(records, &eligible_context, index))
 }
 
 fn collect_eligible_context<'a>(
@@ -125,6 +127,7 @@ fn collect_eligible_context<'a>(
 fn build_context_groups(
     records: &[AdrRecord],
     eligible_context: &EligibleContext<'_>,
+    record_by_id: &CorpusIndex<'_>,
 ) -> Vec<RootGroup> {
     let parent_edges = compute_parent_edges(records);
     let parent_children = compute_parent_children(records);
@@ -135,8 +138,6 @@ fn build_context_groups(
         .map(|r| r.id().clone())
         .collect();
 
-    let record_by_id: HashMap<&AdrId, &AdrRecord> = records.iter().map(|r| (r.id(), r)).collect();
-
     let assignment = assign_roots(&eligible_context.eligible, &root_index, &parent_edges);
 
     let foundation_set: HashSet<&str> = eligible_context
@@ -145,7 +146,7 @@ fn build_context_groups(
         .copied()
         .collect();
 
-    let context_roots = sorted_context_roots(&assignment, &foundation_set, &record_by_id);
+    let context_roots = sorted_context_roots(&assignment, &foundation_set, record_by_id);
 
     let mut claimed: HashSet<AdrId> = HashSet::new();
     let mut groups: Vec<RootGroup> = Vec::new();
@@ -209,7 +210,7 @@ fn assign_roots(
 fn sorted_context_roots(
     assignment: &HashMap<AdrId, AdrId>,
     foundation_set: &HashSet<&str>,
-    record_by_id: &HashMap<&AdrId, &AdrRecord>,
+    record_by_id: &CorpusIndex<'_>,
 ) -> Vec<AdrId> {
     let mut context_roots: Vec<AdrId> = assignment
         .values()
@@ -232,7 +233,7 @@ fn sorted_context_roots(
     context_roots
 }
 
-fn min_rule_layer(id: &AdrId, record_by_id: &HashMap<&AdrId, &AdrRecord>) -> u8 {
+fn min_rule_layer(id: &AdrId, record_by_id: &CorpusIndex<'_>) -> u8 {
     record_by_id.get(id).map_or(u8::MAX, |r| {
         r.decision_rules()
             .iter()
@@ -335,6 +336,20 @@ mod tests {
         AdrId, AdrRecord, RelVerb, Related, Relationship, Status, TaggedRule, Tier,
     };
     use std::path::PathBuf;
+
+    /// Test-only shim, shadowing `context_grouped` (imported via `use
+    /// super::*`): builds the `CorpusIndex` every call site below
+    /// needs, so existing `context_grouped(name, &records, &config)`
+    /// calls keep compiling against the new 4-arg production
+    /// signature.
+    fn context_grouped(
+        crate_name: &str,
+        records: &[AdrRecord],
+        config: &Config,
+    ) -> Result<Vec<RootGroup>, String> {
+        let index = CorpusIndex::build(records).expect("test fixture ids must be unique");
+        super::context_grouped(crate_name, records, config, &index)
+    }
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
         AdrId::test_new(prefix, num)

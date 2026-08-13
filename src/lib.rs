@@ -32,6 +32,7 @@ mod config;
 mod containment;
 mod context;
 mod guidelines;
+mod index;
 mod model;
 mod nav;
 mod output;
@@ -163,6 +164,31 @@ where
         }
     };
 
+    let index = match index::CorpusIndex::build(&all_records) {
+        Ok(idx) => idx,
+        Err(dup) => {
+            return report_duplicate_id(cli.lint, parse_diagnostics, all_records.len(), &dup);
+        }
+    };
+
+    dispatch_mode(
+        &cli,
+        &all_records,
+        &config,
+        &domain_dirs,
+        &index,
+        parse_diagnostics,
+    )
+}
+
+fn dispatch_mode(
+    cli: &Cli,
+    all_records: &[model::AdrRecord],
+    config: &Config,
+    domain_dirs: &[DomainDir],
+    index: &index::CorpusIndex<'_>,
+    parse_diagnostics: Vec<report::Diagnostic>,
+) -> i32 {
     if let Some(ref adr_id_str) = cli.refs {
         let Some(target_id) = parse_adr_id(adr_id_str) else {
             eprintln!(
@@ -171,7 +197,7 @@ where
             );
             return 1;
         };
-        let report = match refs::find_refs(&target_id, &all_records) {
+        let report = match refs::find_refs(&target_id, all_records, index) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("error: {e}");
@@ -180,7 +206,7 @@ where
         };
         print!("{}", output::render_refs(&report));
     } else if let Some(ref crate_name) = cli.context {
-        let groups = match context::context_grouped(crate_name, &all_records, &config) {
+        let groups = match context::context_grouped(crate_name, all_records, config, index) {
             Ok(g) => g,
             Err(e) => {
                 eprintln!("error: {e}");
@@ -196,11 +222,11 @@ where
         };
         print!(
             "{}",
-            output::render_tree(&all_records, &domain_dirs, &config, filter)
+            output::render_tree(all_records, domain_dirs, config, filter, index)
         );
     } else if cli.lint {
         let mut diagnostics = parse_diagnostics;
-        diagnostics.extend(rules::run_all(&all_records, &config));
+        diagnostics.extend(rules::run_all(all_records, config, index));
         print!(
             "{}",
             output::render_diagnostics(&diagnostics, all_records.len())
@@ -208,6 +234,52 @@ where
     }
 
     0
+}
+
+/// AFM-0008:R3 (permanent, globally unambiguous `PREFIX-NNNN` identity)
+/// corpus-level structural failure — surfaced through the same `P###`
+/// parser-stage diagnostic namespace as `P001`–`P003` (see `parser`
+/// module doc), since it is detected once the whole corpus has been
+/// scanned but before any rule runs.
+///
+/// `--lint` reports it on the diagnostics channel (exit 0, per
+/// AFM-0003 advisory-only semantics — matching `P001`'s precedent).
+/// Every other mode needs a valid `CorpusIndex` to produce a
+/// well-formed result at all, so it reports the failure the same way
+/// those modes already report their own errors: stderr + exit 1.
+fn report_duplicate_id(
+    lint_mode: bool,
+    parse_diagnostics: Vec<report::Diagnostic>,
+    record_count: usize,
+    dup: &index::DuplicateId,
+) -> i32 {
+    if lint_mode {
+        let mut diagnostics = parse_diagnostics;
+        diagnostics.push(duplicate_id_diagnostic(dup));
+        print!("{}", output::render_diagnostics(&diagnostics, record_count));
+        return 0;
+    }
+    eprintln!(
+        "error: duplicate ADR id {} — {} and {} both claim it (AFM-0008:R3 requires a permanent, globally unambiguous id)",
+        dup.id,
+        dup.paths[0].display(),
+        dup.paths[1].display(),
+    );
+    1
+}
+
+fn duplicate_id_diagnostic(dup: &index::DuplicateId) -> report::Diagnostic {
+    report::Diagnostic::warning(
+        "P004",
+        &dup.paths[0],
+        0,
+        format!(
+            "duplicate ADR id {}: also claimed by {} — every AdrId must be \
+             globally unambiguous (AFM-0008:R3)",
+            dup.id,
+            dup.paths[1].display(),
+        ),
+    )
 }
 
 fn run_default_mode(marker: Option<(PathBuf, Config)>) -> i32 {
