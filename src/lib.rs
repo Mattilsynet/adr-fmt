@@ -236,17 +236,6 @@ fn dispatch_mode(
     0
 }
 
-/// AFM-0008:R3 (permanent, globally unambiguous `PREFIX-NNNN` identity)
-/// corpus-level structural failure — surfaced through the same `P###`
-/// parser-stage diagnostic namespace as `P001`–`P003` (see `parser`
-/// module doc), since it is detected once the whole corpus has been
-/// scanned but before any rule runs.
-///
-/// `--lint` reports it on the diagnostics channel (exit 0, per
-/// AFM-0003 advisory-only semantics — matching `P001`'s precedent).
-/// Every other mode needs a valid `CorpusIndex` to produce a
-/// well-formed result at all, so it reports the failure the same way
-/// those modes already report their own errors: stderr + exit 1.
 fn report_duplicate_id(
     lint_mode: bool,
     parse_diagnostics: Vec<report::Diagnostic>,
