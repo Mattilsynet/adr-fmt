@@ -21,13 +21,16 @@
 
 use std::collections::HashMap;
 
+use crate::index::CorpusIndex;
 use crate::model::{AdrId, AdrRecord, RelVerb, Relationship, Status};
 use crate::nav::{compute_parent_edges, walk_parent_chain};
 use crate::report::Diagnostic;
 
-pub fn check(records: &[AdrRecord], diags: &mut Vec<Diagnostic>) {
-    let by_id: HashMap<&AdrId, &AdrRecord> = records.iter().map(|r| (r.id(), r)).collect();
-
+/// Runs every link/relationship/tree-structure check against a
+/// pre-validated [`CorpusIndex`] (audit F1 / AFM-0008:R3). The index is
+/// built once, before rule evaluation, by the caller — this function
+/// cannot construct a last-write-wins map of its own.
+pub fn check(records: &[AdrRecord], by_id: &CorpusIndex<'_>, diags: &mut Vec<Diagnostic>) {
     for record in records {
         check_root_references_coexistence(record, diags);
 
@@ -42,21 +45,21 @@ pub fn check(records: &[AdrRecord], diags: &mut Vec<Diagnostic>) {
         }
 
         for rel in record.relationships() {
-            check_single_link(record, rel, &by_id, diags);
+            check_single_link(record, rel, by_id, diags);
         }
 
-        check_parent_cross_domain_consistency(record, &by_id, diags);
+        check_parent_cross_domain_consistency(record, by_id, diags);
     }
 
-    check_supersedes_consistency(records, &by_id, diags);
+    check_supersedes_consistency(records, by_id, diags);
 
-    check_tree_structure(records, &by_id, diags);
+    check_tree_structure(records, by_id, diags);
 }
 
 fn check_single_link(
     source: &AdrRecord,
     rel: &Relationship,
-    by_id: &HashMap<&AdrId, &AdrRecord>,
+    by_id: &CorpusIndex<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
     let target_id = &rel.target;
@@ -96,7 +99,7 @@ fn check_single_link(
 /// `Superseded by A`. Warns on inconsistency.
 fn check_supersedes_consistency(
     records: &[AdrRecord],
-    by_id: &HashMap<&AdrId, &AdrRecord>,
+    by_id: &CorpusIndex<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
     for record in records {
@@ -187,7 +190,7 @@ fn check_legacy_verb(source: &AdrRecord, rel: &Relationship, diags: &mut Vec<Dia
 /// Roots and ADRs without `Parent-cross-domain` declared are skipped.
 fn check_parent_cross_domain_consistency(
     record: &AdrRecord,
-    by_id: &HashMap<&AdrId, &AdrRecord>,
+    by_id: &CorpusIndex<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
     let Some(declared) = record.parent_cross_domain() else {
@@ -290,7 +293,7 @@ fn check_root_references_coexistence(source: &AdrRecord, diags: &mut Vec<Diagnos
 /// from these checks — orphaned ancestry is expected for retired ADRs.
 fn check_tree_structure(
     records: &[AdrRecord],
-    by_id: &HashMap<&AdrId, &AdrRecord>,
+    by_id: &CorpusIndex<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
     let parent_edges = compute_parent_edges(records);
@@ -361,7 +364,7 @@ fn parent_rel_line(record: &AdrRecord, parent_id: &AdrId) -> usize {
 fn emit_cross_domain_parent(
     record: &AdrRecord,
     parent_id: &AdrId,
-    by_id: &HashMap<&AdrId, &AdrRecord>,
+    by_id: &CorpusIndex<'_>,
     in_cycle: bool,
     diags: &mut Vec<Diagnostic>,
 ) {
@@ -390,7 +393,7 @@ fn emit_cross_domain_parent(
 fn emit_parent_status_and_tier(
     record: &AdrRecord,
     parent_id: &AdrId,
-    by_id: &HashMap<&AdrId, &AdrRecord>,
+    by_id: &CorpusIndex<'_>,
     in_cycle: bool,
     diags: &mut Vec<Diagnostic>,
 ) {
@@ -478,7 +481,7 @@ fn emit_parent_tier(
 fn emit_root_parent_candidate(
     record: &AdrRecord,
     parent_id: &AdrId,
-    by_id: &HashMap<&AdrId, &AdrRecord>,
+    by_id: &CorpusIndex<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
     let Some(parent_record) = by_id.get(parent_id) else {
@@ -503,7 +506,7 @@ fn emit_root_parent_candidate(
 fn has_better_parent_candidate(
     record: &AdrRecord,
     parent_id: &AdrId,
-    by_id: &HashMap<&AdrId, &AdrRecord>,
+    by_id: &CorpusIndex<'_>,
 ) -> bool {
     record
         .relationships()
@@ -520,7 +523,7 @@ fn has_better_parent_candidate(
 
 fn emit_unreachable_chain_diagnostics(
     records: &[AdrRecord],
-    by_id: &HashMap<&AdrId, &AdrRecord>,
+    by_id: &CorpusIndex<'_>,
     parent_edges: &HashMap<AdrId, AdrId>,
     cycle_members: &std::collections::HashSet<AdrId>,
     diags: &mut Vec<Diagnostic>,
@@ -542,10 +545,10 @@ fn emit_unreachable_chain_diagnostics(
 fn emit_unreachable_chain(
     record: &AdrRecord,
     terminal: &AdrId,
-    by_id: &HashMap<&AdrId, &AdrRecord>,
+    by_id: &CorpusIndex<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    if !by_id.contains_key(terminal) || by_id.get(terminal).is_some_and(|t| t.is_root()) {
+    if !by_id.contains_key(terminal) || by_id.get(terminal).is_some_and(AdrRecord::is_root) {
         return;
     }
     let line = record
@@ -644,6 +647,19 @@ mod tests {
     use crate::model::{AdrId, Related, Status, Tier};
     use std::path::PathBuf;
 
+    /// Test-only shim: builds a `CorpusIndex` over `records` and calls
+    /// the real `check`. Shadows the `check` brought in via `use
+    /// super::*`, so every existing `check(&records, &mut diags)` call
+    /// below keeps compiling unchanged against the new 3-arg
+    /// production signature. Fixture ids are assumed unique here —
+    /// the duplicate-id / scan-order-independence property now lives
+    /// in `index::tests` (`build_is_scan_order_independent`), the
+    /// layer where it is actually enforced post-fix.
+    fn check(records: &[AdrRecord], diags: &mut Vec<Diagnostic>) {
+        let index = CorpusIndex::build(records).expect("test fixture ids must be unique");
+        super::check(records, &index, diags);
+    }
+
     fn make_id(prefix: &str, num: u16) -> AdrId {
         AdrId::test_new(prefix, num)
     }
@@ -677,6 +693,33 @@ mod tests {
         *record.has_decision_mut() = true;
         *record.has_consequences_mut() = true;
         record
+    }
+
+    /// F1 (audit) / AFM-0008:R3: `check` takes an already-built
+    /// `CorpusIndex`, never `&[AdrRecord]` alone, so it cannot
+    /// construct a last-write-wins map of its own (R16 — the illegal
+    /// state is unrepresentable at this boundary). Colliding records
+    /// never reach `check` at all: `CorpusIndex::build` rejects them
+    /// first. The scan-order-independence property itself is proved at
+    /// that boundary — `index::tests::build_is_scan_order_independent`.
+    #[test]
+    fn duplicate_id_is_rejected_before_check_ever_sees_it() {
+        let mut a = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
+        *a.file_path_mut() = PathBuf::from("docs/adr/cherry/CHE-0001-a.md");
+
+        let mut b = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
+        *b.file_path_mut() = PathBuf::from("docs/adr/cherry/CHE-0001-b.md");
+
+        let err =
+            CorpusIndex::build(&[a, b]).expect_err("duplicate CHE-0001 must be rejected here");
+        assert_eq!(err.id, make_id("CHE", 1));
+        assert_eq!(
+            err.paths,
+            [
+                PathBuf::from("docs/adr/cherry/CHE-0001-a.md"),
+                PathBuf::from("docs/adr/cherry/CHE-0001-b.md"),
+            ]
+        );
     }
 
     #[test]

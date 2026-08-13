@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use crate::config::Config;
+use crate::index::CorpusIndex;
 use crate::model::{AdrId, AdrRecord, DomainDir, RelVerb, Status};
 use crate::nav::{compute_parent_children, compute_parent_edges};
 use crate::refs::RefsReport;
@@ -16,7 +17,7 @@ use crate::report::Diagnostic;
 /// Read-only context shared across recursive tree-rendering calls.
 struct TreeContext<'a> {
     parent_children: &'a HashMap<AdrId, Vec<AdrId>>,
-    record_by_id: &'a HashMap<&'a AdrId, &'a AdrRecord>,
+    record_by_id: &'a CorpusIndex<'a>,
     domain_prefix: &'a str,
 }
 
@@ -26,7 +27,7 @@ struct TreeRenderState<'a> {
     by_prefix: HashMap<&'a str, Vec<&'a AdrRecord>>,
     parent_edges: HashMap<AdrId, AdrId>,
     parent_children: HashMap<AdrId, Vec<AdrId>>,
-    record_by_id: HashMap<&'a AdrId, &'a AdrRecord>,
+    record_by_id: &'a CorpusIndex<'a>,
 }
 
 /// The root of a `RootGroup`: either a real parsed ADR, or the
@@ -233,6 +234,7 @@ pub fn render_tree(
     domain_dirs: &[DomainDir],
     config: &Config,
     domain_filter: Option<&str>,
+    index: &CorpusIndex<'_>,
 ) -> String {
     let mut out = String::new();
 
@@ -251,7 +253,7 @@ pub fn render_tree(
         by_prefix: active_records_by_prefix(records),
         parent_edges: compute_parent_edges(records),
         parent_children: compute_parent_children(records),
-        record_by_id: records.iter().map(|r| (r.id(), r)).collect(),
+        record_by_id: index,
     };
 
     for dir in &dirs {
@@ -305,7 +307,7 @@ fn render_domain_tree(out: &mut String, dir: &DomainDir, state: &TreeRenderState
         .unwrap_or_default();
     let ctx = TreeContext {
         parent_children: &state.parent_children,
-        record_by_id: &state.record_by_id,
+        record_by_id: state.record_by_id,
         domain_prefix: &dir.prefix,
     };
     let mut reached = render_rooted_records(out, &domain_records, &ctx);
@@ -436,9 +438,8 @@ fn render_tree_node(
         return;
     }
 
-    let record = match ctx.record_by_id.get(id) {
-        Some(r) => *r,
-        None => return,
+    let Some(record) = ctx.record_by_id.get(id) else {
+        return;
     };
 
     let mut indent = String::from("  ");
