@@ -156,10 +156,6 @@ pub fn contained_join_optional(
     contained_join(root, segment).map(Some)
 }
 
-/// Lexical-only validation: rejects absolute paths and `..`
-/// components without touching the filesystem. Exposed separately
-/// for callers that want to validate config strings before any
-/// filesystem operation.
 fn lexical_check(segment: &str) -> Result<(), ContainmentError> {
     if segment.is_empty() {
         return Err(ContainmentError::Empty);
