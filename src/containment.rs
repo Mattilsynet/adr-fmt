@@ -20,6 +20,10 @@ pub enum ContainmentError {
     Empty,
     /// Canonicalization of the joined path failed.
     CanonicalizeFailed { segment: String, reason: String },
+    /// Probing the joined path for existence failed for a reason
+    /// other than absence (permission denied, IO error): whether the
+    /// path exists is indeterminate.
+    MetadataFailed { segment: String, reason: String },
     /// Canonical target escapes the canonical root via symlink or
     /// otherwise resolves outside the ADR corpus.
     EscapesRoot {
@@ -47,6 +51,13 @@ impl fmt::Display for ContainmentError {
                 write!(
                     f,
                     "cannot canonicalize {}: {reason}",
+                    segment.escape_debug()
+                )
+            }
+            Self::MetadataFailed { segment, reason } => {
+                write!(
+                    f,
+                    "cannot determine whether {} exists: {reason}",
                     segment.escape_debug()
                 )
             }
@@ -108,8 +119,13 @@ pub fn contained_join(root: &Path, segment: &str) -> Result<PathBuf, Containment
 }
 
 /// Join `segment` to `root` after lexical checks; canonicalize
-/// only if the target exists. Returns `Ok(None)` when the target
-/// passes lexical checks but does not exist.
+/// only if the target exists. Returns `Ok(None)` only when the
+/// existence probe fails with [`std::io::ErrorKind::NotFound`] —
+/// absence is never inferred from any other IO failure.
+///
+/// The probe does not follow symlinks, so a dangling symlink is a
+/// present-but-unresolvable entry ([`ContainmentError::CanonicalizeFailed`]),
+/// not an absent one.
 ///
 /// Used for paths that are optional at runtime (e.g., the stale
 /// directory may not exist in a fresh repo).
@@ -117,8 +133,8 @@ pub fn contained_join(root: &Path, segment: &str) -> Result<PathBuf, Containment
 /// # Errors
 ///
 /// Returns [`ContainmentError`] when `segment` is empty, absolute,
-/// contains parent traversal, cannot be canonicalized, or resolves
-/// outside `root`.
+/// contains parent traversal, cannot be probed for existence,
+/// cannot be canonicalized, or resolves outside `root`.
 pub fn contained_join_optional(
     root: &Path,
     segment: &str,
@@ -126,8 +142,15 @@ pub fn contained_join_optional(
     lexical_check(segment)?;
 
     let joined = root.join(segment);
-    if !joined.exists() {
-        return Ok(None);
+    match std::fs::symlink_metadata(&joined) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(ContainmentError::MetadataFailed {
+                segment: segment.to_owned(),
+                reason: e.to_string(),
+            });
+        }
     }
 
     contained_join(root, segment).map(Some)
@@ -246,6 +269,44 @@ mod tests {
         let dir = tmp();
         let err = contained_join_optional(dir.path(), "/etc").unwrap_err();
         assert!(matches!(err, ContainmentError::Absolute(_)), "got: {err:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn optional_join_propagates_permission_error_as_indeterminate() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tmp();
+        let locked = dir.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::create_dir(locked.join("inner")).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = contained_join_optional(dir.path(), "locked/inner");
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let err = result.expect_err("permission failure must not be reported as absent");
+        assert!(
+            matches!(err, ContainmentError::MetadataFailed { .. }),
+            "got: {err:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn optional_join_dangling_symlink_is_not_absent() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tmp();
+        symlink(dir.path().join("no-such-target"), dir.path().join("link")).unwrap();
+
+        let err = contained_join_optional(dir.path(), "link")
+            .expect_err("dangling symlink must not be reported as absent");
+        assert!(
+            matches!(err, ContainmentError::CanonicalizeFailed { .. }),
+            "got: {err:?}"
+        );
     }
 
     #[cfg(unix)]
