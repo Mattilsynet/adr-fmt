@@ -227,19 +227,23 @@ fn unreadable_entry(dir: &Path, e: &std::io::Error) -> Diagnostic {
 
 fn absorb_file(outcome: &mut ParseOutcome, path: &Path, prefix: &str, is_stale: bool) {
     match parse_adr_file(path, prefix, is_stale) {
-        Ok(file_outcome) => {
-            match file_outcome.record {
-                Some(record) => outcome.records.push(record),
-                None => note_parse_failure(outcome, path, "P002"),
-            }
-            outcome.diagnostics.extend(file_outcome.diagnostics);
+        Ok(ParseFileOutcome::Parsed {
+            record,
+            diagnostics,
+        }) => {
+            outcome.records.push(*record);
+            outcome.diagnostics.extend(diagnostics);
+        }
+        Ok(ParseFileOutcome::TitleMissing { diagnostics }) => {
+            note_parse_failure(outcome, path, "P002");
+            outcome.diagnostics.extend(diagnostics);
         }
         Err(e) => {
             outcome.diagnostics.push(Diagnostic::warning(
                 "P001",
                 path,
                 0,
-                format!("cannot read ADR file: {}", e.escape_debug()),
+                e.to_string().escape_debug().to_string(),
             ));
             note_parse_failure(outcome, path, "P001");
         }
@@ -338,36 +342,64 @@ fn collect_stale_entries(
     outcome
 }
 
-/// Records and diagnostics produced by parsing a single ADR file.
-///
-/// `record` is `None` when the file could be read but the H1 title
-/// is missing or malformed (a P002 diagnostic accompanies it).
-#[derive(Debug, Default)]
-pub(crate) struct ParseFileOutcome {
-    pub(crate) record: Option<AdrRecord>,
-    pub(crate) diagnostics: Vec<Diagnostic>,
+#[derive(Debug)]
+pub(crate) enum ParseFileOutcome {
+    Parsed {
+        record: Box<AdrRecord>,
+        diagnostics: Vec<Diagnostic>,
+    },
+    TitleMissing {
+        diagnostics: Vec<Diagnostic>,
+    },
+}
+
+#[derive(Debug)]
+pub(crate) struct ReadFileError {
+    path: PathBuf,
+    source: std::io::Error,
+}
+
+impl core::fmt::Display for ReadFileError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "cannot read ADR file {}: {}",
+            self.path.display().to_string().escape_debug(),
+            self.source.to_string().escape_debug()
+        )
+    }
+}
+
+impl std::error::Error for ReadFileError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
 }
 
 /// Parse a single ADR file.
 ///
-/// Returns `Err` when the file cannot be read (caller maps to P001).
-/// Returns `Ok` with an empty `record` and a P002 diagnostic when the
-/// H1 title is missing or malformed.
+/// # Errors
+///
+/// Returns [`ReadFileError`] when the file cannot be read; the caller
+/// maps it to P001.
 pub(crate) fn parse_adr_file(
     path: &Path,
     expected_prefix: &str,
     is_stale: bool,
-) -> Result<ParseFileOutcome, String> {
-    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+) -> Result<ParseFileOutcome, ReadFileError> {
+    let content = fs::read_to_string(path).map_err(|source| ReadFileError {
+        path: path.to_path_buf(),
+        source,
+    })?;
     let lines: Vec<&str> = content.lines().collect();
 
-    let mut outcome = ParseFileOutcome::default();
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     let source = SourceLines::scan(&lines);
     let outside = source.outside();
 
     if lines.is_empty() {
-        outcome.diagnostics.push(Diagnostic::warning(
+        diagnostics.push(Diagnostic::warning(
             "P002",
             path,
             0,
@@ -376,11 +408,11 @@ pub(crate) fn parse_adr_file(
                 expected_prefix.escape_debug()
             ),
         ));
-        return Ok(outcome);
+        return Ok(ParseFileOutcome::TitleMissing { diagnostics });
     }
 
     let Some((id, title, title_line)) = parse_title(&outside, expected_prefix) else {
-        outcome.diagnostics.push(Diagnostic::warning(
+        diagnostics.push(Diagnostic::warning(
             "P002",
             path,
             0,
@@ -389,7 +421,7 @@ pub(crate) fn parse_adr_file(
                 expected_prefix.escape_debug()
             ),
         ));
-        return Ok(outcome);
+        return Ok(ParseFileOutcome::TitleMissing { diagnostics });
     };
 
     let (date, _) = find_field(&lines, "Date:");
@@ -400,7 +432,7 @@ pub(crate) fn parse_adr_file(
     let status_from_section = status.is_none() && has_heading(&outside, "Status");
 
     let (related, related_diagnostics) = find_relationships(&outside, path);
-    outcome.diagnostics.extend(related_diagnostics);
+    diagnostics.extend(related_diagnostics);
 
     let has_context = has_heading(&outside, "Context");
     let has_decision = has_heading(&outside, "Decision");
@@ -417,7 +449,7 @@ pub(crate) fn parse_adr_file(
 
     let (max_code_block_lines, max_code_block_line) = measure_code_blocks(&source);
 
-    outcome.record = Some(AdrRecord::from_parser_fields(
+    let record = Box::new(AdrRecord::from_parser_fields(
         id,
         path.to_owned(),
         Some(title),
@@ -443,7 +475,10 @@ pub(crate) fn parse_adr_file(
         decision_rules,
         parent_cross_domain,
     ));
-    Ok(outcome)
+    Ok(ParseFileOutcome::Parsed {
+        record,
+        diagnostics,
+    })
 }
 
 /// Parse the H1 title line: `# PREFIX-NNNN. Title text`.
@@ -1277,7 +1312,9 @@ mod tests {
              ## Decision\n\nR1 [5]: We decided a thing for reasons that are written out here.\n"
         );
         let outcome = parse_markdown("CHE-0001-duplicate-context.md", &body);
-        let record = outcome.record.expect("record should parse");
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
 
         assert_eq!(
             record.section_order(),
@@ -1721,12 +1758,51 @@ mod tests {
         fs::write(&path, "").expect("write empty file");
 
         let outcome = parse_adr_file(&path, "CHE", false).expect("read should succeed");
-        assert!(outcome.record.is_none(), "no record from empty file");
-        assert_eq!(outcome.diagnostics.len(), 1);
-        assert_eq!(outcome.diagnostics[0].rule, "P002");
+        let ParseFileOutcome::TitleMissing { diagnostics } = outcome else {
+            panic!("no record from empty file")
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, "P002");
         assert!(
-            outcome.diagnostics[0].message.contains("empty"),
+            diagnostics[0].message.contains("empty"),
             "message should mention empty"
+        );
+    }
+
+    #[test]
+    fn missing_h1_outcome_carries_no_record_slot_at_all() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("CHE-0001-no-h1.md");
+        fs::write(&path, "Some prose without an H1 title.\n").expect("write file");
+
+        match parse_adr_file(&path, "CHE", false).expect("read should succeed") {
+            ParseFileOutcome::TitleMissing { diagnostics } => {
+                assert_eq!(diagnostics.len(), 1);
+                assert_eq!(diagnostics[0].rule, "P002");
+            }
+            ParseFileOutcome::Parsed { .. } => {
+                panic!("a file without an H1 must not reach the parsed state")
+            }
+        }
+    }
+
+    #[test]
+    fn unreadable_file_error_preserves_io_error_kind_through_the_source_chain() {
+        let err = parse_adr_file(
+            Path::new("/nonexistent/path/that/should/never/exist/CHE-0001.md"),
+            "CHE",
+            false,
+        )
+        .expect_err("missing file should bubble as Err");
+
+        let source = std::error::Error::source(&err).expect("error must expose its io source");
+        let io = source
+            .downcast_ref::<std::io::Error>()
+            .expect("source chain must carry the original io::Error");
+        assert_eq!(
+            io.kind(),
+            std::io::ErrorKind::NotFound,
+            "ErrorKind must survive the parse boundary"
         );
     }
 
@@ -1741,13 +1817,13 @@ mod tests {
         .expect("write file");
 
         let outcome = parse_adr_file(&path, "CHE", false).expect("read should succeed");
-        assert!(outcome.record.is_none(), "no record without H1");
-        assert_eq!(outcome.diagnostics.len(), 1);
-        assert_eq!(outcome.diagnostics[0].rule, "P002");
+        let ParseFileOutcome::TitleMissing { diagnostics } = outcome else {
+            panic!("no record without H1")
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, "P002");
         assert!(
-            outcome.diagnostics[0]
-                .message
-                .contains("missing or malformed"),
+            diagnostics[0].message.contains("missing or malformed"),
             "message should mention malformed title"
         );
     }
@@ -1759,12 +1835,11 @@ mod tests {
         fs::write(&path, "# PAR-0001. Wrong prefix\n").expect("write file");
 
         let outcome = parse_adr_file(&path, "CHE", false).expect("read should succeed");
-        assert!(
-            outcome.record.is_none(),
-            "no record when prefix doesn't match expected"
-        );
-        assert_eq!(outcome.diagnostics.len(), 1);
-        assert_eq!(outcome.diagnostics[0].rule, "P002");
+        let ParseFileOutcome::TitleMissing { diagnostics } = outcome else {
+            panic!("no record when prefix doesn't match expected")
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, "P002");
     }
 
     #[test]
@@ -1774,9 +1849,11 @@ mod tests {
         fs::write(&path, "# CHE-0001 . Title\n").expect("write file");
 
         let outcome = parse_adr_file(&path, "CHE", false).expect("read should succeed");
-        assert!(outcome.record.is_none(), "malformed H1 yields no record");
-        assert_eq!(outcome.diagnostics.len(), 1);
-        assert_eq!(outcome.diagnostics[0].rule, "P002");
+        let ParseFileOutcome::TitleMissing { diagnostics } = outcome else {
+            panic!("malformed H1 yields no record")
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, "P002");
     }
 
     #[test]
@@ -1790,9 +1867,11 @@ mod tests {
         .expect("write file");
 
         let outcome = parse_adr_file(&path, "CHE", false).expect("read should succeed");
-        assert!(outcome.record.is_some(), "record should be parsed");
+        let ParseFileOutcome::Parsed { diagnostics, .. } = outcome else {
+            panic!("record should be parsed")
+        };
         assert!(
-            outcome.diagnostics.is_empty(),
+            diagnostics.is_empty(),
             "valid file should emit no diagnostics"
         );
     }
@@ -2175,16 +2254,12 @@ crates = []
             "CHE-0001-fenced-h1.md",
             "Guidance for authors.\n\n```markdown\n# CHE-0001. Fabricated Title\n```\n",
         );
-        assert!(
-            outcome.record.is_none(),
-            "an H1 that exists only inside a fence must not produce a record"
-        );
-        assert_eq!(outcome.diagnostics.len(), 1);
-        assert_eq!(outcome.diagnostics[0].rule, "P002");
-        assert_eq!(
-            outcome.diagnostics[0].line, 0,
-            "AFM-0017:R3 pins P002 at line 0"
-        );
+        let ParseFileOutcome::TitleMissing { diagnostics } = outcome else {
+            panic!("an H1 that exists only inside a fence must not produce a record")
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, "P002");
+        assert_eq!(diagnostics[0].line, 0, "AFM-0017:R3 pins P002 at line 0");
     }
 
     #[test]
@@ -2193,7 +2268,9 @@ crates = []
             "CHE-0001-fenced-then-real.md",
             "Preamble prose.\n\n```markdown\n# CHE-0001. Fabricated Title\n```\n\n# CHE-0001. Real Title\n",
         );
-        let record = outcome.record.expect("real H1 must parse");
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("real H1 must parse")
+        };
         assert_eq!(record.title(), Some("Real Title"));
         assert_eq!(
             record.title_line(),
@@ -2208,7 +2285,9 @@ crates = []
             "CHE-0001-fenced-related.md",
             "# CHE-0001. Fence Related\n\n## Context\n\nEvery ADR declares lineage like this:\n\n```markdown\n## Related\n\nReferences: CHE-0009\n```\n",
         );
-        let record = outcome.record.expect("record should parse");
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
         assert!(
             matches!(record.related(), Related::Absent),
             "a fenced `## Related` example must not register as a real section, got: {:?}",
@@ -2222,7 +2301,9 @@ crates = []
             "CHE-0001-fenced-related-entry.md",
             "# CHE-0001. Fence Related Entry\n\n## Related\n\nRoot: CHE-0001\n\n```markdown\nReferences: CHE-0009\n```\n",
         );
-        let record = outcome.record.expect("record should parse");
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
         let Related::Parsed(rels) = record.related() else {
             panic!(
                 "expected a parsed Related section, got: {:?}",
@@ -2244,7 +2325,9 @@ crates = []
             "CHE-0001-fenced-rule.md",
             "# CHE-0001. Fence Rules\n\n## Decision\n\nR1 [5]: The real normative rule.\n\nAuthors tag rules like this:\n\n```markdown\nR2 [3]: An illustrative example rule.\n```\n",
         );
-        let record = outcome.record.expect("record should parse");
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
         let rules = record.decision_rules();
         assert_eq!(
             rules.len(),
@@ -2264,7 +2347,9 @@ crates = []
             "CHE-0001-fenced-continuation.md",
             "# CHE-0001. Fence Continuation\n\n## Decision\n\nR1 [5]: The real rule.\n```markdown\n  not a continuation\n```\n",
         );
-        let record = outcome.record.expect("record should parse");
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
         let rules = record.decision_rules();
         assert_eq!(rules.len(), 1);
         assert_eq!(
@@ -2280,7 +2365,9 @@ crates = []
             "# CHE-0001. Post Fence Prose\n\n## Decision\n\nR1 [5]: The real rule.\n\
              ```markdown\n  fenced example line\n```\n  outside prose after the fence.\n",
         );
-        let record = outcome.record.expect("record should parse");
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
         let rules = record.decision_rules();
         assert_eq!(rules.len(), 1);
         assert_eq!(
@@ -2295,7 +2382,9 @@ crates = []
             "CHE-0001-fenced-heading.md",
             "# CHE-0001. Fence Headings\n\n## Decision\n\nThe template requires:\n\n```markdown\n## Context\n```\n",
         );
-        let record = outcome.record.expect("record should parse");
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
         assert!(
             !record.has_context(),
             "a fenced `## Context` must not satisfy the required section"
@@ -2312,7 +2401,9 @@ crates = []
             "CHE-0001-tilde-fence.md",
             "# CHE-0001. Tilde Fence\n\n## Decision\n\n~~~markdown\nR9 [3]: Tilde-fenced example rule.\n~~~\n",
         );
-        let record = outcome.record.expect("record should parse");
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
         assert_eq!(
             record.decision_rules().len(),
             1,
@@ -2327,7 +2418,9 @@ crates = []
             "CHE-0001-indented-block.md",
             "# CHE-0001. Indented Block\n\n## Context\n\nAn indented block follows.\n\n    one two three four\n    five six\n\n## Decision\n\n    ## Consequences\n",
         );
-        let record = outcome.record.expect("record should parse");
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
         assert_eq!(
             record.max_code_block_lines(),
             0,
@@ -2355,16 +2448,12 @@ crates = []
             "CHE-0001-empty-title.md",
             "# CHE-0001. \n\n## Context\n\nProse.\n",
         );
-        assert!(
-            outcome.record.is_none(),
-            "an H1 with no title text is not a valid title"
-        );
-        assert_eq!(outcome.diagnostics.len(), 1);
-        assert_eq!(outcome.diagnostics[0].rule, "P002");
-        assert_eq!(
-            outcome.diagnostics[0].line, 0,
-            "AFM-0017:R3 pins P002 at line 0"
-        );
+        let ParseFileOutcome::TitleMissing { diagnostics } = outcome else {
+            panic!("an H1 with no title text is not a valid title")
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, "P002");
+        assert_eq!(diagnostics[0].line, 0, "AFM-0017:R3 pins P002 at line 0");
     }
 
     #[test]
@@ -2373,8 +2462,10 @@ crates = []
             "CHE-0001-blank-title.md",
             "# CHE-0001.    \n\n## Context\n\nProse.\n",
         );
-        assert!(outcome.record.is_none());
-        assert_eq!(outcome.diagnostics[0].rule, "P002");
+        let ParseFileOutcome::TitleMissing { diagnostics } = outcome else {
+            panic!("a whitespace-only title is not a valid title")
+        };
+        assert_eq!(diagnostics[0].rule, "P002");
     }
 
     fn write_adr(dir: &Path, file_name: &str, id: &str, title: &str) {
