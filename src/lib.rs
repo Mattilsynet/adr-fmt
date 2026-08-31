@@ -46,7 +46,7 @@ pub use containment::{ContainmentError, contained_join, contained_join_optional}
 pub use model::{
     AdrId, AdrIdError, AdrRecord, DomainDir, RelVerb, Relationship, Status, Tier, parse_adr_id,
 };
-pub use parser::{ParseError, ParseOutcome, parse_domain, parse_stale};
+pub use parser::{FileParseFailure, ParseError, ParseOutcome, parse_domain, parse_stale};
 pub use report::{Diagnostic, Severity};
 
 use std::ffi::OsString;
@@ -57,6 +57,7 @@ use clap::Parser;
 struct CorpusScan {
     records: Vec<model::AdrRecord>,
     diagnostics: Vec<report::Diagnostic>,
+    parse_failures: Vec<parser::FileParseFailure>,
 }
 
 /// ADR template and link-integrity validator.
@@ -170,6 +171,7 @@ where
     let CorpusScan {
         records: all_records,
         diagnostics: parse_diagnostics,
+        parse_failures,
     } = match scan_corpus(&adr_root, &config, &domain_dirs) {
         Ok(scan) => scan,
         Err(e) => {
@@ -178,7 +180,7 @@ where
         }
     };
 
-    let index = match index::CorpusIndex::build(&all_records, &parse_diagnostics) {
+    let index = match index::CorpusIndex::build(&all_records, &parse_failures) {
         Ok(idx) => idx,
         Err(dup) => {
             return report_duplicate_id(cli.lint, parse_diagnostics, all_records.len(), &dup);
@@ -327,11 +329,13 @@ fn scan_corpus(
 ) -> Result<CorpusScan, String> {
     let mut records = Vec::new();
     let mut diagnostics = Vec::new();
+    let mut parse_failures = Vec::new();
 
     for dir in domain_dirs {
         let outcome = parser::parse_domain(dir).map_err(|e| e.to_string())?;
         records.extend(outcome.records);
         diagnostics.extend(outcome.diagnostics);
+        parse_failures.extend(outcome.parse_failures);
     }
 
     let stale_dir = containment::contained_join_optional(adr_root, &config.stale.directory)
@@ -342,11 +346,13 @@ fn scan_corpus(
         let outcome = parser::parse_stale(&stale_dir, config).map_err(|e| e.to_string())?;
         records.extend(outcome.records);
         diagnostics.extend(outcome.diagnostics);
+        parse_failures.extend(outcome.parse_failures);
     }
 
     Ok(CorpusScan {
         records,
         diagnostics,
+        parse_failures,
     })
 }
 
