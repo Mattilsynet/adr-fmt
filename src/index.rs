@@ -140,7 +140,7 @@ mod tests {
         *record.title_line_mut() = 1;
         *record.date_mut() = Some("2026-04-25".into());
         *record.last_reviewed_mut() = Some("2026-04-25".into());
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.status_mut() = Some(Status::Accepted);
         *record.status_line_mut() = 8;
         *record.status_raw_mut() = Some("Accepted".into());

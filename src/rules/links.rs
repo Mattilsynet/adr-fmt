@@ -653,7 +653,7 @@ mod tests {
         *record.title_line_mut() = 1;
         *record.date_mut() = Some("2026-04-25".into());
         *record.last_reviewed_mut() = Some("2026-04-25".into());
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.status_mut() = Some(Status::Accepted);
         *record.status_line_mut() = 8;
         *record.status_raw_mut() = Some("Accepted".into());
@@ -1345,10 +1345,10 @@ mod tests {
     #[test]
     fn lower_tier_parent_produces_l016() {
         let mut parent = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
-        *parent.tier_mut() = Some(Tier::D);
+        parent.set_tier(Some(Tier::D));
         let mut child =
             make_record_with_rels("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        *child.tier_mut() = Some(Tier::B);
+        child.set_tier(Some(Tier::B));
         let mut diags = Vec::new();
         check(&[parent, child], &mut diags);
         assert!(
@@ -1360,10 +1360,10 @@ mod tests {
     #[test]
     fn same_or_higher_tier_parent_no_l016() {
         let mut parent = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
-        *parent.tier_mut() = Some(Tier::S);
+        parent.set_tier(Some(Tier::S));
         let mut child =
             make_record_with_rels("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        *child.tier_mut() = Some(Tier::B);
+        child.set_tier(Some(Tier::B));
         let mut diags = Vec::new();
         check(&[parent, child], &mut diags);
         assert!(

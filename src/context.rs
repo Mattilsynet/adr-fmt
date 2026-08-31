@@ -396,7 +396,7 @@ description = "test"
         *record.file_path_mut() = PathBuf::from(format!("{prefix}-{num:04}-test.md"));
         *record.title_mut() = Some(format!("Test {prefix}-{num:04}"));
         *record.title_line_mut() = 1;
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.status_mut() = Some(Status::Accepted);
         *record.status_raw_mut() = Some("Accepted".into());
         *record.has_context_mut() = true;

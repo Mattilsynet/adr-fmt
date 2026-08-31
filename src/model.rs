@@ -508,8 +508,8 @@ impl AdrRecord {
         &mut self.last_reviewed
     }
 
-    pub(crate) fn tier_mut(&mut self) -> &mut Option<Tier> {
-        &mut self.tier
+    pub(crate) fn set_tier(&mut self, tier: Option<Tier>) {
+        self.tier = tier;
     }
 
     pub(crate) fn status_mut(&mut self) -> &mut Option<Status> {
