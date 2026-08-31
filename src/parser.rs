@@ -267,12 +267,20 @@ fn note_parse_failure(outcome: &mut ParseOutcome, path: &Path, rule: &'static st
 ///
 /// Panics only if an internally-constructed domain filename regex is invalid.
 pub fn parse_stale(stale_dir: &Path, config: &Config) -> Result<ParseOutcome, ParseError> {
-    let mut outcome = ParseOutcome::default();
-
     let entries = fs::read_dir(stale_dir).map_err(|e| ParseError::ReadDir {
         path: stale_dir.to_path_buf(),
         source: e,
     })?;
+
+    Ok(collect_stale_entries(stale_dir, config, entries))
+}
+
+fn collect_stale_entries(
+    stale_dir: &Path,
+    config: &Config,
+    entries: impl Iterator<Item = std::io::Result<fs::DirEntry>>,
+) -> ParseOutcome {
+    let mut outcome = ParseOutcome::default();
 
     let prefixes: Vec<(&str, Regex)> = config
         .domains
@@ -319,7 +327,7 @@ pub fn parse_stale(stale_dir: &Path, config: &Config) -> Result<ParseOutcome, Pa
     }
 
     outcome.records.sort_by_key(|r| r.id().number());
-    Ok(outcome)
+    outcome
 }
 
 /// Records and diagnostics produced by parsing a single ADR file.
