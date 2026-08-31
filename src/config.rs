@@ -75,20 +75,11 @@ pub struct RuleConfig {
     pub params: HashMap<String, toml::Value>,
 }
 
-/// Outcome of looking up a `u64` rule parameter.
-///
-/// Absence and malformation are distinct: a key that is simply not
-/// configured is not the same as one configured with a wrong-typed or
-/// out-of-range value, and collapsing them hides user config errors
-/// behind a silent default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub(crate) enum RuleParam {
-    /// Neither the rule nor the key is configured.
     Absent,
-    /// A valid `u64` value.
     Value(u64),
-    /// The key is configured but is not a representable `u64`.
     Invalid {
         rule_id: String,
         key: String,
@@ -97,11 +88,6 @@ pub(crate) enum RuleParam {
 }
 
 impl Config {
-    /// Look up a rule parameter by rule ID and key.
-    ///
-    /// Returns [`RuleParam::Absent`] only when the rule or key is not
-    /// configured; a present-but-unusable value yields
-    /// [`RuleParam::Invalid`].
     #[must_use]
     pub(crate) fn rule_param_u64(&self, rule_id: &str, key: &str) -> RuleParam {
         let Some(raw) = self
@@ -140,17 +126,20 @@ impl Config {
 /// # Errors
 ///
 /// Returns [`LoadError::Io`] when `adr-fmt.toml` cannot be read.
-/// Returns [`LoadError::Parse`] when TOML parsing fails or the required
-/// `[corpus]` table is absent.
+/// Returns [`LoadError::Parse`] when TOML parsing fails.
+/// Returns [`LoadError::NotAMarker`] when the file parses as TOML but
+/// declares no `[corpus]` table.
 pub fn load_quiet(marker_dir: &Path) -> Result<Config, LoadError> {
     load_inner_typed(marker_dir)
 }
 
 /// Distinguishes how a marker load failed. `Io` indicates the file
 /// existed but could not be read (permission denied, etc.) — discovery
-/// should treat this as a hard error rather than skip. `Parse` covers
-/// malformed TOML or a missing `[corpus]` table — discovery may skip
-/// and continue walking.
+/// must treat this as a hard error rather than skip. `Parse` covers
+/// malformed TOML — the file claims to be a marker but is broken, so
+/// discovery must stop rather than walk past it. `NotAMarker` covers a
+/// well-formed TOML file with no `[corpus]` table — it makes no marker
+/// claim, so discovery may skip it and continue walking up.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum LoadError {

@@ -4,18 +4,6 @@
 //! via `References:` or `Supersedes:` in its `## Related` line. The
 //! result is a compact, agent-readable bullet list: one row per
 //! referrer, sorted by tier rank → prefix → number → verb.
-//!
-//! The one-bullet-per-referrer output shape is pinned by AFM-0024:R3.
-//! Excluded by design:
-//!
-//! - Stale referrers (referrer's `is_stale` set).
-//! - Legacy forward verbs (`DependsOn`, `Extends`, `Illustrates`,
-//!   `ContrastsWith`, `ScopedBy`).
-//! - Legacy reverse verbs (filtered upstream by `nav::compute_children`).
-//! - The lifecycle `Status: Superseded by X` field (not a structural
-//!   `## Related` edge).
-//! - Self-references (`rel.target == record.id`), including any
-//!   ill-formed `Supersedes: SELF`.
 
 use crate::index::Resolution;
 use crate::model::{AdrId, RelVerb, Status, Tier};
@@ -41,23 +29,6 @@ pub struct RefsReport {
     pub refs: Vec<RefEntry>,
 }
 
-/// Find every non-stale ADR that cites `target` via `References:`
-/// or `Supersedes:`.
-///
-/// The corpus records and the ID lookup both come from `index`, so a
-/// caller cannot supply a record set and a lookup table that disagree.
-///
-/// Sort order: tier rank (missing tier last) → prefix → number → verb
-/// (alphabetical, `References` before `Supersedes`).
-///
-/// # Errors
-///
-/// Returns [`RefsError::TargetNotFound`] when `target` is genuinely
-/// absent from the corpus, and [`RefsError::TargetIndeterminate`] when
-/// a file claiming `target` exists but could not be parsed — the two
-/// are deliberately distinct. Returns
-/// [`RefsError::ReferrerIndeterminate`] when a referrer cannot be
-/// resolved, rather than silently omitting it from the report.
 pub fn find_refs(
     target: &AdrId,
     index: &crate::index::CorpusIndex<'_>,
@@ -138,10 +109,6 @@ fn verb_sort_key(verb: RelVerb) -> u8 {
     }
 }
 
-/// Failure from [`find_refs`]. Absence and indeterminacy are separate
-/// variants: `TargetNotFound` asserts the ID is genuinely not in the
-/// corpus, while `TargetIndeterminate` asserts only that resolution
-/// could not be completed.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RefsError {
