@@ -867,12 +867,10 @@ fn measure_code_blocks(lines: &[&str]) -> (usize, usize, usize) {
     let mut max_lines = 0usize;
     let mut max_start = 0usize;
     let mut block_count = 0usize;
-    let mut in_block = false;
 
     for (i, line) in lines.iter().enumerate() {
         match scanner.classify(line) {
             LineKind::FenceOpen => {
-                in_block = true;
                 current_lines = 0;
                 current_start = i + 1;
                 block_count += 1;
@@ -882,14 +880,13 @@ fn measure_code_blocks(lines: &[&str]) -> (usize, usize, usize) {
                     max_lines = current_lines;
                     max_start = current_start;
                 }
-                in_block = false;
             }
             LineKind::Inside => current_lines += 1,
             LineKind::Outside => {}
         }
     }
 
-    if in_block && current_lines > max_lines {
+    if scanner.inside && current_lines > max_lines {
         max_lines = current_lines;
         max_start = current_start;
     }
