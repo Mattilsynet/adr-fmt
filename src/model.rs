@@ -189,6 +189,15 @@ impl fmt::Display for AdrId {
     }
 }
 
+/// Presence of a legacy `## Status` section heading, carrying the
+/// heading's own line number when present so diagnostics can point at
+/// the section rather than at the preamble metadata line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LegacyStatusSection {
+    Absent,
+    Present { heading_line: usize },
+}
+
 /// Parsed ADR record with all metadata and line numbers.
 ///
 /// Bool fields represent independent parser-detected facts about the
@@ -218,12 +227,14 @@ pub struct AdrRecord {
     has_retirement: bool,
     /// True when the ADR file lives in the stale archive directory.
     is_stale: bool,
-    /// True when status was parsed from the legacy `## Status` section
-    /// (not the `Status:` preamble metadata field).
+    /// True when no `Status:` preamble metadata field was found and a
+    /// legacy `## Status` heading exists. This is a metadata-absence
+    /// predicate, not a value-provenance one: an empty legacy section
+    /// sets it while `status` stays `None`.
     status_from_section: bool,
-    /// True when a legacy `## Status` section heading exists, recorded
-    /// independently of whether a `Status:` metadata field is present.
-    has_legacy_status_section: bool,
+    /// The legacy `## Status` section heading, recorded independently of
+    /// whether a `Status:` metadata field is present.
+    legacy_status_section: LegacyStatusSection,
     max_code_block_lines: usize,
     /// 1-indexed line number of the opening fence of the largest code
     /// block. 0 if no code blocks exist.
@@ -366,8 +377,16 @@ impl AdrRecord {
         self.is_stale
     }
 
-    /// True when status was parsed from the legacy `## Status` section
-    /// (not the `Status:` preamble metadata field).
+    /// True when no `Status:` preamble metadata field was found and a
+    /// legacy `## Status` heading exists.
+    ///
+    /// This is the historical v0.1 predicate, pinned bit-for-bit by
+    /// AFM-0032:R5. It reports metadata absence alongside a legacy
+    /// heading; it does **not** assert that a status value was read from
+    /// that section. An empty legacy section returns `true` while
+    /// [`AdrRecord::status`] is `None`. A value was sourced from the
+    /// legacy section exactly when this returns `true` and
+    /// [`AdrRecord::status`] is `Some`.
     #[must_use]
     pub fn status_from_section(&self) -> bool {
         self.status_from_section
@@ -375,11 +394,21 @@ impl AdrRecord {
 
     /// True when a legacy `## Status` section heading exists, whether or
     /// not a `Status:` preamble metadata field is also present. Distinct
-    /// from [`AdrRecord::status_from_section`], which answers the narrower
-    /// question of whether the status value was sourced from that section.
+    /// from [`AdrRecord::status_from_section`], which additionally
+    /// requires the metadata field to be absent.
     #[must_use]
     pub fn has_legacy_status_section(&self) -> bool {
-        self.has_legacy_status_section
+        self.legacy_status_section_line().is_some()
+    }
+
+    /// 1-indexed line number of the legacy `## Status` heading, or `None`
+    /// when no legacy section exists.
+    #[must_use]
+    pub fn legacy_status_section_line(&self) -> Option<usize> {
+        match self.legacy_status_section {
+            LegacyStatusSection::Absent => None,
+            LegacyStatusSection::Present { heading_line } => Some(heading_line),
+        }
     }
 
     /// Line count of the largest fenced code block. 0 if none.
@@ -467,7 +496,7 @@ impl AdrRecord {
         has_retirement: bool,
         is_stale: bool,
         status_from_section: bool,
-        has_legacy_status_section: bool,
+        legacy_status_section: LegacyStatusSection,
         max_code_block_lines: usize,
         max_code_block_line: usize,
         section_order: Vec<String>,
@@ -495,7 +524,7 @@ impl AdrRecord {
             has_retirement,
             is_stale,
             status_from_section,
-            has_legacy_status_section,
+            legacy_status_section,
             max_code_block_lines,
             max_code_block_line,
             section_order,
@@ -606,8 +635,11 @@ impl AdrRecord {
         &mut self.status_from_section
     }
 
-    pub(crate) fn has_legacy_status_section_mut(&mut self) -> &mut bool {
-        &mut self.has_legacy_status_section
+    pub(crate) fn set_legacy_status_section(&mut self, heading_line: Option<usize>) {
+        self.legacy_status_section = match heading_line {
+            None => LegacyStatusSection::Absent,
+            Some(heading_line) => LegacyStatusSection::Present { heading_line },
+        };
     }
 
     pub(crate) fn max_code_block_lines_mut(&mut self) -> &mut usize {
@@ -671,7 +703,7 @@ impl AdrRecord {
             has_retirement: false,
             is_stale: false,
             status_from_section: false,
-            has_legacy_status_section: false,
+            legacy_status_section: LegacyStatusSection::Absent,
             max_code_block_lines: 0,
             max_code_block_line: 0,
             section_order: Vec::new(),

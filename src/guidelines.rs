@@ -243,11 +243,12 @@ fn print_template() {
     println!("          is reported against its own line — it is not");
     println!("          silently skipped. Exceeding may indicate the ADR");
     println!("          covers multiple decisions.");
-    println!("    T019  Rule-tier tension — asymmetric leverage bound. Fires iff");
-    println!("          the rule's layer-derived tier has HIGHER leverage than");
-    println!("          the ADR's tier (rule_rank < adr_rank); equal or lower");
-    println!("          leverage passes silently. There are NO domain carve-outs");
-    println!("          and no distance threshold. Move the rule to a matching-");
+    println!("    T019  Rule-tier tension — asymmetric leverage bound. T019 MUST");
+    println!("          fire if and only if the rule's layer-derived tier has");
+    println!("          higher leverage than the ADR's tier (rule_rank <");
+    println!("          adr_rank); equal or lower leverage MUST pass silently.");
+    println!("          T019 MUST NOT apply domain carve-outs and MUST NOT apply");
+    println!("          a distance threshold. Move the rule to a matching-");
     println!("          tier ADR or adjust the layer annotation.");
     println!("    T020  Reference load — tier-scaled limit on References:");
     println!("          count. Root and Supersedes are structural and don't");

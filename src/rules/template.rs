@@ -257,20 +257,23 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
         ));
     }
 
-    if record.has_legacy_status_section() {
-        let message = if record.status_from_section() {
-            "status uses legacy `## Status` section — migrate to \
-             `Status:` preamble metadata field (e.g., `Status: Accepted`)"
-                .to_owned()
-        } else {
-            "legacy `## Status` section is dead content — delete the leftover \
-             section; the `Status:` preamble metadata field is authoritative"
-                .to_owned()
+    if let Some(heading_line) = record.legacy_status_section_line() {
+        let message = match (record.status().is_some(), record.status_from_section()) {
+            (true, true) => "status uses legacy `## Status` section — migrate to \
+                 `Status:` preamble metadata field (e.g., `Status: Accepted`)"
+                .to_owned(),
+            (true, false) => "legacy `## Status` section is dead content — delete the leftover \
+                 section; the `Status:` preamble metadata field is authoritative"
+                .to_owned(),
+            (false, _) => "legacy `## Status` section carries no status value — delete the \
+                 empty section and add a `Status:` preamble metadata field \
+                 (e.g., `Status: Accepted`)"
+                .to_owned(),
         };
         diags.push(Diagnostic::warning(
             "T005c",
             record.file_path(),
-            record.status_line(),
+            heading_line,
             message,
         ));
     }
@@ -1615,7 +1618,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn legacy_status_section_produces_t005c() {
         let mut record = make_record();
         *record.status_from_section_mut() = true;
-        *record.has_legacy_status_section_mut() = true;
+        record.set_legacy_status_section(Some(12));
         *record.section_order_mut() = vec![
             "Status".into(),
             "Related".into(),
@@ -1648,7 +1651,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn legacy_section_with_metadata_field_produces_one_t005c() {
         let mut record = make_record();
         *record.status_from_section_mut() = false;
-        *record.has_legacy_status_section_mut() = true;
+        record.set_legacy_status_section(Some(12));
         *record.section_order_mut() = vec![
             "Status".into(),
             "Related".into(),
@@ -1669,6 +1672,12 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
             t005c[0].message.contains("delete"),
             "both-present T005c should advise deleting the leftover section, got: {:?}",
             t005c[0].message
+        );
+        assert_eq!(
+            t005c[0].line, 12,
+            "T005c MUST point at the legacy heading it asks the user to delete, \
+             not at the preamble metadata line, got: {:?}",
+            t005c[0]
         );
         assert_eq!(
             diags.iter().filter(|d| d.rule == "T005").count(),
@@ -1708,7 +1717,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         *record.status_mut() = None;
         *record.status_raw_mut() = None;
         *record.status_from_section_mut() = false;
-        *record.has_legacy_status_section_mut() = false;
+        record.set_legacy_status_section(None);
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
@@ -1727,8 +1736,8 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         let mut record = make_record();
         *record.status_mut() = None;
         *record.status_raw_mut() = None;
-        *record.status_from_section_mut() = false;
-        *record.has_legacy_status_section_mut() = true;
+        *record.status_from_section_mut() = true;
+        record.set_legacy_status_section(Some(12));
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
@@ -1738,10 +1747,22 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
             "a legacy section carrying no value is still status-less; T005 MUST \
              keep firing, got: {diags:?}"
         );
+        let t005c: Vec<_> = diags.iter().filter(|d| d.rule == "T005c").collect();
         assert_eq!(
-            diags.iter().filter(|d| d.rule == "T005c").count(),
+            t005c.len(),
             1,
             "an empty legacy section is still a legacy section, got: {diags:?}"
+        );
+        assert!(
+            !t005c[0].message.contains("migrate"),
+            "an empty legacy section supplied no status value, so T005c MUST NOT \
+             claim the status came from it, got: {:?}",
+            t005c[0].message
+        );
+        assert_eq!(
+            t005c[0].line, 12,
+            "T005c MUST point at the legacy heading line, got: {:?}",
+            t005c[0]
         );
     }
 
