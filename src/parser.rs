@@ -7,9 +7,9 @@ use regex::Regex;
 
 use crate::config::Config;
 use crate::model::{
-    AdrId, AdrRecord, CrossDomainDefect, CrossDomainParent, DomainDir, MalformedReason, RelVerb,
-    Related, Relationship, Status, TaggedRule, Tier, TierField, parse_adr_id,
-    parse_adr_id_from_filename_stem,
+    AdrId, AdrRecord, CrossDomainDefect, CrossDomainParent, DomainDir, MalformedReason,
+    MalformedRule, RelVerb, Related, Relationship, Status, TaggedRule, Tier, TierField,
+    parse_adr_id, parse_adr_id_from_filename_stem,
 };
 use crate::report::Diagnostic;
 use crate::rules::naming;
@@ -460,7 +460,10 @@ pub(crate) fn parse_adr_file(
 
     let parent_cross_domain = find_parent_cross_domain_field(&lines);
 
-    let decision_rules = extract_tagged_rules(&source.rule_scan());
+    let RuleExtraction {
+        rules: decision_rules,
+        malformed: malformed_decision_rules,
+    } = extract_tagged_rules(&source.rule_scan());
 
     let (max_code_block_lines, max_code_block_line) = measure_code_blocks(&source);
 
@@ -488,6 +491,7 @@ pub(crate) fn parse_adr_file(
         section_word_counts,
         crates,
         decision_rules,
+        malformed_decision_rules,
         parent_cross_domain,
     ));
     Ok(ParseFileOutcome::Parsed {
@@ -904,9 +908,39 @@ fn split_id_and_reason(value: &str) -> (&str, &str) {
 static TAGGED_RULE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^R(\d+)\s*\[(\d+)\]:\s*(.+)").expect("valid regex"));
 
-fn extract_tagged_rules(scan: &RuleScanLines<'_>) -> Vec<TaggedRule> {
+static RULE_SHAPED_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^R\d+\s*[\[:]").expect("valid regex"));
+
+struct RuleExtraction {
+    rules: Vec<TaggedRule>,
+    malformed: Vec<MalformedRule>,
+}
+
+enum RuleCandidate<'a> {
+    Tagged {
+        num: &'a str,
+        layer: &'a str,
+        text: &'a str,
+    },
+    Malformed,
+    Prose,
+}
+
+fn classify_rule_line(line: &str) -> RuleCandidate<'_> {
+    if let Some((_, [num, layer, text])) = TAGGED_RULE_RE.captures(line).map(|caps| caps.extract())
+    {
+        RuleCandidate::Tagged { num, layer, text }
+    } else if RULE_SHAPED_RE.is_match(line) {
+        RuleCandidate::Malformed
+    } else {
+        RuleCandidate::Prose
+    }
+}
+
+fn extract_tagged_rules(scan: &RuleScanLines<'_>) -> RuleExtraction {
     let scanned = scan.as_slice();
     let mut rules = Vec::new();
+    let mut malformed = Vec::new();
     let mut in_decision = false;
 
     let mut i = 0;
@@ -931,48 +965,60 @@ fn extract_tagged_rules(scan: &RuleScanLines<'_>) -> Vec<TaggedRule> {
         if line.starts_with("## ") {
             break;
         }
-        if let Some((_, [num, layer_str, rule_text])) =
-            TAGGED_RULE_RE.captures(line).map(|caps| caps.extract())
-        {
-            let layer: u8 = layer_str.parse().unwrap_or(0);
-            let mut text = rule_text.trim().to_owned();
-            let rule_line = line_no;
+        match classify_rule_line(line) {
+            RuleCandidate::Tagged {
+                num,
+                layer: layer_str,
+                text: rule_text,
+            } => {
+                let layer: u8 = layer_str.parse().unwrap_or(0);
+                let mut text = rule_text.trim().to_owned();
+                let rule_line = line_no;
 
-            i += 1;
-            while i < scanned.len() {
-                let RuleScanLine::Outside { text: next, .. } = scanned[i] else {
-                    break;
-                };
-                if next.trim().is_empty() {
-                    break;
+                i += 1;
+                while i < scanned.len() {
+                    let RuleScanLine::Outside { text: next, .. } = scanned[i] else {
+                        break;
+                    };
+                    if next.trim().is_empty() {
+                        break;
+                    }
+                    if next.starts_with("## ") {
+                        break;
+                    }
+                    if RULE_SHAPED_RE.is_match(next) {
+                        break;
+                    }
+                    if next.len() >= 2 && next.starts_with("  ") {
+                        text.push(' ');
+                        text.push_str(next.trim());
+                        i += 1;
+                    } else {
+                        break;
+                    }
                 }
-                if next.starts_with("## ") {
-                    break;
-                }
-                if TAGGED_RULE_RE.is_match(next) {
-                    break;
-                }
-                if next.len() >= 2 && next.starts_with("  ") {
-                    text.push(' ');
-                    text.push_str(next.trim());
-                    i += 1;
-                } else {
-                    break;
-                }
+
+                rules.push(TaggedRule {
+                    id: format!("R{num}"),
+                    text,
+                    layer,
+                    line: rule_line,
+                });
             }
-
-            rules.push(TaggedRule {
-                id: format!("R{num}"),
-                text,
-                layer,
-                line: rule_line,
-            });
-        } else {
-            i += 1;
+            RuleCandidate::Malformed => {
+                malformed.push(MalformedRule {
+                    line: line_no,
+                    raw: line.to_owned(),
+                });
+                i += 1;
+            }
+            RuleCandidate::Prose => {
+                i += 1;
+            }
         }
     }
 
-    rules
+    RuleExtraction { rules, malformed }
 }
 
 fn strip_annotation(s: &str) -> &str {
@@ -1588,7 +1634,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].id, "R1");
         assert_eq!(rules[0].text, "All events must be versioned");
@@ -1607,7 +1653,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert!(rules.is_empty());
     }
 
@@ -1624,7 +1670,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].id, "R1");
         assert_eq!(rules[1].id, "R2");
@@ -1640,7 +1686,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].id, "R1");
     }
@@ -1657,7 +1703,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].id, "R1");
         assert_eq!(
@@ -1682,7 +1728,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].text, "First part of rule");
         assert_eq!(rules[1].text, "Second rule");
@@ -1698,7 +1744,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 1);
         assert_eq!(
             rules[0].text,
@@ -1718,7 +1764,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(
             rules.len(),
             1,
@@ -1738,7 +1784,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].layer, 1);
         assert_eq!(rules[1].layer, 12);
@@ -1754,8 +1800,64 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert!(rules.is_empty(), "old format should not be parsed");
+    }
+
+    #[test]
+    fn extract_tagged_rules_retains_malformed_rule_shaped_lines() {
+        let lines = vec![
+            "## Decision",
+            "",
+            "R1 [5]: All events carry a monotonic sequence number for ordering",
+            "R2 [x]: Layer is not numeric so this candidate does not conform",
+            "R3: No layer bracket at all on this candidate line",
+            "",
+            "## Consequences",
+        ];
+        let extracted = extract_tagged_rules(&rule_scan_of(&lines));
+        assert_eq!(extracted.rules.len(), 1, "only R1 conforms");
+        assert_eq!(
+            extracted.malformed.len(),
+            2,
+            "R2 and R3 are rule-shaped but non-conforming and must not vanish, \
+             got: {:?}",
+            extracted.malformed
+        );
+        assert_eq!(extracted.malformed[0].line, 4);
+        assert_eq!(
+            extracted.malformed[0].raw,
+            "R2 [x]: Layer is not numeric so this candidate does not conform"
+        );
+        assert_eq!(extracted.malformed[1].line, 5);
+        assert_eq!(
+            extracted.malformed[1].raw,
+            "R3: No layer bracket at all on this candidate line"
+        );
+    }
+
+    #[test]
+    fn extract_tagged_rules_does_not_flag_ordinary_decision_content() {
+        let lines = vec![
+            "## Decision",
+            "",
+            "Rules: we adopt the following approach for all services.",
+            "R&D spending is out of scope for this decision entirely.",
+            "Repositories are versioned independently of their consumers.",
+            "- A bullet item describing a consequence of the choice",
+            "- **R1**: Old bullet format is not a rule-shaped line",
+            "Rfoo [5]: Not a valid rule tag because the id is not numeric",
+            "",
+            "## Consequences",
+        ];
+        let extracted = extract_tagged_rules(&rule_scan_of(&lines));
+        assert!(extracted.rules.is_empty());
+        assert!(
+            extracted.malformed.is_empty(),
+            "ordinary Decision prose, bullets, R&D, `Rules:` and a non-numeric \
+             rule id must never be diagnosed as malformed rules, got: {:?}",
+            extracted.malformed
+        );
     }
 
     #[test]
