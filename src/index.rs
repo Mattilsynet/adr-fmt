@@ -5,11 +5,6 @@ use crate::model::{AdrId, AdrRecord};
 use crate::parser::{FileParseFailure, ParseOutcome};
 use crate::report::Diagnostic;
 
-/// Records and their parse provenance, accumulated from whole [`ParseOutcome`]s.
-///
-/// Fields are private and [`absorb`](Self::absorb) takes an entire outcome, so
-/// a caller cannot hand [`CorpusIndex::build`] a set of records while omitting
-/// or substituting the parse failures those records were scanned alongside.
 #[derive(Debug, Default)]
 pub struct ScannedCorpus {
     records: Vec<AdrRecord>,

@@ -68,11 +68,6 @@ impl ParseOutcome {
     }
 }
 
-/// A single ADR file whose name claims an [`AdrId`] but which produced no record.
-///
-/// Emitted only by per-file parsing, so an id carried here is always an id
-/// some file claimed and failed to deliver. Directory-level and naming
-/// diagnostics have no constructor into this type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileParseFailure {
     id: AdrId,
@@ -687,14 +682,6 @@ fn find_crates_field(lines: &[&str]) -> Vec<String> {
     Vec::new()
 }
 
-/// Parse `Parent-cross-domain: PREFIX-NNNN — reason` from the metadata
-/// preamble.
-///
-/// Accepts both em-dash (`—`) and ASCII hyphen-with-spaces (` - `) as
-/// separators between the ID and the reason. The reason is REQUIRED:
-/// AFM-0020:R3 licenses L011 suppression only for the full
-/// `PREFIX-NNNN — reason` form, so an ID-only declaration is
-/// `Malformed`, not `Valid`.
 fn find_parent_cross_domain_field(lines: &[&str]) -> CrossDomainParent {
     for line in lines {
         if line.starts_with("## ") {
