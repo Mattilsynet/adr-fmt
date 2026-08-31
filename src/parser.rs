@@ -347,6 +347,9 @@ pub fn parse_adr_file(
 
     let mut outcome = ParseFileOutcome::default();
 
+    let source = SourceLines::scan(&lines);
+    let outside = source.outside();
+
     if lines.is_empty() {
         outcome.diagnostics.push(Diagnostic::warning(
             "P002",
@@ -360,7 +363,7 @@ pub fn parse_adr_file(
         return Ok(outcome);
     }
 
-    let Some((id, title, title_line)) = parse_title(&lines, expected_prefix) else {
+    let Some((id, title, title_line)) = parse_title(&outside, expected_prefix) else {
         outcome.diagnostics.push(Diagnostic::warning(
             "P002",
             path,
@@ -378,26 +381,27 @@ pub fn parse_adr_file(
     let (tier, _) = find_tier_field(&lines);
 
     let (status, status_line, status_raw) = find_status_field(&lines);
-    let status_from_section = status.is_none() && has_heading(&lines, "Status");
+    let status_from_section = status.is_none() && has_heading(&outside, "Status");
 
-    let (related, _related_has_placeholder, related_diagnostics) = find_relationships(&lines, path);
+    let (related, _related_has_placeholder, related_diagnostics) =
+        find_relationships(&outside, path);
     outcome.diagnostics.extend(related_diagnostics);
 
-    let has_context = has_heading(&lines, "Context");
-    let has_decision = has_heading(&lines, "Decision");
-    let has_consequences = has_heading(&lines, "Consequences");
-    let has_retirement = has_heading(&lines, "Retirement");
+    let has_context = has_heading(&outside, "Context");
+    let has_decision = has_heading(&outside, "Decision");
+    let has_consequences = has_heading(&outside, "Consequences");
+    let has_retirement = has_heading(&outside, "Retirement");
 
-    let (section_order, section_word_counts) = analyze_sections(&lines);
+    let (section_order, section_word_counts) = analyze_sections(&outside);
 
     let crates = find_crates_field(&lines);
 
     let parent_cross_domain = find_parent_cross_domain_field(&lines);
 
-    let decision_rules = extract_tagged_rules(&lines);
+    let decision_rules = extract_tagged_rules(&source.rule_scan());
 
     let (max_code_block_lines, _code_block_count, max_code_block_line) =
-        measure_code_blocks(&lines);
+        measure_code_blocks(&source);
 
     outcome.record = Some(AdrRecord::from_parser_fields(
         id,
@@ -429,8 +433,11 @@ pub fn parse_adr_file(
 }
 
 /// Parse the H1 title line: `# PREFIX-NNNN. Title text`.
-fn parse_title(lines: &[&str], expected_prefix: &str) -> Option<(AdrId, String, usize)> {
-    for (line_no, line) in outside_fence_lines(lines) {
+fn parse_title(
+    outside: &OutsideLines<'_>,
+    expected_prefix: &str,
+) -> Option<(AdrId, String, usize)> {
+    for (line_no, line) in outside.iter() {
         if let Some(rest) = line.strip_prefix("# ")
             && let Some(dot_pos) = rest.find(". ")
             && let Some(id) = parse_adr_id(&rest[..dot_pos])
@@ -500,7 +507,7 @@ fn find_status_field(lines: &[&str]) -> (Option<Status>, usize, Option<String>) 
     (None, 0, None)
 }
 
-fn find_relationships(lines: &[&str], path: &Path) -> (Related, bool, Vec<Diagnostic>) {
+fn find_relationships(outside: &OutsideLines<'_>, path: &Path) -> (Related, bool, Vec<Diagnostic>) {
     let mut rels = Vec::new();
     let mut in_related = false;
     let mut found_section = false;
@@ -508,7 +515,7 @@ fn find_relationships(lines: &[&str], path: &Path) -> (Related, bool, Vec<Diagno
     let mut malformed: Option<(String, MalformedReason)> = None;
     let mut diagnostics = Vec::new();
 
-    for (line_no, line) in outside_fence_lines(lines) {
+    for (line_no, line) in outside.iter() {
         if line == "## Related" {
             in_related = true;
             found_section = true;
@@ -654,15 +661,26 @@ impl FenceScanner {
     }
 }
 
-fn outside_fence_lines<'a>(lines: &'a [&'a str]) -> impl Iterator<Item = (usize, &'a str)> {
-    let mut scanner = FenceScanner::default();
-    lines
-        .iter()
-        .enumerate()
-        .filter_map(move |(i, line)| match scanner.classify(line) {
-            LineKind::Outside => Some((i + 1, *line)),
-            _ => None,
-        })
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ClassifiedLine<'a> {
+    line_no: usize,
+    text: &'a str,
+    kind: LineKind,
+}
+
+#[derive(Debug)]
+struct SourceLines<'a> {
+    classified: Vec<ClassifiedLine<'a>>,
+}
+
+#[derive(Debug)]
+struct OutsideLines<'a> {
+    lines: Vec<(usize, &'a str)>,
+}
+
+#[derive(Debug)]
+struct RuleScanLines<'a> {
+    lines: Vec<RuleScanLine<'a>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -671,32 +689,77 @@ enum RuleScanLine<'a> {
     FenceBlock,
 }
 
-fn rule_scan_lines<'a>(lines: &'a [&'a str]) -> impl Iterator<Item = RuleScanLine<'a>> {
-    let mut scanner = FenceScanner::default();
-    lines
-        .iter()
-        .enumerate()
-        .filter_map(move |(i, line)| match scanner.classify(line) {
-            LineKind::Outside => Some(RuleScanLine::Outside {
+impl<'a> SourceLines<'a> {
+    fn scan(lines: &[&'a str]) -> Self {
+        let mut scanner = FenceScanner::default();
+        let classified = lines
+            .iter()
+            .enumerate()
+            .map(|(i, line)| ClassifiedLine {
                 line_no: i + 1,
                 text: line,
-            }),
-            LineKind::FenceOpen => Some(RuleScanLine::FenceBlock),
-            LineKind::FenceClose | LineKind::Inside => None,
-        })
+                kind: scanner.classify(line),
+            })
+            .collect();
+        Self { classified }
+    }
+
+    fn outside(&self) -> OutsideLines<'a> {
+        OutsideLines {
+            lines: self
+                .classified
+                .iter()
+                .filter(|c| c.kind == LineKind::Outside)
+                .map(|c| (c.line_no, c.text))
+                .collect(),
+        }
+    }
+
+    fn rule_scan(&self) -> RuleScanLines<'a> {
+        RuleScanLines {
+            lines: self
+                .classified
+                .iter()
+                .filter_map(|c| match c.kind {
+                    LineKind::Outside => Some(RuleScanLine::Outside {
+                        line_no: c.line_no,
+                        text: c.text,
+                    }),
+                    LineKind::FenceOpen => Some(RuleScanLine::FenceBlock),
+                    LineKind::FenceClose | LineKind::Inside => None,
+                })
+                .collect(),
+        }
+    }
+
+    fn classified(&self) -> impl Iterator<Item = ClassifiedLine<'a>> + '_ {
+        self.classified.iter().copied()
+    }
+}
+
+impl<'a> OutsideLines<'a> {
+    fn iter(&self) -> impl Iterator<Item = (usize, &'a str)> + '_ {
+        self.lines.iter().copied()
+    }
+}
+
+impl<'a> RuleScanLines<'a> {
+    fn as_slice(&self) -> &[RuleScanLine<'a>] {
+        &self.lines
+    }
 }
 
 /// Analyze H2 sections: extract ordering and word counts.
 ///
 /// Word counts exclude fenced code blocks.
-fn analyze_sections(lines: &[&str]) -> (Vec<String>, HashMap<String, usize>) {
+fn analyze_sections(outside: &OutsideLines<'_>) -> (Vec<String>, HashMap<String, usize>) {
     let mut order = Vec::new();
     let mut word_counts: HashMap<String, usize> = HashMap::new();
 
     let mut current_section: Option<String> = None;
     let mut current_words = 0usize;
 
-    for (_, line) in outside_fence_lines(lines) {
+    for (_, line) in outside.iter() {
         if let Some(heading) = line.strip_prefix("## ") {
             if let Some(ref section) = current_section {
                 word_counts.insert(section.clone(), current_words);
@@ -799,8 +862,8 @@ fn split_id_and_reason(value: &str) -> (&str, &str) {
 static TAGGED_RULE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^R(\d+)\s*\[(\d+)\]:\s*(.+)").expect("valid regex"));
 
-fn extract_tagged_rules(lines: &[&str]) -> Vec<TaggedRule> {
-    let scanned: Vec<RuleScanLine<'_>> = rule_scan_lines(lines).collect();
+fn extract_tagged_rules(scan: &RuleScanLines<'_>) -> Vec<TaggedRule> {
+    let scanned = scan.as_slice();
     let mut rules = Vec::new();
     let mut in_decision = false;
 
@@ -890,22 +953,24 @@ fn strip_annotation(s: &str) -> &str {
 ///
 /// Known limitation: nested backticks (markdown documenting markdown)
 /// cause false open/close toggling. Acceptable for ADR content.
-fn measure_code_blocks(lines: &[&str]) -> (usize, usize, usize) {
-    let mut scanner = FenceScanner::default();
+fn measure_code_blocks(source: &SourceLines<'_>) -> (usize, usize, usize) {
     let mut current_lines = 0usize;
     let mut current_start = 0usize;
     let mut max_lines = 0usize;
     let mut max_start = 0usize;
     let mut block_count = 0usize;
+    let mut unclosed = false;
 
-    for (i, line) in lines.iter().enumerate() {
-        match scanner.classify(line) {
+    for line in source.classified() {
+        match line.kind {
             LineKind::FenceOpen => {
                 current_lines = 0;
-                current_start = i + 1;
+                current_start = line.line_no;
                 block_count += 1;
+                unclosed = true;
             }
             LineKind::FenceClose => {
+                unclosed = false;
                 if current_lines > max_lines {
                     max_lines = current_lines;
                     max_start = current_start;
@@ -916,7 +981,7 @@ fn measure_code_blocks(lines: &[&str]) -> (usize, usize, usize) {
         }
     }
 
-    if scanner.inside && current_lines > max_lines {
+    if unclosed && current_lines > max_lines {
         max_lines = current_lines;
         max_start = current_start;
     }
@@ -925,14 +990,26 @@ fn measure_code_blocks(lines: &[&str]) -> (usize, usize, usize) {
 }
 
 /// Check if a `## Heading` exists.
-fn has_heading(lines: &[&str], name: &str) -> bool {
+fn has_heading(outside: &OutsideLines<'_>, name: &str) -> bool {
     let target = format!("## {name}");
-    outside_fence_lines(lines).any(|(_, line)| line == target)
+    outside.iter().any(|(_, line)| line == target)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn source_of<'a>(lines: &[&'a str]) -> SourceLines<'a> {
+        SourceLines::scan(lines)
+    }
+
+    fn outside_of<'a>(lines: &[&'a str]) -> OutsideLines<'a> {
+        SourceLines::scan(lines).outside()
+    }
+
+    fn rule_scan_of<'a>(lines: &[&'a str]) -> RuleScanLines<'a> {
+        SourceLines::scan(lines).rule_scan()
+    }
 
     #[test]
     fn parse_title_extracts_id_and_text() {
@@ -941,7 +1018,7 @@ mod tests {
             "",
             "Date: 2026-04-25",
         ];
-        let (id, title, line) = parse_title(&lines, "CHE").unwrap();
+        let (id, title, line) = parse_title(&outside_of(&lines), "CHE").unwrap();
         assert_eq!(id.prefix(), "CHE");
         assert_eq!(id.number(), 42);
         assert_eq!(title, "Event Envelope Construction Invariants");
@@ -951,7 +1028,7 @@ mod tests {
     #[test]
     fn parse_title_wrong_prefix_returns_none() {
         let lines = vec!["# PAR-0001. Some Title"];
-        assert!(parse_title(&lines, "CHE").is_none());
+        assert!(parse_title(&outside_of(&lines), "CHE").is_none());
     }
 
     #[test]
@@ -976,7 +1053,8 @@ mod tests {
             "",
             "## Context",
         ];
-        let (related, _placeholder, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, _placeholder, _diags) =
+            find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert_eq!(rels.len(), 3);
@@ -990,7 +1068,7 @@ mod tests {
     #[test]
     fn find_relationships_parses_root_verb() {
         let lines = vec!["## Related", "", "Root: CHE-0001", "", "## Context"];
-        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert_eq!(rels.len(), 1);
@@ -1020,14 +1098,14 @@ mod tests {
             "",
             "Some text.",
         ];
-        assert!(has_heading(&lines, "Context"));
-        assert!(!has_heading(&lines, "Decision"));
+        assert!(has_heading(&outside_of(&lines), "Context"));
+        assert!(!has_heading(&outside_of(&lines), "Decision"));
     }
 
     #[test]
     fn has_heading_finds_retirement() {
         let lines = vec!["## Retirement", "", "Deprecated because reasons."];
-        assert!(has_heading(&lines, "Retirement"));
+        assert!(has_heading(&outside_of(&lines), "Retirement"));
     }
 
     #[test]
@@ -1041,7 +1119,7 @@ mod tests {
             "```",
             "more text",
         ];
-        let (max, count, start) = measure_code_blocks(&lines);
+        let (max, count, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 3, "3 lines between fences");
         assert_eq!(count, 1);
         assert_eq!(start, 2, "opening fence is line 2 (1-indexed)");
@@ -1052,7 +1130,7 @@ mod tests {
         let lines = vec![
             "```", "line1", "```", "text", "```rust", "a", "b", "c", "d", "e", "```",
         ];
-        let (max, count, start) = measure_code_blocks(&lines);
+        let (max, count, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 5, "second block has 5 lines");
         assert_eq!(count, 2);
         assert_eq!(start, 5, "second block opens at line 5 (1-indexed)");
@@ -1061,7 +1139,7 @@ mod tests {
     #[test]
     fn measure_code_blocks_empty_block() {
         let lines = vec!["```", "```"];
-        let (max, count, start) = measure_code_blocks(&lines);
+        let (max, count, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 0);
         assert_eq!(count, 1);
         assert_eq!(start, 0);
@@ -1070,7 +1148,7 @@ mod tests {
     #[test]
     fn measure_code_blocks_no_blocks() {
         let lines = vec!["some text", "more text"];
-        let (max, count, start) = measure_code_blocks(&lines);
+        let (max, count, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 0);
         assert_eq!(count, 0);
         assert_eq!(start, 0, "no blocks means start line 0");
@@ -1079,7 +1157,7 @@ mod tests {
     #[test]
     fn measure_code_blocks_fence_lines_excluded() {
         let lines = vec!["```", "only_this", "```"];
-        let (max, count, start) = measure_code_blocks(&lines);
+        let (max, count, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 1, "only content line counted, not fences");
         assert_eq!(count, 1);
         assert_eq!(start, 1);
@@ -1088,7 +1166,7 @@ mod tests {
     #[test]
     fn measure_code_blocks_unclosed_block() {
         let lines = vec!["text", "```rust", "fn main() {}", "let x = 1;"];
-        let (max, count, start) = measure_code_blocks(&lines);
+        let (max, count, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 2, "unclosed block has 2 content lines");
         assert_eq!(count, 1);
         assert_eq!(start, 2, "opening fence at line 2 (1-indexed)");
@@ -1097,7 +1175,8 @@ mod tests {
     #[test]
     fn find_relationships_detects_placeholder() {
         let lines = vec!["## Related", "", "- —", "", "## Context"];
-        let (related, placeholder, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, placeholder, _diags) =
+            find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         assert!(related.relationships().is_empty());
         assert!(placeholder, "should detect `- —` as placeholder");
@@ -1106,7 +1185,8 @@ mod tests {
     #[test]
     fn find_relationships_detects_bare_dash_placeholder() {
         let lines = vec!["## Related", "", "—", "", "## Context"];
-        let (related, placeholder, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, placeholder, _diags) =
+            find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         assert!(related.relationships().is_empty());
         assert!(placeholder, "should detect bare `—` as placeholder");
@@ -1115,7 +1195,8 @@ mod tests {
     #[test]
     fn find_relationships_no_placeholder_with_rels() {
         let lines = vec!["## Related", "", "References: CHE-0001", "", "## Context"];
-        let (related, placeholder, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, placeholder, _diags) =
+            find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         assert_eq!(related.relationships().len(), 1);
         assert!(
@@ -1145,7 +1226,7 @@ mod tests {
             "",
             "This makes testing easier and code more maintainable overall.",
         ];
-        let (order, counts) = analyze_sections(&lines);
+        let (order, counts) = analyze_sections(&outside_of(&lines));
         assert_eq!(
             order,
             vec!["Related", "Context", "Decision", "Consequences"]
@@ -1170,7 +1251,7 @@ mod tests {
             "",
             "That is all.",
         ];
-        let (_, counts) = analyze_sections(&lines);
+        let (_, counts) = analyze_sections(&outside_of(&lines));
         assert_eq!(counts["Decision"], 9);
     }
 
@@ -1185,7 +1266,7 @@ mod tests {
             "",
             "Deprecated because the transport layer moved to a different protocol entirely.",
         ];
-        let (order, counts) = analyze_sections(&lines);
+        let (order, counts) = analyze_sections(&outside_of(&lines));
         assert!(order.contains(&"Retirement".to_owned()));
         assert_eq!(counts["Retirement"], 11);
     }
@@ -1193,7 +1274,7 @@ mod tests {
     #[test]
     fn self_referencing_detected() {
         let lines = vec!["## Related", "", "Root: CHE-0001", "", "## Context"];
-        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         let rels = related.relationships();
         let id = AdrId::test_new("CHE", 1);
         let is_self_ref = rels
@@ -1205,7 +1286,7 @@ mod tests {
     #[test]
     fn self_referencing_wrong_id_not_detected() {
         let lines = vec!["## Related", "", "Root: CHE-0002", "", "## Context"];
-        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         let rels = related.relationships();
         let id = AdrId::test_new("CHE", 1);
         let is_self_ref = rels
@@ -1442,7 +1523,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&lines);
+        let rules = extract_tagged_rules(&rule_scan_of(&lines));
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].id, "R1");
         assert_eq!(rules[0].text, "All events must be versioned");
@@ -1461,7 +1542,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&lines);
+        let rules = extract_tagged_rules(&rule_scan_of(&lines));
         assert!(rules.is_empty());
     }
 
@@ -1478,7 +1559,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&lines);
+        let rules = extract_tagged_rules(&rule_scan_of(&lines));
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].id, "R1");
         assert_eq!(rules[1].id, "R2");
@@ -1494,7 +1575,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&lines);
+        let rules = extract_tagged_rules(&rule_scan_of(&lines));
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].id, "R1");
     }
@@ -1511,7 +1592,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&lines);
+        let rules = extract_tagged_rules(&rule_scan_of(&lines));
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].id, "R1");
         assert_eq!(
@@ -1536,7 +1617,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&lines);
+        let rules = extract_tagged_rules(&rule_scan_of(&lines));
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].text, "First part of rule");
         assert_eq!(rules[1].text, "Second rule");
@@ -1552,7 +1633,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&lines);
+        let rules = extract_tagged_rules(&rule_scan_of(&lines));
         assert_eq!(rules.len(), 1);
         assert_eq!(
             rules[0].text,
@@ -1571,7 +1652,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&lines);
+        let rules = extract_tagged_rules(&rule_scan_of(&lines));
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].layer, 1);
         assert_eq!(rules[1].layer, 12);
@@ -1587,7 +1668,7 @@ mod tests {
             "",
             "## Consequences",
         ];
-        let rules = extract_tagged_rules(&lines);
+        let rules = extract_tagged_rules(&rule_scan_of(&lines));
         assert!(rules.is_empty(), "old format should not be parsed");
     }
 
@@ -1884,7 +1965,7 @@ crates = []
     #[test]
     fn find_relationships_empty_section_returns_no_rels() {
         let lines = vec!["## Related", "", "", "## Context"];
-        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert!(rels.is_empty());
@@ -1900,7 +1981,7 @@ crates = []
             "",
             "## Context",
         ];
-        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert!(rels.is_empty());
@@ -1909,7 +1990,7 @@ crates = []
     #[test]
     fn find_relationships_single_verb_no_pipe() {
         let lines = vec!["## Related", "", "References: CHE-0005", "", "## Context"];
-        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert_eq!(rels.len(), 1);
@@ -1926,7 +2007,7 @@ crates = []
             "",
             "## Context",
         ];
-        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert_eq!(rels.len(), 3);
@@ -1944,7 +2025,7 @@ crates = []
             "",
             "## Context",
         ];
-        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert!(
@@ -1964,7 +2045,7 @@ crates = []
             "",
             "## Context",
         ];
-        let (related, _, _diags) = find_relationships(&lines, Path::new("test.md"));
+        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert_eq!(rels.len(), 3);
