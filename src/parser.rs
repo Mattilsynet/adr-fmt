@@ -897,7 +897,7 @@ fn measure_code_blocks(lines: &[&str]) -> (usize, usize, usize) {
 /// Check if a `## Heading` exists.
 fn has_heading(lines: &[&str], name: &str) -> bool {
     let target = format!("## {name}");
-    lines.iter().any(|line| *line == target)
+    outside_fence_lines(lines).any(|(_, line)| line == target)
 }
 
 #[cfg(test)]
@@ -2117,6 +2117,38 @@ crates = []
         assert_eq!(
             rules[0].text, "The real rule.",
             "fenced lines must not be joined into the rule text"
+        );
+    }
+
+    #[test]
+    fn fenced_heading_does_not_satisfy_a_required_section() {
+        let outcome = parse_markdown(
+            "CHE-0001-fenced-heading.md",
+            "# CHE-0001. Fence Headings\n\n## Decision\n\nThe template requires:\n\n```markdown\n## Context\n```\n",
+        );
+        let record = outcome.record.expect("record should parse");
+        assert!(
+            !record.has_context(),
+            "a fenced `## Context` must not satisfy the required section"
+        );
+        assert!(
+            record.has_decision(),
+            "the real `## Decision` heading must still be seen"
+        );
+    }
+
+    #[test]
+    fn tilde_and_indented_fences_are_documented_as_unsupported() {
+        let outcome = parse_markdown(
+            "CHE-0001-tilde-fence.md",
+            "# CHE-0001. Tilde Fence\n\n## Decision\n\n~~~markdown\nR9 [3]: Tilde-fenced example rule.\n~~~\n",
+        );
+        let record = outcome.record.expect("record should parse");
+        assert_eq!(
+            record.decision_rules().len(),
+            1,
+            "known limitation: only ``` fences are recognized (AFM-0006:R3); \
+             ~~~ and indented fences are deliberately NOT inert"
         );
     }
 }
