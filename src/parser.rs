@@ -621,6 +621,47 @@ fn parse_related_segment(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LineKind {
+    FenceOpen,
+    FenceClose,
+    Inside,
+    Outside,
+}
+
+#[derive(Debug, Default)]
+struct FenceScanner {
+    inside: bool,
+}
+
+impl FenceScanner {
+    fn classify(&mut self, line: &str) -> LineKind {
+        if line.starts_with("```") {
+            self.inside = !self.inside;
+            if self.inside {
+                LineKind::FenceOpen
+            } else {
+                LineKind::FenceClose
+            }
+        } else if self.inside {
+            LineKind::Inside
+        } else {
+            LineKind::Outside
+        }
+    }
+}
+
+fn outside_fence_lines<'a>(lines: &'a [&'a str]) -> impl Iterator<Item = (usize, &'a str)> {
+    let mut scanner = FenceScanner::default();
+    lines
+        .iter()
+        .enumerate()
+        .filter_map(move |(i, line)| match scanner.classify(line) {
+            LineKind::Outside => Some((i + 1, *line)),
+            _ => None,
+        })
+}
+
 /// Analyze H2 sections: extract ordering and word counts.
 ///
 /// Word counts exclude fenced code blocks.
@@ -630,18 +671,8 @@ fn analyze_sections(lines: &[&str]) -> (Vec<String>, HashMap<String, usize>) {
 
     let mut current_section: Option<String> = None;
     let mut current_words = 0usize;
-    let mut in_code_block = false;
 
-    for line in lines {
-        if line.starts_with("```") {
-            in_code_block = !in_code_block;
-            continue;
-        }
-
-        if in_code_block {
-            continue;
-        }
-
+    for (_, line) in outside_fence_lines(lines) {
         if let Some(heading) = line.strip_prefix("## ") {
             if let Some(ref section) = current_section {
                 word_counts.insert(section.clone(), current_words);
@@ -826,29 +857,31 @@ fn strip_annotation(s: &str) -> &str {
 /// Known limitation: nested backticks (markdown documenting markdown)
 /// cause false open/close toggling. Acceptable for ADR content.
 fn measure_code_blocks(lines: &[&str]) -> (usize, usize, usize) {
-    let mut in_block = false;
+    let mut scanner = FenceScanner::default();
     let mut current_lines = 0usize;
     let mut current_start = 0usize;
     let mut max_lines = 0usize;
     let mut max_start = 0usize;
     let mut block_count = 0usize;
+    let mut in_block = false;
 
     for (i, line) in lines.iter().enumerate() {
-        if line.starts_with("```") {
-            if in_block {
-                if current_lines > max_lines {
-                    max_lines = current_lines;
-                    max_start = current_start;
-                }
-                in_block = false;
-            } else {
+        match scanner.classify(line) {
+            LineKind::FenceOpen => {
                 in_block = true;
                 current_lines = 0;
                 current_start = i + 1;
                 block_count += 1;
             }
-        } else if in_block {
-            current_lines += 1;
+            LineKind::FenceClose => {
+                if current_lines > max_lines {
+                    max_lines = current_lines;
+                    max_start = current_start;
+                }
+                in_block = false;
+            }
+            LineKind::Inside => current_lines += 1,
+            LineKind::Outside => {}
         }
     }
 
