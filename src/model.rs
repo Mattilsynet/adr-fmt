@@ -207,7 +207,7 @@ pub struct AdrRecord {
     title_line: usize,
     date: Option<String>,
     last_reviewed: Option<String>,
-    tier: Option<Tier>,
+    tier: TierField,
     status: Option<Status>,
     status_line: usize,
     status_raw: Option<String>,
@@ -281,10 +281,18 @@ impl AdrRecord {
         self.last_reviewed.as_deref()
     }
 
-    /// Parsed `Tier:` preamble value, if present.
+    /// Parsed `Tier:` preamble value, if present and valid.
+    ///
+    /// Returns `None` both when the field is absent and when its value
+    /// is unrecognised; callers that must tell those apart use the
+    /// crate-internal `tier_field`.
     #[must_use]
     pub fn tier(&self) -> Option<Tier> {
-        self.tier
+        self.tier.value()
+    }
+
+    pub(crate) fn tier_field(&self) -> &TierField {
+        &self.tier
     }
 
     /// Parsed lifecycle status, if present.
@@ -420,7 +428,7 @@ impl AdrRecord {
         title_line: usize,
         date: Option<String>,
         last_reviewed: Option<String>,
-        tier: Option<Tier>,
+        tier: TierField,
         status: Option<Status>,
         status_line: usize,
         status_raw: Option<String>,
@@ -509,6 +517,10 @@ impl AdrRecord {
     }
 
     pub(crate) fn set_tier(&mut self, tier: Option<Tier>) {
+        self.tier = tier.map_or(TierField::Absent, TierField::Valid);
+    }
+
+    pub(crate) fn set_tier_field(&mut self, tier: TierField) {
         self.tier = tier;
     }
 
@@ -608,7 +620,7 @@ impl AdrRecord {
             title_line: 0,
             date: None,
             last_reviewed: None,
-            tier: None,
+            tier: TierField::Absent,
             status: None,
             status_line: 0,
             status_raw: None,
@@ -859,6 +871,26 @@ pub struct Relationship {
     pub verb: RelVerb,
     pub target: AdrId,
     pub line: usize,
+}
+
+/// Outcome of parsing the `Tier:` preamble field.
+///
+/// An unrecognised value is `Invalid`, never `Absent`: a rule that
+/// diagnoses a missing tier must not silently absorb a typo'd one.
+#[derive(Debug, Clone)]
+pub(crate) enum TierField {
+    Absent,
+    Valid(Tier),
+    Invalid { raw: String },
+}
+
+impl TierField {
+    pub(crate) fn value(&self) -> Option<Tier> {
+        match self {
+            Self::Valid(tier) => Some(*tier),
+            Self::Absent | Self::Invalid { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
