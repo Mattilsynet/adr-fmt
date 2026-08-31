@@ -2515,6 +2515,65 @@ fn default_mode_with_broken_config_reports_error_not_setup_guide() {
         .stdout(predicate::str::contains("QUICK START").not());
 }
 
+#[test]
+fn malformed_rule_param_is_reported_not_silently_defaulted() {
+    let config = r#"
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+[[domains]]
+prefix = "TST"
+name = "Test Domain"
+directory = "test"
+description = "Integration test domain."
+crates = ["test-core"]
+
+[[rules]]
+id = "T015"
+params = { max_words = "lots" }
+"#;
+    let dir = setup_corpus(config, &[]);
+    adr_fmt_in(&dir)
+        .arg("--lint")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("adr-fmt.toml"))
+        .stdout(predicate::str::contains("max_words"))
+        .stdout(predicate::str::contains("T015"));
+}
+
+#[test]
+fn out_of_range_rule_param_is_reported_not_silently_defaulted() {
+    let config = r#"
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+[[domains]]
+prefix = "TST"
+name = "Test Domain"
+directory = "test"
+description = "Integration test domain."
+crates = ["test-core"]
+
+[[rules]]
+id = "T016"
+params = { max_rules = -3 }
+"#;
+    let dir = setup_corpus(config, &[]);
+    adr_fmt_in(&dir)
+        .arg("--lint")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("max_rules"))
+        .stdout(predicate::str::contains("T016"));
+}
+
 /// Walk-up skips a toml that parses but lacks `[corpus]` and finds
 /// the valid parent marker.
 #[test]

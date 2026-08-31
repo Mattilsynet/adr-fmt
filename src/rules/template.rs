@@ -13,7 +13,9 @@
 //! structure per AFM-0022 — disallowed sections or non-lineage
 //! relationship verbs in stale stubs.
 
-use crate::config::Config;
+use std::path::Path;
+
+use crate::config::{Config, RuleParam};
 use crate::model::{AdrRecord, RelVerb, Related, Status, Tier, layer_to_tier};
 use crate::report::Diagnostic;
 
@@ -68,7 +70,72 @@ const STALE_SECTION_ORDER: &[&str] = &[
 /// other H2 section is a stub violation.
 const STUB_ALLOWED_SECTIONS: &[&str] = &["Related", "Retirement"];
 
-pub fn check(record: &AdrRecord, config: &Config, diags: &mut Vec<Diagnostic>) {
+const CONFIG_FILE_NAME: &str = "adr-fmt.toml";
+
+pub(crate) struct Budgets {
+    max_words: u64,
+    min_words: u64,
+    max_rules: u64,
+    min_rule_words: u64,
+    max_rule_words: u64,
+}
+
+impl Budgets {
+    pub(crate) fn resolve(config: &Config, diags: &mut Vec<Diagnostic>) -> Self {
+        Self {
+            max_words: resolve_param(config, "T015", "max_words", DEFAULT_MAX_WORDS, diags),
+            min_words: resolve_param(config, "T015", "min_words", DEFAULT_MIN_WORDS, diags),
+            max_rules: resolve_param(config, "T016", "max_rules", DEFAULT_MAX_RULES, diags),
+            min_rule_words: resolve_param(
+                config,
+                "T016",
+                "min_rule_words",
+                DEFAULT_MIN_RULE_WORDS,
+                diags,
+            ),
+            max_rule_words: resolve_param(
+                config,
+                "T016",
+                "max_rule_words",
+                DEFAULT_MAX_RULE_WORDS,
+                diags,
+            ),
+        }
+    }
+}
+
+fn resolve_param(
+    config: &Config,
+    rule: &'static str,
+    key: &str,
+    default: u64,
+    diags: &mut Vec<Diagnostic>,
+) -> u64 {
+    match config.rule_param_u64(rule, key) {
+        RuleParam::Value(value) => value,
+        RuleParam::Absent => default,
+        RuleParam::Invalid {
+            rule_id,
+            key,
+            reason,
+        } => {
+            diags.push(Diagnostic::warning(
+                rule,
+                Path::new(CONFIG_FILE_NAME),
+                0,
+                format!(
+                    "[[rules]] id = \"{rule_id}\" parameter `{key}` is not usable: \
+                     {reason}. Action: fix the value in {CONFIG_FILE_NAME}; until \
+                     then the built-in default {default} applies and validation \
+                     does not reflect the configured policy."
+                ),
+            ));
+            default
+        }
+    }
+}
+
+pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut Vec<Diagnostic>) {
     check_metadata(record, diags);
     check_status_validity(record, diags);
     check_structure(record, diags);
@@ -76,9 +143,7 @@ pub fn check(record: &AdrRecord, config: &Config, diags: &mut Vec<Diagnostic>) {
 
     let tier = record.tier().unwrap_or(Tier::B);
 
-    let base_max_words = config
-        .rule_param_u64("T015", "max_words")
-        .value_or(DEFAULT_MAX_WORDS);
+    let base_max_words = budgets.max_words;
     let effective_min = tier.min_words();
     #[expect(
         clippy::cast_possible_truncation,
@@ -89,9 +154,7 @@ pub fn check(record: &AdrRecord, config: &Config, diags: &mut Vec<Diagnostic>) {
     let effective_max = (base_max_words as f64 * tier.factor()).round() as u64;
     check_section_word_counts(record, effective_min, effective_max, tier, diags);
 
-    let base_max_rules = config
-        .rule_param_u64("T016", "max_rules")
-        .value_or(DEFAULT_MAX_RULES);
+    let base_max_rules = budgets.max_rules;
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
@@ -99,12 +162,8 @@ pub fn check(record: &AdrRecord, config: &Config, diags: &mut Vec<Diagnostic>) {
         reason = "rounding a non-negative bounded tier-scaled budget to u64; value is small and non-negative by construction, truncation/sign-loss cannot occur"
     )]
     let effective_max_rules = (base_max_rules as f64 * tier.factor()).round() as u64;
-    let min_rule_words = config
-        .rule_param_u64("T016", "min_rule_words")
-        .value_or(DEFAULT_MIN_RULE_WORDS);
-    let max_rule_words = config
-        .rule_param_u64("T016", "max_rule_words")
-        .value_or(DEFAULT_MAX_RULE_WORDS);
+    let min_rule_words = budgets.min_rule_words;
+    let max_rule_words = budgets.max_rule_words;
     check_tagged_rules(
         record,
         tier,
@@ -118,7 +177,7 @@ pub fn check(record: &AdrRecord, config: &Config, diags: &mut Vec<Diagnostic>) {
 
     check_reference_load(record, tier, diags);
 
-    check_stale_lifecycle(record, config, diags);
+    check_stale_lifecycle(record, config, budgets, diags);
     check_stale_stub_structure(record, diags);
 }
 
@@ -280,7 +339,12 @@ fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
 }
 
 /// S004–S006: Stale/active lifecycle alignment checks.
-fn check_stale_lifecycle(record: &AdrRecord, config: &Config, diags: &mut Vec<Diagnostic>) {
+fn check_stale_lifecycle(
+    record: &AdrRecord,
+    config: &Config,
+    budgets: &Budgets,
+    diags: &mut Vec<Diagnostic>,
+) {
     if record.is_stale() && !record.has_retirement() {
         diags.push(Diagnostic::warning(
             "S004",
@@ -313,9 +377,7 @@ fn check_stale_lifecycle(record: &AdrRecord, config: &Config, diags: &mut Vec<Di
             Status::SupersededBy(id) => format!("Superseded by {id}"),
             _ => format!("{status:?}"),
         };
-        let min_words = config
-            .rule_param_u64("T015", "min_words")
-            .value_or(DEFAULT_MIN_WORDS);
+        let min_words = budgets.min_words;
         diags.push(Diagnostic::warning(
             "S006",
             record.file_path(),
@@ -700,6 +762,11 @@ mod tests {
     use crate::model::{AdrId, Tier};
     use std::collections::HashMap;
     use std::path::PathBuf;
+
+    fn check(record: &AdrRecord, config: &Config, diags: &mut Vec<Diagnostic>) {
+        let budgets = Budgets::resolve(config, diags);
+        super::check(record, config, &budgets, diags);
+    }
 
     fn make_config() -> Config {
         toml::from_str(

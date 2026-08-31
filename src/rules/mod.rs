@@ -15,8 +15,10 @@ pub fn run_all(records: &[AdrRecord], config: &Config, index: &CorpusIndex<'_>) 
 
     let domain_prefixes: Vec<&str> = config.domains.iter().map(|d| d.prefix.as_str()).collect();
 
+    let budgets = template::Budgets::resolve(config, &mut diagnostics);
+
     for record in records {
-        template::check(record, config, &mut diagnostics);
+        template::check(record, config, &budgets, &mut diagnostics);
         naming::check(record, &domain_prefixes, &mut diagnostics);
     }
 

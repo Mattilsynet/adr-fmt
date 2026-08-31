@@ -96,20 +96,6 @@ pub enum RuleParam {
     },
 }
 
-impl RuleParam {
-    /// The configured value, or `default` when the key is absent.
-    ///
-    /// [`RuleParam::Invalid`] also yields `default`; callers that need
-    /// to report the malformation must match on the variant instead.
-    #[must_use]
-    pub fn value_or(&self, default: u64) -> u64 {
-        match self {
-            Self::Value(v) => *v,
-            Self::Absent | Self::Invalid { .. } => default,
-        }
-    }
-}
-
 impl Config {
     /// Look up a rule parameter by rule ID and key.
     ///
