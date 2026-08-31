@@ -192,7 +192,7 @@ pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut
             let max_words = scale(budgets.max_words, tier);
             check_section_word_counts(record, min_words, max_words, tier, diags);
             check_rule_count(record, tier, scale(budgets.max_rules, tier), diags);
-            check_rule_tier_tension(record, tier, config, diags);
+            check_rule_tier_tension(record, tier, diags);
             check_reference_load(record, tier, diags);
             Some(min_words)
         }
@@ -831,13 +831,7 @@ fn check_tagged_rules(
     }
 }
 
-fn check_rule_tier_tension(
-    record: &AdrRecord,
-    adr_tier: ValidTier,
-    config: &Config,
-    diags: &mut Vec<Diagnostic>,
-) {
-    let _ = config;
+fn check_rule_tier_tension(record: &AdrRecord, adr_tier: ValidTier, diags: &mut Vec<Diagnostic>) {
     let adr_rank = adr_tier.get().rank();
 
     for rule in record.decision_rules() {
