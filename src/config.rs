@@ -83,7 +83,7 @@ pub struct RuleConfig {
 /// behind a silent default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum RuleParam {
+pub(crate) enum RuleParam {
     /// Neither the rule nor the key is configured.
     Absent,
     /// A valid `u64` value.
@@ -103,7 +103,7 @@ impl Config {
     /// configured; a present-but-unusable value yields
     /// [`RuleParam::Invalid`].
     #[must_use]
-    pub fn rule_param_u64(&self, rule_id: &str, key: &str) -> RuleParam {
+    pub(crate) fn rule_param_u64(&self, rule_id: &str, key: &str) -> RuleParam {
         let Some(raw) = self
             .rules
             .iter()
