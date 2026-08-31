@@ -199,17 +199,35 @@ fn check_parent_cross_domain_consistency(
         CrossDomainParent::Valid { id, reason } => (id, reason),
     };
 
-    if !by_id.contains_key(declared) {
-        diags.push(Diagnostic::warning(
-            "L019",
-            record.file_path(),
-            0,
-            format!(
-                "{} → {declared}: Parent-cross-domain target does not exist \
-                 in the corpus — fix the field or remove it",
-                record.id(),
-            ),
-        ));
+    match by_id.resolve(declared) {
+        Resolution::Resolved(_) => {}
+        Resolution::Absent => {
+            diags.push(Diagnostic::warning(
+                "L019",
+                record.file_path(),
+                0,
+                format!(
+                    "{} → {declared}: Parent-cross-domain target does not exist \
+                     in the corpus — fix the field or remove it",
+                    record.id(),
+                ),
+            ));
+        }
+        Resolution::Indeterminate(unparsed) => {
+            diags.push(Diagnostic::warning(
+                "L020",
+                record.file_path(),
+                0,
+                format!(
+                    "{} → {declared}: Parent-cross-domain target existence \
+                     indeterminate — {} exists but failed to parse ({}); fix \
+                     that file before treating this declaration as dangling",
+                    record.id(),
+                    unparsed.path,
+                    unparsed.rule,
+                ),
+            ));
+        }
     }
 
     let first_ref_target = record
@@ -1632,6 +1650,43 @@ mod tests {
         assert!(
             !diags.iter().any(|d| d.rule == "L019"),
             "L019 must be silent when target exists, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn l019_indeterminate_declared_target_produces_l020_not_l019() {
+        let com_root = make_record_with_rels("COM", 1, vec![(RelVerb::Root, make_id("COM", 1))]);
+
+        let mut child =
+            make_record_with_rels("COM", 8, vec![(RelVerb::References, make_id("COM", 1))]);
+        child.set_parent_cross_domain(CrossDomainParent::Valid {
+            id: make_id("GND", 6),
+            reason: "declared cross-domain parent".into(),
+        });
+
+        let records = vec![com_root, child];
+        let failures = vec![crate::parser::FileParseFailure::test_new(
+            make_id("GND", 6),
+            PathBuf::from("docs/adr/ground/GND-0006-broken-h1.md"),
+            "P002",
+        )];
+        let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
+            records.clone(),
+            failures,
+        ));
+        let index = CorpusIndex::build(&scan).expect("test fixture ids must be unique");
+
+        let mut diags = Vec::new();
+        super::check(&records, &index, &mut diags);
+
+        assert!(
+            !diags.iter().any(|d| d.rule == "L019"),
+            "a declared parent that exists but failed to parse must not be \
+             reported as non-existent: {diags:?}"
+        );
+        assert!(
+            diags.iter().any(|d| d.rule == "L020"),
+            "expected L020 indeterminate diagnostic for the declared parent, got: {diags:?}"
         );
     }
 
