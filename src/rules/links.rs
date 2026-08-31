@@ -91,8 +91,6 @@ fn check_single_link(
     }
 }
 
-/// L003: If A has `Supersedes: B`, then B's status must be
-/// `Superseded by A`. Warns on inconsistency.
 fn check_supersedes_consistency(
     records: &[AdrRecord],
     by_id: &CorpusIndex<'_>,
@@ -129,7 +127,6 @@ fn check_supersedes_consistency(
     }
 }
 
-/// L008: Root self-reference mismatch.
 fn check_root_self_reference(source: &AdrRecord, rel: &Relationship, diags: &mut Vec<Diagnostic>) {
     debug_assert_eq!(rel.verb, RelVerb::Root);
     if rel.target != *source.id() {
@@ -148,14 +145,6 @@ fn check_root_self_reference(source: &AdrRecord, rel: &Relationship, diags: &mut
     }
 }
 
-/// L006: Legacy relationship verb. AFM-0009 R1 restricts the vocabulary
-/// to Root, References, Supersedes; any other parsed verb is legacy
-/// and emits a deprecation warning with migration guidance.
-///
-/// `RelVerb::migration()` in model.rs is the single source of truth
-/// for the legacy/permitted partition: it returns `Some(_)` exactly
-/// when a verb is legacy. Adding or retiring a verb requires only
-/// updating that helper.
 fn check_legacy_verb(source: &AdrRecord, rel: &Relationship, diags: &mut Vec<Diagnostic>) {
     if let Some(migration) = rel.verb.migration() {
         diags.push(Diagnostic::warning(
@@ -173,17 +162,6 @@ fn check_legacy_verb(source: &AdrRecord, rel: &Relationship, diags: &mut Vec<Dia
     }
 }
 
-/// L018 / L019: validate the `Parent-cross-domain:` preamble field
-/// against the actual References list and the corpus.
-///
-/// L018: declared ID doesn't match the first `References:` target —
-/// either stale (re-ordered References) or misdeclared. `--tree`
-/// treats the field as authoritative only on a match, so a mismatch
-/// hides the cross-domain link there. L019: declared target ADR is
-/// absent from the corpus — L001 only inspects relationship lines,
-/// not preamble fields, so this would otherwise pass silently.
-///
-/// Roots and ADRs without `Parent-cross-domain` declared are skipped.
 fn check_parent_cross_domain_consistency(
     record: &AdrRecord,
     by_id: &CorpusIndex<'_>,
@@ -251,7 +229,6 @@ fn check_parent_cross_domain_consistency(
     }
 }
 
-/// L009: Root and References cannot coexist in the same Related section.
 fn check_root_references_coexistence(source: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     let has_root = source
         .relationships()
@@ -282,11 +259,6 @@ fn check_root_references_coexistence(source: &AdrRecord, diags: &mut Vec<Diagnos
     }
 }
 
-/// L010–L017: parent-edge tree-structure diagnostics.
-///
-/// Operates on the parent-edge projection (see `nav::compute_parent_edges`)
-/// rather than the full citation graph. Stale source ADRs are excluded
-/// from these checks — orphaned ancestry is expected for retired ADRs.
 fn check_tree_structure(
     records: &[AdrRecord],
     by_id: &CorpusIndex<'_>,
@@ -563,10 +535,6 @@ fn emit_unreachable_chain(
     ));
 }
 
-/// Identify all ADR IDs participating in a parent-edge cycle.
-///
-/// Walks each child once with a visited-set. Members of any detected
-/// cycle are added to the returned set.
 fn detect_cycle_members(parent_edges: &HashMap<AdrId, AdrId>) -> std::collections::HashSet<AdrId> {
     use std::collections::HashSet;
 
