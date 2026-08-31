@@ -5,7 +5,8 @@
 //! result is a compact, agent-readable bullet list: one row per
 //! referrer, sorted by tier rank → prefix → number → verb.
 //!
-//! Excluded by design (per AFM-0021 R3, R5):
+//! The one-bullet-per-referrer output shape is pinned by AFM-0024:R3.
+//! Excluded by design:
 //!
 //! - Stale referrers (referrer's `is_stale` set).
 //! - Legacy forward verbs (`DependsOn`, `Extends`, `Illustrates`,
@@ -106,9 +107,6 @@ pub fn find_refs(
     })
 }
 
-/// Stable sort key for the two structural verbs. `References` <
-/// `Supersedes` so duplicate-edge rows (same source, both verbs)
-/// render in a deterministic order.
 fn verb_sort_key(verb: RelVerb) -> u8 {
     match verb {
         RelVerb::References => 0,
