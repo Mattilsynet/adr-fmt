@@ -443,8 +443,20 @@ pub(crate) fn parse_adr_file(
     let (last_reviewed, _) = find_field(&lines, "Last-reviewed:");
     let (tier, _) = find_tier_field(&lines);
 
-    let (status, status_line, status_raw) = find_status_field(&lines);
-    let status_from_section = status.is_none() && has_heading(&outside, "Status");
+    let (metadata_status, metadata_status_line, metadata_status_raw) = find_status_field(&lines);
+    let has_legacy_status_section = has_heading(&outside, "Status");
+    let status_from_section = metadata_status.is_none() && has_legacy_status_section;
+
+    let (status, status_line, status_raw) = if metadata_status.is_none() {
+        let (section_status, section_line, section_raw) = find_status_in_section(&outside);
+        if section_status.is_some() {
+            (section_status, section_line, section_raw)
+        } else {
+            (metadata_status, metadata_status_line, metadata_status_raw)
+        }
+    } else {
+        (metadata_status, metadata_status_line, metadata_status_raw)
+    };
 
     let (related, related_diagnostics) = find_relationships(&outside, path);
     diagnostics.extend(related_diagnostics);
@@ -485,6 +497,7 @@ pub(crate) fn parse_adr_file(
         has_retirement,
         is_stale,
         status_from_section,
+        has_legacy_status_section,
         max_code_block_lines,
         max_code_block_line,
         section_order,
@@ -567,6 +580,28 @@ fn find_status_field(lines: &[&str]) -> (Option<Status>, usize, Option<String>) 
                 return (Some(status), i + 1, Some(raw));
             }
         }
+    }
+    (None, 0, None)
+}
+
+fn find_status_in_section(outside: &OutsideLines<'_>) -> (Option<Status>, usize, Option<String>) {
+    let mut in_status = false;
+    for (line_no, line) in outside.iter() {
+        if line == "## Status" {
+            in_status = true;
+            continue;
+        }
+        if !in_status {
+            continue;
+        }
+        if line.starts_with("## ") {
+            break;
+        }
+        let value = line.trim();
+        if value.is_empty() {
+            continue;
+        }
+        return (Some(Status::parse(value)), line_no, Some(value.to_owned()));
     }
     (None, 0, None)
 }

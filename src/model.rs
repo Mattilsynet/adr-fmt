@@ -221,6 +221,9 @@ pub struct AdrRecord {
     /// True when status was parsed from the legacy `## Status` section
     /// (not the `Status:` preamble metadata field).
     status_from_section: bool,
+    /// True when a legacy `## Status` section heading exists, recorded
+    /// independently of whether a `Status:` metadata field is present.
+    has_legacy_status_section: bool,
     max_code_block_lines: usize,
     /// 1-indexed line number of the opening fence of the largest code
     /// block. 0 if no code blocks exist.
@@ -370,6 +373,15 @@ impl AdrRecord {
         self.status_from_section
     }
 
+    /// True when a legacy `## Status` section heading exists, whether or
+    /// not a `Status:` preamble metadata field is also present. Distinct
+    /// from [`AdrRecord::status_from_section`], which answers the narrower
+    /// question of whether the status value was sourced from that section.
+    #[must_use]
+    pub fn has_legacy_status_section(&self) -> bool {
+        self.has_legacy_status_section
+    }
+
     /// Line count of the largest fenced code block. 0 if none.
     #[must_use]
     pub fn max_code_block_lines(&self) -> usize {
@@ -455,6 +467,7 @@ impl AdrRecord {
         has_retirement: bool,
         is_stale: bool,
         status_from_section: bool,
+        has_legacy_status_section: bool,
         max_code_block_lines: usize,
         max_code_block_line: usize,
         section_order: Vec<String>,
@@ -482,6 +495,7 @@ impl AdrRecord {
             has_retirement,
             is_stale,
             status_from_section,
+            has_legacy_status_section,
             max_code_block_lines,
             max_code_block_line,
             section_order,
@@ -592,6 +606,10 @@ impl AdrRecord {
         &mut self.status_from_section
     }
 
+    pub(crate) fn has_legacy_status_section_mut(&mut self) -> &mut bool {
+        &mut self.has_legacy_status_section
+    }
+
     pub(crate) fn max_code_block_lines_mut(&mut self) -> &mut usize {
         &mut self.max_code_block_lines
     }
@@ -653,6 +671,7 @@ impl AdrRecord {
             has_retirement: false,
             is_stale: false,
             status_from_section: false,
+            has_legacy_status_section: false,
             max_code_block_lines: 0,
             max_code_block_line: 0,
             section_order: Vec::new(),
