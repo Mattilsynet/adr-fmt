@@ -758,7 +758,7 @@ fn analyze_sections(outside: &OutsideLines<'_>) -> (Vec<String>, HashMap<String,
     for (_, line) in outside.iter() {
         if let Some(heading) = line.strip_prefix("## ") {
             if let Some(ref section) = current_section {
-                word_counts.insert(section.clone(), current_words);
+                *word_counts.entry(section.clone()).or_insert(0) += current_words;
             }
 
             let name = heading.trim().to_owned();
@@ -771,7 +771,7 @@ fn analyze_sections(outside: &OutsideLines<'_>) -> (Vec<String>, HashMap<String,
     }
 
     if let Some(ref section) = current_section {
-        word_counts.insert(section.clone(), current_words);
+        *word_counts.entry(section.clone()).or_insert(0) += current_words;
     }
 
     (order, word_counts)
@@ -1247,6 +1247,33 @@ mod tests {
         let (order, counts) = analyze_sections(&outside_of(&lines));
         assert!(order.contains(&"Retirement".to_owned()));
         assert_eq!(counts["Retirement"], 11);
+    }
+
+    #[test]
+    fn duplicate_h2_accumulates_word_count_instead_of_overwriting() {
+        let long_prose = ["word"; 250].join(" ");
+        let body = format!(
+            "# CHE-0001. Duplicate Context\n\n\
+             Date: 2026-04-27\nLast-reviewed: 2026-04-27\nTier: S\nStatus: Accepted\n\n\
+             ## Related\n\nRoot: CHE-0001\n\n\
+             ## Context\n\n{long_prose}\n\n\
+             ## Context\n\nToo short.\n\n\
+             ## Decision\n\nR1 [5]: We decided a thing for reasons that are written out here.\n"
+        );
+        let outcome = parse_markdown("CHE-0001-duplicate-context.md", &body);
+        let record = outcome.record.expect("record should parse");
+
+        assert_eq!(
+            record.section_order(),
+            ["Related", "Context", "Context", "Decision"],
+            "every H2 occurrence stays visible in section order"
+        );
+        assert_eq!(
+            record.section_word_counts().get("Context"),
+            Some(&252),
+            "prose under a repeated `## Context` accumulates; a short duplicate must not \
+             conceal the earlier section's word count from T015"
+        );
     }
 
     #[test]
