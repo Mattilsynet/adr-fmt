@@ -17,7 +17,8 @@
 //! - Self-references (`rel.target == record.id`), including any
 //!   ill-formed `Supersedes: SELF`.
 
-use crate::model::{AdrId, AdrRecord, RelVerb, Status, Tier};
+use crate::index::Resolution;
+use crate::model::{AdrId, RelVerb, Status, Tier};
 use crate::nav;
 
 /// One inbound citation to a target ADR.
@@ -43,25 +44,41 @@ pub struct RefsReport {
 /// Find every non-stale ADR that cites `target` via `References:`
 /// or `Supersedes:`.
 ///
+/// The corpus records and the ID lookup both come from `index`, so a
+/// caller cannot supply a record set and a lookup table that disagree.
+///
 /// Sort order: tier rank (missing tier last) → prefix → number → verb
 /// (alphabetical, `References` before `Supersedes`).
 ///
 /// # Errors
 ///
-/// Returns [`RefsError::TargetNotFound`] when `target` is not present
-/// in the parsed corpus.
+/// Returns [`RefsError::TargetNotFound`] when `target` is genuinely
+/// absent from the corpus, and [`RefsError::TargetIndeterminate`] when
+/// a file claiming `target` exists but could not be parsed — the two
+/// are deliberately distinct. Returns
+/// [`RefsError::ReferrerIndeterminate`] when a referrer cannot be
+/// resolved, rather than silently omitting it from the report.
 pub fn find_refs(
     target: &AdrId,
-    records: &[AdrRecord],
     index: &crate::index::CorpusIndex<'_>,
 ) -> Result<RefsReport, RefsError> {
-    let Some(target_record) = records.iter().find(|r| r.id() == target) else {
-        return Err(RefsError::TargetNotFound {
-            target: target.clone(),
-        });
+    let target_record = match index.resolve(target) {
+        Resolution::Resolved(record) => record,
+        Resolution::Absent => {
+            return Err(RefsError::TargetNotFound {
+                target: target.clone(),
+            });
+        }
+        Resolution::Indeterminate(unparsed) => {
+            return Err(RefsError::TargetIndeterminate {
+                target: target.clone(),
+                path: unparsed.path.clone(),
+                rule: unparsed.rule,
+            });
+        }
     };
 
-    let children = nav::compute_children(records);
+    let children = nav::compute_children(index.records());
 
     let mut refs: Vec<RefEntry> = Vec::new();
 
@@ -73,8 +90,14 @@ pub fn find_refs(
             if entry.child == *target {
                 continue;
             }
-            let Some(source) = index.get(&entry.child) else {
-                continue;
+            let source = match index.resolve(&entry.child) {
+                Resolution::Resolved(record) => record,
+                Resolution::Absent | Resolution::Indeterminate(_) => {
+                    return Err(RefsError::ReferrerIndeterminate {
+                        referrer: entry.child.clone(),
+                        target: target.clone(),
+                    });
+                }
             };
             if source.is_stale() {
                 continue;
@@ -115,18 +138,41 @@ fn verb_sort_key(verb: RelVerb) -> u8 {
     }
 }
 
-/// Failure from [`find_refs`]. The only `Err` path is an unknown
-/// target ADR ID (not present in the parsed corpus).
+/// Failure from [`find_refs`]. Absence and indeterminacy are separate
+/// variants: `TargetNotFound` asserts the ID is genuinely not in the
+/// corpus, while `TargetIndeterminate` asserts only that resolution
+/// could not be completed.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RefsError {
-    TargetNotFound { target: AdrId },
+    TargetNotFound {
+        target: AdrId,
+    },
+    TargetIndeterminate {
+        target: AdrId,
+        path: String,
+        rule: &'static str,
+    },
+    ReferrerIndeterminate {
+        referrer: AdrId,
+        target: AdrId,
+    },
 }
 
 impl core::fmt::Display for RefsError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::TargetNotFound { target } => write!(f, "ADR {target} not found"),
+            Self::TargetIndeterminate { target, path, rule } => write!(
+                f,
+                "ADR {target} could not be parsed: {rule} on {path} — \
+                 whether {target} exists is indeterminate, not settled"
+            ),
+            Self::ReferrerIndeterminate { referrer, target } => write!(
+                f,
+                "referrer {referrer} of {target} could not be resolved — \
+                 refusing to emit an incomplete reverse-reference report"
+            ),
         }
     }
 }
@@ -141,8 +187,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, RefsError> {
-        let index = CorpusIndex::build(records).expect("test fixture ids must be unique");
-        super::find_refs(target, records, &index)
+        let index = CorpusIndex::build(records, &[]).expect("test fixture ids must be unique");
+        super::find_refs(target, &index)
     }
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
@@ -305,6 +351,59 @@ mod tests {
         assert!(
             matches!(&err, RefsError::TargetNotFound { target } if *target == make_id("CHE", 99)),
             "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn unparseable_target_returns_indeterminate_not_not_found() {
+        let records = vec![make_record(
+            "CHE",
+            1,
+            vec![(RelVerb::Root, make_id("CHE", 1))],
+        )];
+        let diags = vec![crate::report::Diagnostic::warning(
+            "P002",
+            std::path::Path::new("docs/adr/cherry/CHE-0002-broken-h1.md"),
+            0,
+            "missing or malformed H1 title".into(),
+        )];
+        let index = CorpusIndex::build(&records, &diags).expect("test fixture ids must be unique");
+
+        let err = super::find_refs(&make_id("CHE", 2), &index).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                RefsError::TargetIndeterminate { target, rule, .. }
+                    if *target == make_id("CHE", 2) && *rule == "P002"
+            ),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn indeterminate_target_message_does_not_claim_absence() {
+        let records = vec![make_record(
+            "CHE",
+            1,
+            vec![(RelVerb::Root, make_id("CHE", 1))],
+        )];
+        let diags = vec![crate::report::Diagnostic::warning(
+            "P001",
+            std::path::Path::new("docs/adr/cherry/CHE-0002-unreadable.md"),
+            0,
+            "cannot read ADR file".into(),
+        )];
+        let index = CorpusIndex::build(&records, &diags).expect("test fixture ids must be unique");
+
+        let err = super::find_refs(&make_id("CHE", 2), &index).unwrap_err();
+        let rendered = err.to_string();
+        assert!(
+            !rendered.contains("not found"),
+            "an unreadable target must not be rendered as absent: {rendered}"
+        );
+        assert!(
+            rendered.contains("indeterminate"),
+            "expected an indeterminate rendering, got: {rendered}"
         );
     }
 

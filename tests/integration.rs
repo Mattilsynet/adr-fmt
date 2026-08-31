@@ -2797,3 +2797,106 @@ fn symlinked_marker_file_is_accepted() {
     let mut cmd = adr_fmt();
     cmd.current_dir(dir.path()).arg("--lint").assert().success();
 }
+
+/// A real, existing ADR file whose H1 is malformed — the parser emits
+/// P002 and produces no record, so the ID never reaches `CorpusIndex`.
+const UNPARSEABLE_H1_ADR: &str = "\
+## TST-0005 Unparseable Heading
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Related
+
+Root: TST-0005
+
+## Context
+
+This ADR file exists on disk but its H1 is malformed, so it cannot be parsed.
+
+## Decision
+
+R1 [5]: We deliberately malform the H1 to exercise the indeterminate resolution path.
+
+## Consequences
+
+Citations to TST-0005 are indeterminate, not dangling.
+";
+
+/// An ADR citing TST-0005, whose file exists but fails to parse.
+const CITES_UNPARSEABLE_ADR: &str = "\
+# TST-0004. Cites Unparseable ADR
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Related
+
+References: TST-0005
+
+## Context
+
+This ADR cites a target whose file is present on disk but failed to parse.
+
+## Decision
+
+R1 [5]: We cite an unparseable target to prove the citation is not reported as dangling.
+
+## Consequences
+
+The link is indeterminate; automated repair must not delete this citation.
+";
+
+#[test]
+fn citation_to_unparseable_target_is_not_reported_dangling() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            ("TST-0004-cites-unparseable.md", CITES_UNPARSEABLE_ADR),
+            ("TST-0005-unparseable-h1.md", UNPARSEABLE_H1_ADR),
+        ],
+    );
+
+    adr_fmt_in(&dir).args(["--lint"]).assert().success().stdout(
+        predicate::str::contains("P002")
+            .and(predicate::str::contains("L020"))
+            .and(predicate::str::contains("L001").not()),
+    );
+}
+
+#[test]
+fn refs_on_unparseable_target_is_not_reported_absent() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            ("TST-0004-cites-unparseable.md", CITES_UNPARSEABLE_ADR),
+            ("TST-0005-unparseable-h1.md", UNPARSEABLE_H1_ADR),
+        ],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--refs", "TST-0005"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("could not be parsed")
+                .and(predicate::str::contains("not found").not()),
+        );
+}
+
+#[test]
+fn refs_on_genuinely_absent_target_still_reports_not_found() {
+    let dir = setup_corpus(MINIMAL_CONFIG, &[("TST-0001-valid-test-adr.md", VALID_ADR)]);
+
+    adr_fmt_in(&dir)
+        .args(["--refs", "TST-9999"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("TST-9999 not found"));
+}

@@ -178,7 +178,7 @@ where
         }
     };
 
-    let index = match index::CorpusIndex::build(&all_records) {
+    let index = match index::CorpusIndex::build(&all_records, &parse_diagnostics) {
         Ok(idx) => idx,
         Err(dup) => {
             return report_duplicate_id(cli.lint, parse_diagnostics, all_records.len(), &dup);
@@ -211,7 +211,7 @@ fn dispatch_mode(
             );
             return 1;
         };
-        let report = match refs::find_refs(&target_id, all_records, index) {
+        let report = match refs::find_refs(&target_id, index) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("error: {e}");

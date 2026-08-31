@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 
-use crate::index::CorpusIndex;
+use crate::index::{CorpusIndex, Resolution};
 use crate::model::{AdrId, AdrRecord, RelVerb, Relationship, Status};
 use crate::nav::{compute_parent_edges, walk_parent_chain};
 use crate::report::Diagnostic;
@@ -64,30 +64,43 @@ fn check_single_link(
         return;
     }
 
-    if !by_id.contains_key(target_id) {
-        diags.push(Diagnostic::warning(
-            "L001",
-            source.file_path(),
-            rel.line,
-            format!(
-                "{} → {target_id}: dangling link (target ADR not found)",
-                source.id(),
-            ),
-        ));
-        return;
-    }
-
-    if let Some(target_record) = by_id.get(target_id)
-        && target_record.is_stale()
-        && !source.is_stale()
-        && rel.verb != RelVerb::Supersedes
-    {
-        diags.push(Diagnostic::warning(
-            "L007",
-            source.file_path(),
-            rel.line,
-            format!("{} → {target_id}: reference to stale ADR", source.id()),
-        ));
+    match by_id.resolve(target_id) {
+        Resolution::Resolved(target_record) => {
+            if target_record.is_stale() && !source.is_stale() && rel.verb != RelVerb::Supersedes {
+                diags.push(Diagnostic::warning(
+                    "L007",
+                    source.file_path(),
+                    rel.line,
+                    format!("{} → {target_id}: reference to stale ADR", source.id()),
+                ));
+            }
+        }
+        Resolution::Absent => {
+            diags.push(Diagnostic::warning(
+                "L001",
+                source.file_path(),
+                rel.line,
+                format!(
+                    "{} → {target_id}: dangling link (target ADR not found)",
+                    source.id(),
+                ),
+            ));
+        }
+        Resolution::Indeterminate(unparsed) => {
+            diags.push(Diagnostic::warning(
+                "L020",
+                source.file_path(),
+                rel.line,
+                format!(
+                    "{} → {target_id}: link integrity indeterminate — {} exists but \
+                     failed to parse ({}); fix that file before treating this \
+                     citation as broken",
+                    source.id(),
+                    unparsed.path,
+                    unparsed.rule,
+                ),
+            ));
+        }
     }
 }
 
@@ -612,7 +625,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn check(records: &[AdrRecord], diags: &mut Vec<Diagnostic>) {
-        let index = CorpusIndex::build(records).expect("test fixture ids must be unique");
+        let index = CorpusIndex::build(records, &[]).expect("test fixture ids must be unique");
         super::check(records, &index, diags);
     }
 
@@ -660,7 +673,7 @@ mod tests {
         *b.file_path_mut() = PathBuf::from("docs/adr/cherry/CHE-0001-b.md");
 
         let err =
-            CorpusIndex::build(&[a, b]).expect_err("duplicate CHE-0001 must be rejected here");
+            CorpusIndex::build(&[a, b], &[]).expect_err("duplicate CHE-0001 must be rejected here");
         assert_eq!(err.id, make_id("CHE", 1));
         assert_eq!(
             err.paths,
@@ -694,6 +707,35 @@ mod tests {
         assert!(
             diags.iter().any(|d| d.rule == "L001"),
             "expected L001, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn unparseable_target_produces_l020_not_l001() {
+        let records = vec![make_record_with_rels(
+            "CHE",
+            1,
+            vec![(RelVerb::References, make_id("CHE", 2))],
+        )];
+        let diags_in = vec![Diagnostic::warning(
+            "P002",
+            std::path::Path::new("docs/adr/cherry/CHE-0002-broken-h1.md"),
+            0,
+            "missing or malformed H1 title".into(),
+        )];
+        let index =
+            CorpusIndex::build(&records, &diags_in).expect("test fixture ids must be unique");
+
+        let mut diags = Vec::new();
+        super::check(&records, &index, &mut diags);
+
+        assert!(
+            !diags.iter().any(|d| d.rule == "L001"),
+            "a target that exists but failed to parse must not be reported dangling: {diags:?}"
+        );
+        assert!(
+            diags.iter().any(|d| d.rule == "L020"),
+            "expected L020 indeterminate diagnostic, got: {diags:?}"
         );
     }
 
