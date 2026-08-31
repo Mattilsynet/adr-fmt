@@ -776,12 +776,13 @@ static TAGGED_RULE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^R(\d+)\s*\[(\d+)\]:\s*(.+)").expect("valid regex"));
 
 fn extract_tagged_rules(lines: &[&str]) -> Vec<TaggedRule> {
+    let scanned: Vec<(usize, &str)> = outside_fence_lines(lines).collect();
     let mut rules = Vec::new();
     let mut in_decision = false;
 
     let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
+    while i < scanned.len() {
+        let (line_no, line) = scanned[i];
         if line == "## Decision" {
             in_decision = true;
             i += 1;
@@ -799,11 +800,11 @@ fn extract_tagged_rules(lines: &[&str]) -> Vec<TaggedRule> {
             let layer_str = caps.get(2).unwrap().as_str();
             let layer: u8 = layer_str.parse().unwrap_or(0);
             let mut text = caps.get(3).unwrap().as_str().trim().to_owned();
-            let rule_line = i + 1;
+            let rule_line = line_no;
 
             i += 1;
-            while i < lines.len() {
-                let next = lines[i];
+            while i < scanned.len() {
+                let (_, next) = scanned[i];
                 if next.trim().is_empty() {
                     break;
                 }
@@ -2082,5 +2083,40 @@ crates = []
         );
         assert_eq!(rels[0].target.number(), 1);
         assert_eq!(rels[0].line, 5, "line number must survive fence gating");
+    }
+
+    #[test]
+    fn fenced_tagged_rule_does_not_register_as_normative() {
+        let outcome = parse_markdown(
+            "CHE-0001-fenced-rule.md",
+            "# CHE-0001. Fence Rules\n\n## Decision\n\nR1 [5]: The real normative rule.\n\nAuthors tag rules like this:\n\n```markdown\nR2 [3]: An illustrative example rule.\n```\n",
+        );
+        let record = outcome.record.expect("record should parse");
+        let rules = record.decision_rules();
+        assert_eq!(
+            rules.len(),
+            1,
+            "only the unfenced rule is normative, got: {rules:?}"
+        );
+        assert_eq!(rules[0].id, "R1");
+        assert_eq!(
+            rules[0].line, 5,
+            "rule line number must survive fence gating"
+        );
+    }
+
+    #[test]
+    fn fenced_lines_do_not_join_as_rule_continuations() {
+        let outcome = parse_markdown(
+            "CHE-0001-fenced-continuation.md",
+            "# CHE-0001. Fence Continuation\n\n## Decision\n\nR1 [5]: The real rule.\n```markdown\n  not a continuation\n```\n",
+        );
+        let record = outcome.record.expect("record should parse");
+        let rules = record.decision_rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(
+            rules[0].text, "The real rule.",
+            "fenced lines must not be joined into the rule text"
+        );
     }
 }
