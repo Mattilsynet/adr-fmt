@@ -16,7 +16,7 @@
 use std::path::Path;
 
 use crate::config::{Config, RuleParam};
-use crate::model::{AdrRecord, RelVerb, Related, Status, Tier, layer_to_tier};
+use crate::model::{AdrRecord, RelVerb, Related, Status, Tier, TierField, layer_to_tier};
 use crate::report::Diagnostic;
 
 /// Maximum lines in a single fenced code block before T011 fires.
@@ -201,13 +201,29 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
         ));
     }
 
-    if record.tier().is_none() {
-        diags.push(Diagnostic::warning(
-            "T004",
-            record.file_path(),
-            0,
-            "missing `Tier:` field".into(),
-        ));
+    match record.tier_field() {
+        TierField::Valid(_) => {}
+        TierField::Absent => {
+            diags.push(Diagnostic::warning(
+                "T004",
+                record.file_path(),
+                0,
+                "missing `Tier:` field".into(),
+            ));
+        }
+        TierField::Invalid { raw } => {
+            diags.push(Diagnostic::warning(
+                "T004",
+                record.file_path(),
+                0,
+                format!(
+                    "unrecognized `Tier:` value `{}` — expected one of S/A/B/C/D; \
+                     tier-scaled checks fall back to B and do not reflect the \
+                     intended tier",
+                    raw.escape_debug()
+                ),
+            ));
+        }
     }
 
     if record.status().is_none() {
@@ -865,6 +881,40 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
         assert!(diags.iter().any(|d| d.rule == "T004"));
+    }
+
+    #[test]
+    fn invalid_tier_is_diagnosed_distinctly_from_missing_tier() {
+        let mut missing = make_record();
+        missing.set_tier_field(TierField::Absent);
+        let mut invalid = make_record();
+        invalid.set_tier_field(TierField::Invalid { raw: "Z".into() });
+
+        let config = make_config();
+        let mut missing_diags = Vec::new();
+        check(&missing, &config, &mut missing_diags);
+        let mut invalid_diags = Vec::new();
+        check(&invalid, &config, &mut invalid_diags);
+
+        let missing_msg = missing_diags
+            .iter()
+            .find(|d| d.rule == "T004")
+            .map(|d| d.message.clone())
+            .expect("missing tier must produce T004");
+        let invalid_msg = invalid_diags
+            .iter()
+            .find(|d| d.rule == "T004")
+            .map(|d| d.message.clone())
+            .expect("invalid tier must produce T004, not silence");
+
+        assert!(
+            invalid_msg.contains("unrecognized") && invalid_msg.contains('Z'),
+            "invalid-tier diagnostic must name the offending value, got: {invalid_msg}"
+        );
+        assert_ne!(
+            missing_msg, invalid_msg,
+            "an invalid Tier value must not report as a missing one"
+        );
     }
 
     #[test]

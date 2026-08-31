@@ -23,7 +23,7 @@ use regex::Regex;
 use crate::config::Config;
 use crate::model::{
     AdrId, AdrRecord, DomainDir, MalformedReason, RelVerb, Related, Relationship, Status,
-    TaggedRule, Tier, parse_adr_id,
+    TaggedRule, Tier, TierField, parse_adr_id,
 };
 use crate::report::Diagnostic;
 use crate::rules::naming;
@@ -387,17 +387,23 @@ fn find_field(lines: &[&str], key: &str) -> (Option<String>, usize) {
 }
 
 /// Find `Tier:` field in the preamble (before first H2 heading).
-fn find_tier_field(lines: &[&str]) -> (Option<Tier>, usize) {
+fn find_tier_field(lines: &[&str]) -> (TierField, usize) {
     for (i, line) in lines.iter().enumerate() {
         if line.starts_with("## ") {
             break;
         }
         if let Some(value) = line.strip_prefix("Tier:") {
             let value = value.trim();
-            return (Tier::parse(value), i + 1);
+            let field = match Tier::parse(value) {
+                Some(tier) => TierField::Valid(tier),
+                None => TierField::Invalid {
+                    raw: value.to_owned(),
+                },
+            };
+            return (field, i + 1);
         }
     }
-    (None, 0)
+    (TierField::Absent, 0)
 }
 
 /// Find `Status:` metadata field in the preamble (before first H2 heading).
@@ -1732,7 +1738,7 @@ crates = []
         ];
         let (tier, line) = find_tier_field(&lines);
         assert_eq!(
-            tier,
+            tier.value(),
             Some(crate::model::Tier::B),
             "should find preamble tier"
         );
@@ -1740,9 +1746,30 @@ crates = []
 
         let lines_after = vec!["# CHE-0001. Title", "", "## Context", "", "Tier: A"];
         let (tier2, _) = find_tier_field(&lines_after);
-        assert_eq!(
-            tier2, None,
-            "Tier: inside a section body should not be found"
+        assert!(
+            matches!(tier2, TierField::Absent),
+            "Tier: inside a section body should not be found, got: {tier2:?}"
+        );
+    }
+
+    #[test]
+    fn find_tier_field_invalid_value_is_not_absent() {
+        let lines = vec!["# CHE-0001. Title", "", "Tier: Z", ""];
+        let (tier, line) = find_tier_field(&lines);
+        assert!(
+            matches!(&tier, TierField::Invalid { raw } if raw == "Z"),
+            "an unrecognized Tier value must be Invalid, not Absent, got: {tier:?}"
+        );
+        assert_eq!(line, 3);
+    }
+
+    #[test]
+    fn find_tier_field_empty_value_is_invalid_not_absent() {
+        let lines = vec!["# CHE-0001. Title", "", "Tier:", ""];
+        let (tier, _) = find_tier_field(&lines);
+        assert!(
+            matches!(&tier, TierField::Invalid { raw } if raw.is_empty()),
+            "a present-but-empty Tier field must be Invalid, not Absent, got: {tier:?}"
         );
     }
 }
