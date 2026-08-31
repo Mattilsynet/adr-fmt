@@ -430,14 +430,14 @@ pub fn parse_adr_file(
 
 /// Parse the H1 title line: `# PREFIX-NNNN. Title text`.
 fn parse_title(lines: &[&str], expected_prefix: &str) -> Option<(AdrId, String, usize)> {
-    for (i, line) in lines.iter().enumerate() {
+    for (line_no, line) in outside_fence_lines(lines) {
         if let Some(rest) = line.strip_prefix("# ")
             && let Some(dot_pos) = rest.find(". ")
             && let Some(id) = parse_adr_id(&rest[..dot_pos])
             && id.prefix() == expected_prefix
         {
             let title = rest[dot_pos + 2..].to_owned();
-            return Some((id, title, i + 1));
+            return Some((id, title, line_no));
         }
     }
     None
@@ -2005,6 +2005,46 @@ crates = []
         assert!(
             matches!(&tier, TierField::Invalid { raw } if raw.is_empty()),
             "a present-but-empty Tier field must be Invalid, not Absent, got: {tier:?}"
+        );
+    }
+
+    fn parse_markdown(name: &str, body: &str) -> ParseFileOutcome {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join(name);
+        fs::write(&path, body).expect("write file");
+        parse_adr_file(&path, "CHE", false).expect("read should succeed")
+    }
+
+    #[test]
+    fn fenced_h1_does_not_manufacture_a_title() {
+        let outcome = parse_markdown(
+            "CHE-0001-fenced-h1.md",
+            "Guidance for authors.\n\n```markdown\n# CHE-0001. Fabricated Title\n```\n",
+        );
+        assert!(
+            outcome.record.is_none(),
+            "an H1 that exists only inside a fence must not produce a record"
+        );
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].rule, "P002");
+        assert_eq!(
+            outcome.diagnostics[0].line, 0,
+            "AFM-0017:R3 pins P002 at line 0"
+        );
+    }
+
+    #[test]
+    fn fenced_h1_does_not_shift_the_real_title_line() {
+        let outcome = parse_markdown(
+            "CHE-0001-fenced-then-real.md",
+            "Preamble prose.\n\n```markdown\n# CHE-0001. Fabricated Title\n```\n\n# CHE-0001. Real Title\n",
+        );
+        let record = outcome.record.expect("real H1 must parse");
+        assert_eq!(record.title(), Some("Real Title"));
+        assert_eq!(
+            record.title_line(),
+            7,
+            "line number must be the real H1 line, not the fenced one"
         );
     }
 }
