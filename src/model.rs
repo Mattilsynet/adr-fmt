@@ -881,12 +881,6 @@ pub struct Relationship {
     pub line: usize,
 }
 
-/// Outcome of parsing the `Parent-cross-domain:` preamble field.
-///
-/// A declaration that fails to parse is `Malformed`, never `Absent`:
-/// AFM-0020:R3 suppresses L011 only for a well-formed
-/// `PREFIX-NNNN — reason` declaration, so a defective one must stay
-/// distinguishable from no declaration at all and must not suppress.
 #[derive(Debug, Clone)]
 pub(crate) enum CrossDomainParent {
     Absent,
@@ -901,8 +895,6 @@ pub(crate) enum CrossDomainParent {
 }
 
 impl CrossDomainParent {
-    /// The declared parent ID, but only when the declaration is
-    /// well-formed enough to carry AFM-0020:R3 suppression authority.
     pub(crate) fn honoured_id(&self) -> Option<&AdrId> {
         match self {
             Self::Valid { id, .. } => Some(id),
@@ -932,10 +924,6 @@ impl fmt::Display for CrossDomainDefect {
     }
 }
 
-/// Outcome of parsing the `Tier:` preamble field.
-///
-/// An unrecognised value is `Invalid`, never `Absent`: a rule that
-/// diagnoses a missing tier must not silently absorb a typo'd one.
 #[derive(Debug, Clone)]
 pub(crate) enum TierField {
     Absent,
