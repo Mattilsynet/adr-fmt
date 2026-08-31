@@ -68,7 +68,7 @@ impl ParseOutcome {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) struct FileParseFailure {
     id: AdrId,
     path: PathBuf,
