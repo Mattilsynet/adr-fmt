@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::model::{AdrId, AdrRecord};
+use crate::model::{AdrId, AdrRecord, parse_adr_id_from_filename_stem};
+use crate::report::Diagnostic;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuplicateId {
@@ -9,13 +10,40 @@ pub struct DuplicateId {
     pub paths: [PathBuf; 2],
 }
 
+/// A file that claims an [`AdrId`] but could not be parsed into a
+/// record — the provenance behind [`Resolution::Indeterminate`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnparsedTarget {
+    pub path: String,
+    pub rule: &'static str,
+}
+
+/// Outcome of resolving an [`AdrId`] against the corpus.
+///
+/// The three cases are mutually exclusive and exhaustive, so a caller
+/// cannot fold a parse failure into a definitive absence verdict:
+/// `Absent` means the corpus was searched and the ID is genuinely not
+/// there, while `Indeterminate` means a file claiming that ID exists
+/// on disk but could not be parsed (AFM-0017 P001/P002).
+#[derive(Debug, Clone, Copy)]
+pub enum Resolution<'a> {
+    Resolved(&'a AdrRecord),
+    Absent,
+    Indeterminate(&'a UnparsedTarget),
+}
+
 #[derive(Debug)]
 pub struct CorpusIndex<'a> {
+    records: &'a [AdrRecord],
     by_id: HashMap<&'a AdrId, &'a AdrRecord>,
+    unparsed: HashMap<AdrId, UnparsedTarget>,
 }
 
 impl<'a> CorpusIndex<'a> {
-    pub fn build(records: &'a [AdrRecord]) -> Result<Self, DuplicateId> {
+    pub fn build(
+        records: &'a [AdrRecord],
+        parse_diagnostics: &[Diagnostic],
+    ) -> Result<Self, DuplicateId> {
         let mut ordered: Vec<&'a AdrRecord> = records.iter().collect();
         ordered.sort_by(|a, b| {
             a.id()
@@ -40,7 +68,29 @@ impl<'a> CorpusIndex<'a> {
             }
         }
 
-        Ok(Self { by_id })
+        let unparsed = collect_unparsed(parse_diagnostics, &by_id);
+
+        Ok(Self {
+            records,
+            by_id,
+            unparsed,
+        })
+    }
+
+    #[must_use]
+    pub fn records(&self) -> &'a [AdrRecord] {
+        self.records
+    }
+
+    #[must_use]
+    pub fn resolve(&self, id: &AdrId) -> Resolution<'_> {
+        if let Some(record) = self.by_id.get(id) {
+            return Resolution::Resolved(record);
+        }
+        match self.unparsed.get(id) {
+            Some(unparsed) => Resolution::Indeterminate(unparsed),
+            None => Resolution::Absent,
+        }
     }
 
     #[must_use]
@@ -52,6 +102,32 @@ impl<'a> CorpusIndex<'a> {
     pub fn contains_key(&self, id: &AdrId) -> bool {
         self.by_id.contains_key(id)
     }
+}
+
+fn collect_unparsed(
+    parse_diagnostics: &[Diagnostic],
+    by_id: &HashMap<&AdrId, &AdrRecord>,
+) -> HashMap<AdrId, UnparsedTarget> {
+    let mut unparsed: HashMap<AdrId, UnparsedTarget> = HashMap::new();
+
+    for diagnostic in parse_diagnostics {
+        let Some(id) = std::path::Path::new(&diagnostic.file)
+            .file_stem()
+            .and_then(std::ffi::OsStr::to_str)
+            .and_then(parse_adr_id_from_filename_stem)
+        else {
+            continue;
+        };
+        if by_id.contains_key(&id) {
+            continue;
+        }
+        unparsed.entry(id).or_insert_with(|| UnparsedTarget {
+            path: diagnostic.file.clone(),
+            rule: diagnostic.rule,
+        });
+    }
+
+    unparsed
 }
 
 #[cfg(test)]
@@ -90,7 +166,7 @@ mod tests {
             make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md"),
             make_record("CHE", 2, "docs/adr/cherry/CHE-0002-b.md"),
         ];
-        let index = CorpusIndex::build(&records).expect("unique ids must build");
+        let index = CorpusIndex::build(&records, &[]).expect("unique ids must build");
         assert!(index.contains_key(&make_id("CHE", 1)));
         assert!(index.contains_key(&make_id("CHE", 2)));
         assert!(!index.contains_key(&make_id("CHE", 99)));
@@ -101,7 +177,7 @@ mod tests {
         let a = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md");
         let b = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-b.md");
 
-        let err = CorpusIndex::build(&[a, b]).expect_err("duplicate id must be rejected");
+        let err = CorpusIndex::build(&[a, b], &[]).expect_err("duplicate id must be rejected");
         assert_eq!(err.id, make_id("CHE", 1));
         assert_eq!(
             err.paths,
@@ -117,9 +193,9 @@ mod tests {
         let a = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md");
         let b = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-b.md");
 
-        let forward =
-            CorpusIndex::build(&[a.clone(), b.clone()]).expect_err("duplicate id must be rejected");
-        let reversed = CorpusIndex::build(&[b, a]).expect_err("duplicate id must be rejected");
+        let forward = CorpusIndex::build(&[a.clone(), b.clone()], &[])
+            .expect_err("duplicate id must be rejected");
+        let reversed = CorpusIndex::build(&[b, a], &[]).expect_err("duplicate id must be rejected");
 
         assert_eq!(
             forward, reversed,
@@ -132,7 +208,68 @@ mod tests {
         let a = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md");
         let b = make_record("CHE", 1, "docs/adr/common/CHE-0001-b.md");
 
-        let err = CorpusIndex::build(&[a, b]).expect_err("duplicate id must be rejected");
+        let err = CorpusIndex::build(&[a, b], &[]).expect_err("duplicate id must be rejected");
         assert_eq!(err.id, make_id("CHE", 1));
+    }
+
+    fn parse_failure(rule: &'static str, path: &str) -> Diagnostic {
+        Diagnostic::warning(rule, std::path::Path::new(path), 0, "parse failed".into())
+    }
+
+    #[test]
+    fn unparsed_target_resolves_indeterminate_not_absent() {
+        let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
+        let diags = vec![parse_failure(
+            "P002",
+            "docs/adr/cherry/CHE-0002-broken-h1.md",
+        )];
+        let index = CorpusIndex::build(&records, &diags).expect("unique ids must build");
+
+        match index.resolve(&make_id("CHE", 2)) {
+            Resolution::Indeterminate(unparsed) => {
+                assert_eq!(unparsed.rule, "P002");
+                assert_eq!(unparsed.path, "docs/adr/cherry/CHE-0002-broken-h1.md");
+            }
+            other => panic!("expected Indeterminate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn genuinely_absent_id_resolves_absent() {
+        let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
+        let diags = vec![parse_failure(
+            "P002",
+            "docs/adr/cherry/CHE-0002-broken-h1.md",
+        )];
+        let index = CorpusIndex::build(&records, &diags).expect("unique ids must build");
+
+        assert!(
+            matches!(index.resolve(&make_id("CHE", 99)), Resolution::Absent),
+            "an ID with no record and no parse failure must be Absent"
+        );
+    }
+
+    #[test]
+    fn parsed_record_wins_over_unrelated_diagnostic_on_same_file() {
+        let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
+        let diags = vec![parse_failure("P003", "docs/adr/cherry/CHE-0001-a.md")];
+        let index = CorpusIndex::build(&records, &diags).expect("unique ids must build");
+
+        assert!(
+            matches!(index.resolve(&make_id("CHE", 1)), Resolution::Resolved(_)),
+            "a diagnostic on a file that still parsed must not mask the record"
+        );
+    }
+
+    #[test]
+    fn diagnostic_on_non_adr_path_is_ignored() {
+        let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
+        let diags = vec![parse_failure("P001", "docs/adr/cherry")];
+        let index = CorpusIndex::build(&records, &diags).expect("unique ids must build");
+
+        assert!(
+            matches!(index.resolve(&make_id("CHE", 2)), Resolution::Absent),
+            "a directory-level diagnostic yields no ADR id and must not create an indeterminate"
+        );
     }
 }
