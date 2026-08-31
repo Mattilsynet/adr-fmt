@@ -731,6 +731,20 @@ fn check_tagged_rules(
     if record.is_stale() {
         return;
     }
+
+    for candidate in record.malformed_decision_rules() {
+        diags.push(Diagnostic::warning(
+            "T016",
+            record.file_path(),
+            candidate.line,
+            format!(
+                "Rule-shaped line does not match the required `RN [L]: text` \
+                 format — `{}`",
+                candidate.raw.escape_debug()
+            ),
+        ));
+    }
+
     if record.decision_rules().is_empty() {
         diags.push(Diagnostic::warning(
             "T016",
@@ -1356,6 +1370,68 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         assert!(
             diags.iter().any(|d| d.rule == "T016"),
             "missing tagged rules should trigger T016, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_rule_candidate_is_diagnosed_with_line_and_raw_text() {
+        use crate::model::MalformedRule;
+        let mut record = make_record();
+        *record.malformed_decision_rules_mut() = vec![MalformedRule {
+            line: 42,
+            raw: "R2 [x]: Layer is not numeric so this candidate does not conform".into(),
+        }];
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(&record, &config, &mut diags);
+        let diag = diags
+            .iter()
+            .find(|d| d.rule == "T016" && d.line == 42)
+            .unwrap_or_else(|| {
+                panic!("a malformed rule-shaped line must be diagnosed, got: {diags:?}")
+            });
+        assert!(
+            diag.message.contains("R2 [x]:"),
+            "AFM-0012:R1-R3 conformance applies to every tagged rule; the \
+             diagnostic must quote the offending raw text, got: {}",
+            diag.message
+        );
+    }
+
+    #[test]
+    fn one_valid_rule_does_not_launder_a_malformed_sibling() {
+        use crate::model::MalformedRule;
+        let mut record = make_record();
+        *record.malformed_decision_rules_mut() = vec![MalformedRule {
+            line: 11,
+            raw: "R3: No layer bracket at all on this candidate line".into(),
+        }];
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(&record, &config, &mut diags);
+        assert!(
+            diags.iter().any(|d| d.rule == "T016" && d.line == 11),
+            "a Decision section with one valid rule and one malformed one must \
+             not pass T016 clean, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_rule_candidates_are_skipped_on_stale() {
+        use crate::model::MalformedRule;
+        let mut record = make_record();
+        *record.is_stale_mut() = true;
+        *record.malformed_decision_rules_mut() = vec![MalformedRule {
+            line: 11,
+            raw: "R3: No layer bracket at all on this candidate line".into(),
+        }];
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(&record, &config, &mut diags);
+        assert!(
+            !diags.iter().any(|d| d.rule == "T016"),
+            "T016 is skipped on stale ADRs; the malformed-candidate check \
+             inherits that exemption, got: {diags:?}"
         );
     }
 

@@ -231,9 +231,12 @@ fn print_template() {
     println!("          D-tier must be tighter. Flags the section for review.");
     println!("    T016  Tagged rules — tier-scaled signal, not gate. Max rules");
     println!("          scales with tier. Word count (7–60), sequential IDs");
-    println!("          are warnings. Layer outside 1–12 is an error (invalid");
-    println!("          Meadows leverage point). Exceeding may indicate");
-    println!("          the ADR covers multiple decisions.");
+    println!("          and layer outside 1–12 (invalid Meadows leverage");
+    println!("          point) are warnings. A rule-shaped line that");
+    println!("          does not match the required `RN [L]: text` format");
+    println!("          is reported against its own line — it is not");
+    println!("          silently skipped. Exceeding may indicate the ADR");
+    println!("          covers multiple decisions.");
     println!("    T019  Rule-tier tension — flags rules whose Meadows layer");
     println!("          implies a tier >1 rank from the ADR's tier (foundation");
     println!("          S-tier ADRs: >2 ranks). Move rule to a matching-tier");
@@ -649,6 +652,29 @@ crates = []
         assert!(
             !src.contains(&needle),
             "tier scaling values must not be hardcoded in println"
+        );
+    }
+
+    #[test]
+    fn t016_registry_text_matches_shipped_warning_severity() {
+        let src = include_str!("guidelines.rs");
+        let start = src
+            .find("T016  Tagged rules")
+            .expect("T016 registry entry exists");
+        let end = src[start..]
+            .find("T019  Rule-tier tension")
+            .expect("the T016 entry is followed by the T019 entry")
+            + start;
+        let scan = &src[start..end];
+        assert!(
+            !scan.contains("is an error"),
+            "AFM-0003:R2 and rules/template.rs both expose the T016 layer \
+             finding as a WARNING; the generated text must not claim error"
+        );
+        assert!(
+            scan.contains("does not match the required"),
+            "the generated T016 guidance must document the malformed \
+             rule-shaped line check, or a shipped diagnostic is invisible"
         );
     }
 }

@@ -235,6 +235,10 @@ pub struct AdrRecord {
     /// Tagged rules extracted from the Decision section
     /// (`RN [L]: text` pattern). Empty when no tagged rules found.
     decision_rules: Vec<TaggedRule>,
+    /// Decision-section lines that are rule-shaped but do not conform to
+    /// the `RN [L]: text` pattern. Kept alongside `decision_rules` so a
+    /// malformed candidate cannot vanish between parser and rules.
+    malformed_decision_rules: Vec<MalformedRule>,
     /// Cross-domain parent exception declared in the preamble via
     /// `Parent-cross-domain: PREFIX-NNNN — reason`. When present and
     /// matching the first `References:` target, suppresses L011
@@ -403,6 +407,10 @@ impl AdrRecord {
         &self.decision_rules
     }
 
+    pub(crate) fn malformed_decision_rules(&self) -> &[MalformedRule] {
+        &self.malformed_decision_rules
+    }
+
     /// Cross-domain parent exception declared via `Parent-cross-domain:`.
     ///
     /// Returns `Some` only for a well-formed declaration; a malformed
@@ -453,6 +461,7 @@ impl AdrRecord {
         section_word_counts: HashMap<String, usize>,
         crates: Vec<String>,
         decision_rules: Vec<TaggedRule>,
+        malformed_decision_rules: Vec<MalformedRule>,
         parent_cross_domain: CrossDomainParent,
     ) -> Self {
         Self {
@@ -479,6 +488,7 @@ impl AdrRecord {
             section_word_counts,
             crates,
             decision_rules,
+            malformed_decision_rules,
             parent_cross_domain,
         }
     }
@@ -606,6 +616,10 @@ impl AdrRecord {
         &mut self.decision_rules
     }
 
+    pub(crate) fn malformed_decision_rules_mut(&mut self) -> &mut Vec<MalformedRule> {
+        &mut self.malformed_decision_rules
+    }
+
     pub(crate) fn set_parent_cross_domain(&mut self, declared: CrossDomainParent) {
         self.parent_cross_domain = declared;
     }
@@ -645,6 +659,7 @@ impl AdrRecord {
             section_word_counts: HashMap::new(),
             crates: Vec::new(),
             decision_rules: Vec::new(),
+            malformed_decision_rules: Vec::new(),
             parent_cross_domain: CrossDomainParent::Absent,
         }
     }
@@ -968,6 +983,18 @@ impl Related {
             Self::Parsed(_) | Self::Absent => None,
         }
     }
+}
+
+/// A Decision-section line that is rule-shaped but does not conform to
+/// the `RN [L]: text` tagged-rule pattern.
+///
+/// Mirrors the [`Related::Malformed`] precedent: the well-formed items
+/// stay on their own accessor, and the malformed candidates are carried
+/// alongside rather than discarded, so the rules layer can report them.
+#[derive(Debug, Clone)]
+pub(crate) struct MalformedRule {
+    pub(crate) line: usize,
+    pub(crate) raw: String,
 }
 
 #[derive(Debug, Clone)]
