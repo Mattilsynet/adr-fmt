@@ -2,7 +2,7 @@
 
 mod links;
 pub(crate) mod naming;
-mod template;
+pub(crate) mod template;
 
 use crate::config::Config;
 use crate::index::CorpusIndex;

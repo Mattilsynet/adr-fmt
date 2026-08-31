@@ -10,6 +10,7 @@
 
 use crate::config::Config;
 use crate::model::{RelVerb, Tier};
+use crate::rules::template::Budgets;
 
 /// Print the setup guide when no `adr-fmt.toml` exists.
 pub fn print_setup_guide() {
@@ -87,7 +88,7 @@ pub fn print_governance(config: &Config) {
     print_tiers();
     print_lifecycle();
     print_template();
-    print_tagged_rules();
+    print_tagged_rules(config);
     print_relationships(config);
     print_naming();
     print_link_rules();
@@ -233,7 +234,10 @@ fn print_template() {
     println!("    T011  Code block size limit (max 20 lines)");
     println!("    T014  Section order (Related → Context → Decision → Consequences)");
     println!("    T015  Section word count — tier-scaled signal, not gate.");
-    println!("          Limits scale with tier: S-tier ADRs get more room,");
+    println!("          The effective minimum and maximum MUST be the");
+    println!("          configured T015 base scaled by the tier factor, so");
+    println!("          the minimum printed above and the minimum enforced");
+    println!("          here are one value. S-tier ADRs get more room,");
     println!("          D-tier must be tighter. Flags the section for review.");
     println!("    T016  Tagged rules — tier-scaled signal, not gate. Max rules");
     println!("          scales with tier. Word count (7–60), sequential IDs");
@@ -267,7 +271,7 @@ fn print_template() {
     println!();
 }
 
-fn print_tagged_rules() {
+fn print_tagged_rules(config: &Config) {
     println!("TAGGED RULES (Decision Section)");
     println!("───────────────────────────────");
     println!();
@@ -331,18 +335,21 @@ fn print_tagged_rules() {
     println!("      S-tier ADRs (T019)");
     println!();
 
-    println!("  Tier scaling (applied to max_words and max_rules base values):");
+    println!("  Tier scaling — factor multiplies the configured min_words,");
+    println!("  max_words, and max_rules base values. The min_words column");
+    println!("  below is the effective T015 minimum this corpus enforces:");
     for tier in Tier::all() {
-        println!("{}", tier_scaling_row(*tier));
+        println!("{}", tier_scaling_row(config, *tier));
     }
     println!();
 }
 
-fn tier_scaling_row(tier: Tier) -> String {
+pub(crate) fn tier_scaling_row(config: &Config, tier: Tier) -> String {
+    let budgets = Budgets::resolve(config, &mut Vec::new());
     format!(
         "    {tier:?}  factor={:.1}  min_words={}  max_refs={}",
         tier.factor(),
-        tier.min_words(),
+        budgets.min_words_for(tier),
         tier.max_refs()
     )
 }
@@ -649,16 +656,30 @@ crates = []
     #[test]
     fn tier_scaling_table_derived_from_model() {
         let src = include_str!("guidelines.rs");
+        let start = src
+            .find("pub(crate) fn tier_scaling_row")
+            .expect("tier_scaling_row exists");
+        let end = src[start..]
+            .find("fn print_relationships")
+            .expect("tier_scaling_row is followed by print_relationships")
+            + start;
+        let scan = &src[start..end];
         assert!(
-            src.contains("tier.factor()"),
+            scan.contains("tier.factor()"),
             "tier scaling table must use Tier::factor()"
         );
         assert!(
-            src.contains("tier.min_words()"),
-            "tier scaling table must use Tier::min_words()"
+            scan.contains("budgets.min_words_for(tier)"),
+            "the tier scaling table MUST source min_words from the configured \
+             T015 budget, not from the fixed Tier::min_words table"
         );
         assert!(
-            src.contains("tier.max_refs()"),
+            !scan.contains("tier.min_words()"),
+            "the tier scaling table MUST NOT read the fixed legacy \
+             Tier::min_words table; enforcement does not use it"
+        );
+        assert!(
+            scan.contains("tier.max_refs()"),
             "tier scaling table must use Tier::max_refs()"
         );
         let needle = format!("println!(\"    {}  factor=", "S");
