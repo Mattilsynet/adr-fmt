@@ -140,7 +140,8 @@ mod tests {
         };
         crate::parser::parse_domain(&domain_dir)
             .expect("read_dir should succeed")
-            .diagnostics
+            .into_parts()
+            .1
     }
 
     fn rules_of(diags: &[Diagnostic]) -> Vec<&str> {

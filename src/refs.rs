@@ -154,7 +154,11 @@ mod tests {
     use std::path::PathBuf;
 
     fn find_refs(target: &AdrId, records: &[AdrRecord]) -> Result<RefsReport, RefsError> {
-        let index = CorpusIndex::build(records, &[]).expect("test fixture ids must be unique");
+        let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
+            records.to_vec(),
+            Vec::new(),
+        ));
+        let index = CorpusIndex::build(&scan).expect("test fixture ids must be unique");
         super::find_refs(target, &index)
     }
 
@@ -333,8 +337,10 @@ mod tests {
             std::path::PathBuf::from("docs/adr/cherry/CHE-0002-broken-h1.md"),
             "P002",
         )];
-        let index =
-            CorpusIndex::build(&records, &failures).expect("test fixture ids must be unique");
+        let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
+            records, failures,
+        ));
+        let index = CorpusIndex::build(&scan).expect("test fixture ids must be unique");
 
         let err = super::find_refs(&make_id("CHE", 2), &index).unwrap_err();
         assert!(
@@ -359,8 +365,10 @@ mod tests {
             std::path::PathBuf::from("docs/adr/cherry/CHE-0002-unreadable.md"),
             "P001",
         )];
-        let index =
-            CorpusIndex::build(&records, &failures).expect("test fixture ids must be unique");
+        let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
+            records, failures,
+        ));
+        let index = CorpusIndex::build(&scan).expect("test fixture ids must be unique");
 
         let err = super::find_refs(&make_id("CHE", 2), &index).unwrap_err();
         let rendered = err.to_string();

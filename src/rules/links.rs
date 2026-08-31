@@ -641,7 +641,11 @@ mod tests {
     use std::path::PathBuf;
 
     fn check(records: &[AdrRecord], diags: &mut Vec<Diagnostic>) {
-        let index = CorpusIndex::build(records, &[]).expect("test fixture ids must be unique");
+        let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
+            records.to_vec(),
+            Vec::new(),
+        ));
+        let index = CorpusIndex::build(&scan).expect("test fixture ids must be unique");
         super::check(records, &index, diags);
     }
 
@@ -688,8 +692,11 @@ mod tests {
         let mut b = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
         *b.file_path_mut() = PathBuf::from("docs/adr/cherry/CHE-0001-b.md");
 
-        let err =
-            CorpusIndex::build(&[a, b], &[]).expect_err("duplicate CHE-0001 must be rejected here");
+        let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
+            vec![a, b],
+            Vec::new(),
+        ));
+        let err = CorpusIndex::build(&scan).expect_err("duplicate CHE-0001 must be rejected here");
         assert_eq!(err.id, make_id("CHE", 1));
         assert_eq!(
             err.paths,
@@ -738,8 +745,11 @@ mod tests {
             std::path::PathBuf::from("docs/adr/cherry/CHE-0002-broken-h1.md"),
             "P002",
         )];
-        let index =
-            CorpusIndex::build(&records, &failures).expect("test fixture ids must be unique");
+        let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
+            records.clone(),
+            failures,
+        ));
+        let index = CorpusIndex::build(&scan).expect("test fixture ids must be unique");
 
         let mut diags = Vec::new();
         super::check(&records, &index, &mut diags);

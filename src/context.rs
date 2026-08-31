@@ -342,7 +342,11 @@ mod tests {
         records: &[AdrRecord],
         config: &Config,
     ) -> Result<Vec<RootGroup>, String> {
-        let index = CorpusIndex::build(records, &[]).expect("test fixture ids must be unique");
+        let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
+            records.to_vec(),
+            Vec::new(),
+        ));
+        let index = CorpusIndex::build(&scan).expect("test fixture ids must be unique");
         super::context_grouped(crate_name, records, config, &index)
     }
 
