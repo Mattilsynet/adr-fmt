@@ -665,6 +665,27 @@ fn outside_fence_lines<'a>(lines: &'a [&'a str]) -> impl Iterator<Item = (usize,
         })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuleScanLine<'a> {
+    Outside { line_no: usize, text: &'a str },
+    FenceBlock,
+}
+
+fn rule_scan_lines<'a>(lines: &'a [&'a str]) -> impl Iterator<Item = RuleScanLine<'a>> {
+    let mut scanner = FenceScanner::default();
+    lines
+        .iter()
+        .enumerate()
+        .filter_map(move |(i, line)| match scanner.classify(line) {
+            LineKind::Outside => Some(RuleScanLine::Outside {
+                line_no: i + 1,
+                text: line,
+            }),
+            LineKind::FenceOpen => Some(RuleScanLine::FenceBlock),
+            LineKind::FenceClose | LineKind::Inside => None,
+        })
+}
+
 /// Analyze H2 sections: extract ordering and word counts.
 ///
 /// Word counts exclude fenced code blocks.
@@ -779,13 +800,20 @@ static TAGGED_RULE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^R(\d+)\s*\[(\d+)\]:\s*(.+)").expect("valid regex"));
 
 fn extract_tagged_rules(lines: &[&str]) -> Vec<TaggedRule> {
-    let scanned: Vec<(usize, &str)> = outside_fence_lines(lines).collect();
+    let scanned: Vec<RuleScanLine<'_>> = rule_scan_lines(lines).collect();
     let mut rules = Vec::new();
     let mut in_decision = false;
 
     let mut i = 0;
     while i < scanned.len() {
-        let (line_no, line) = scanned[i];
+        let RuleScanLine::Outside {
+            line_no,
+            text: line,
+        } = scanned[i]
+        else {
+            i += 1;
+            continue;
+        };
         if line == "## Decision" {
             in_decision = true;
             i += 1;
@@ -807,7 +835,9 @@ fn extract_tagged_rules(lines: &[&str]) -> Vec<TaggedRule> {
 
             i += 1;
             while i < scanned.len() {
-                let (_, next) = scanned[i];
+                let RuleScanLine::Outside { text: next, .. } = scanned[i] else {
+                    break;
+                };
                 if next.trim().is_empty() {
                     break;
                 }
@@ -2117,6 +2147,22 @@ crates = []
         assert_eq!(
             rules[0].text, "The real rule.",
             "fenced lines must not be joined into the rule text"
+        );
+    }
+
+    #[test]
+    fn prose_after_a_fence_does_not_join_the_preceding_rule() {
+        let outcome = parse_markdown(
+            "CHE-0001-post-fence-prose.md",
+            "# CHE-0001. Post Fence Prose\n\n## Decision\n\nR1 [5]: The real rule.\n\
+             ```markdown\n  fenced example line\n```\n  outside prose after the fence.\n",
+        );
+        let record = outcome.record.expect("record should parse");
+        let rules = record.decision_rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(
+            rules[0].text, "The real rule.",
+            "a fence block terminates continuation; post-fence prose must not be joined"
         );
     }
 
