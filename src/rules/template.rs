@@ -78,7 +78,7 @@ pub fn check(record: &AdrRecord, config: &Config, diags: &mut Vec<Diagnostic>) {
 
     let base_max_words = config
         .rule_param_u64("T015", "max_words")
-        .unwrap_or(DEFAULT_MAX_WORDS);
+        .value_or(DEFAULT_MAX_WORDS);
     let effective_min = tier.min_words();
     #[expect(
         clippy::cast_possible_truncation,
@@ -91,7 +91,7 @@ pub fn check(record: &AdrRecord, config: &Config, diags: &mut Vec<Diagnostic>) {
 
     let base_max_rules = config
         .rule_param_u64("T016", "max_rules")
-        .unwrap_or(DEFAULT_MAX_RULES);
+        .value_or(DEFAULT_MAX_RULES);
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
@@ -101,10 +101,10 @@ pub fn check(record: &AdrRecord, config: &Config, diags: &mut Vec<Diagnostic>) {
     let effective_max_rules = (base_max_rules as f64 * tier.factor()).round() as u64;
     let min_rule_words = config
         .rule_param_u64("T016", "min_rule_words")
-        .unwrap_or(DEFAULT_MIN_RULE_WORDS);
+        .value_or(DEFAULT_MIN_RULE_WORDS);
     let max_rule_words = config
         .rule_param_u64("T016", "max_rule_words")
-        .unwrap_or(DEFAULT_MAX_RULE_WORDS);
+        .value_or(DEFAULT_MAX_RULE_WORDS);
     check_tagged_rules(
         record,
         tier,
@@ -315,7 +315,7 @@ fn check_stale_lifecycle(record: &AdrRecord, config: &Config, diags: &mut Vec<Di
         };
         let min_words = config
             .rule_param_u64("T015", "min_words")
-            .unwrap_or(DEFAULT_MIN_WORDS);
+            .value_or(DEFAULT_MIN_WORDS);
         diags.push(Diagnostic::warning(
             "S006",
             record.file_path(),
