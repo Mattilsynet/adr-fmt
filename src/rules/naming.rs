@@ -12,12 +12,10 @@ use regex::Regex;
 use crate::model::{AdrRecord, parse_adr_id_from_filename_stem};
 use crate::report::Diagnostic;
 
-/// N001: filename must match `PREFIX-NNNN-kebab-slug.md`.
 static N001_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Z]{2,4}-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$").expect("valid regex")
 });
 
-/// N003: slug must be lowercase kebab-case.
 static KEBAB_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[a-z0-9]+(?:-[a-z0-9]+)*$").expect("valid regex"));
 
