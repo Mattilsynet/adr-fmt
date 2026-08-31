@@ -197,8 +197,16 @@ fn collect_domain_entries(
         absorb_file(&mut outcome, &path, &dir.prefix, false);
     }
 
-    outcome.records.sort_by_key(|r| r.id().number());
+    outcome.records.sort_by(compare_record_order);
     outcome
+}
+
+fn compare_record_order(a: &AdrRecord, b: &AdrRecord) -> std::cmp::Ordering {
+    (a.id().number(), a.id().prefix(), a.file_path()).cmp(&(
+        b.id().number(),
+        b.id().prefix(),
+        b.file_path(),
+    ))
 }
 
 fn is_adr_candidate(name: &str) -> bool {
@@ -326,7 +334,7 @@ fn collect_stale_entries(
         }
     }
 
-    outcome.records.sort_by_key(|r| r.id().number());
+    outcome.records.sort_by(compare_record_order);
     outcome
 }
 
@@ -2346,5 +2354,157 @@ crates = []
         );
         assert!(outcome.record.is_none());
         assert_eq!(outcome.diagnostics[0].rule, "P002");
+    }
+
+    fn write_adr(dir: &Path, file_name: &str, id: &str, title: &str) {
+        let body = format!(
+            "# {id}. {title}\n\n\
+             Date: 2026-04-27\nLast-reviewed: 2026-04-27\nTier: S\nStatus: Accepted\n\n\
+             ## Related\n\nRoot: {id}\n\n\
+             ## Context\n\nProse explaining why this record exists at all.\n\n\
+             ## Decision\n\nR1 [5]: We decided a thing for stated reasons.\n"
+        );
+        fs::write(dir.join(file_name), body).expect("write ADR fixture");
+    }
+
+    fn entries_in_order(dir: &Path, names: &[&str]) -> Vec<fs::DirEntry> {
+        let mut found: Vec<Option<fs::DirEntry>> = fs::read_dir(dir)
+            .expect("read fixture dir")
+            .map(|e| Some(e.expect("dir entry")))
+            .collect();
+
+        names
+            .iter()
+            .map(|name| {
+                let at = found
+                    .iter()
+                    .position(|e| {
+                        e.as_ref()
+                            .is_some_and(|e| e.file_name().to_string_lossy() == **name)
+                    })
+                    .expect("fixture present");
+                found[at].take().expect("fixture not yet consumed")
+            })
+            .collect()
+    }
+
+    fn file_names_of(outcome: &ParseOutcome) -> Vec<String> {
+        outcome
+            .records
+            .iter()
+            .map(|r| {
+                r.file_path()
+                    .file_name()
+                    .expect("record has a file name")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn domain_record_order_is_independent_of_directory_enumeration_order() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path();
+        write_adr(path, "CHE-0001-alpha.md", "CHE-0001", "Alpha");
+        write_adr(path, "CHE-0001-beta.md", "CHE-0001", "Beta");
+        write_adr(path, "CHE-0002-gamma.md", "CHE-0002", "Gamma");
+
+        let dir = DomainDir {
+            path: path.to_path_buf(),
+            prefix: "CHE".to_owned(),
+            name: "cherry".to_owned(),
+        };
+
+        let permutations = [
+            ["CHE-0001-alpha.md", "CHE-0001-beta.md", "CHE-0002-gamma.md"],
+            ["CHE-0001-beta.md", "CHE-0001-alpha.md", "CHE-0002-gamma.md"],
+            ["CHE-0002-gamma.md", "CHE-0001-beta.md", "CHE-0001-alpha.md"],
+            ["CHE-0001-beta.md", "CHE-0002-gamma.md", "CHE-0001-alpha.md"],
+        ];
+
+        let orders: Vec<Vec<String>> = permutations
+            .iter()
+            .map(|names| {
+                let entries = entries_in_order(path, names);
+                file_names_of(&collect_domain_entries(&dir, entries.into_iter().map(Ok)))
+            })
+            .collect();
+
+        for order in &orders {
+            assert_eq!(
+                order, &orders[0],
+                "records sharing a number must land in a fixed order regardless of \
+                 the order the directory enumerated them in"
+            );
+        }
+        assert_eq!(
+            orders[0],
+            ["CHE-0001-alpha.md", "CHE-0001-beta.md", "CHE-0002-gamma.md"],
+            "the tie between equal numbers breaks on file path"
+        );
+    }
+
+    #[test]
+    fn stale_record_order_is_independent_of_directory_enumeration_order() {
+        let toml_str = r#"
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+[[domains]]
+prefix = "CHE"
+name = "Cherry"
+directory = "cherry"
+description = "Test domain"
+crates = []
+
+[[domains]]
+prefix = "DEC"
+name = "Deco"
+directory = "deco"
+description = "Test domain"
+crates = []
+"#;
+        let config: Config = toml::from_str(toml_str).expect("valid config");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path();
+        write_adr(path, "CHE-0001-alpha.md", "CHE-0001", "Alpha");
+        write_adr(path, "DEC-0001-beta.md", "DEC-0001", "Beta");
+        write_adr(path, "CHE-0002-gamma.md", "CHE-0002", "Gamma");
+
+        let permutations = [
+            ["CHE-0001-alpha.md", "DEC-0001-beta.md", "CHE-0002-gamma.md"],
+            ["DEC-0001-beta.md", "CHE-0001-alpha.md", "CHE-0002-gamma.md"],
+            ["CHE-0002-gamma.md", "DEC-0001-beta.md", "CHE-0001-alpha.md"],
+        ];
+
+        let orders: Vec<Vec<String>> = permutations
+            .iter()
+            .map(|names| {
+                let entries = entries_in_order(path, names);
+                file_names_of(&collect_stale_entries(
+                    path,
+                    &config,
+                    entries.into_iter().map(Ok),
+                ))
+            })
+            .collect();
+
+        for order in &orders {
+            assert_eq!(
+                order, &orders[0],
+                "stale records sharing a number across prefixes must land in a fixed \
+                 order regardless of directory enumeration order"
+            );
+        }
+        assert_eq!(
+            orders[0],
+            ["CHE-0001-alpha.md", "DEC-0001-beta.md", "CHE-0002-gamma.md"],
+            "the tie between equal numbers breaks on prefix, then file path"
+        );
     }
 }
