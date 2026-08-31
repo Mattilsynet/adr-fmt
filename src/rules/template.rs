@@ -125,6 +125,7 @@ pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut
     check_status_validity(record, diags);
     check_structure(record, diags);
     check_section_order(record, diags);
+    check_residue_sections(record, diags);
 
     let tier = record.tier().unwrap_or(Tier::B);
 
@@ -235,6 +236,41 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
              `Status:` preamble metadata field (e.g., `Status: Accepted`)"
                 .into(),
         ));
+    }
+}
+
+enum LiveStatus {
+    Draft,
+    Proposed,
+    Accepted,
+}
+
+enum StatusLiveness {
+    Live(LiveStatus),
+    Terminal,
+    Indeterminate,
+}
+
+impl StatusLiveness {
+    fn classify(status: &Status) -> Self {
+        match status {
+            Status::Draft => Self::Live(LiveStatus::Draft),
+            Status::Proposed => Self::Live(LiveStatus::Proposed),
+            Status::Accepted => Self::Live(LiveStatus::Accepted),
+            Status::Rejected | Status::Deprecated | Status::SupersededBy(_) => Self::Terminal,
+            Status::Invalid(_) => Self::Indeterminate,
+        }
+    }
+}
+
+impl std::fmt::Display for LiveStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Draft => "Draft",
+            Self::Proposed => "Proposed",
+            Self::Accepted => "Accepted",
+        };
+        f.write_str(name)
     }
 }
 
@@ -404,6 +440,25 @@ fn check_stale_lifecycle(
             ),
         ));
     }
+
+    if let Some(status) = record.status()
+        && record.is_stale()
+        && let StatusLiveness::Live(live) = StatusLiveness::classify(status)
+    {
+        diags.push(Diagnostic::warning(
+            "S008",
+            record.file_path(),
+            record.status_line(),
+            format!(
+                "{} is in the {stale_dir}/ directory but has non-terminal status \
+                 '{live}'. Action: either set a terminal status (Rejected, \
+                 Deprecated, or Superseded by PREFIX-NNNN) to record how this ADR \
+                 left active service, or move the file back out of {stale_dir}/.",
+                record.id(),
+                stale_dir = config.stale.directory,
+            ),
+        ));
+    }
 }
 
 fn check_stale_stub_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
@@ -492,6 +547,37 @@ fn check_section_order(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
                 ),
             ));
             return;
+        }
+    }
+}
+
+const MADR_RESIDUE_SECTIONS: &[&str] = &[
+    "context and problem statement",
+    "decision drivers",
+    "considered options",
+    "options",
+    "decision outcome",
+    "pros and cons of the options",
+    "pros and cons",
+];
+
+fn check_residue_sections(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
+    if record.is_stale() {
+        return;
+    }
+
+    for section in record.section_order() {
+        if MADR_RESIDUE_SECTIONS.contains(&section.to_lowercase().as_str()) {
+            diags.push(Diagnostic::warning(
+                "T022",
+                record.file_path(),
+                0,
+                format!(
+                    "`## {section}` is a MADR template section this template omits — \
+                     fold its content into `## Context` or `## Decision` and remove \
+                     the heading"
+                ),
+            ));
         }
     }
 }
@@ -2267,7 +2353,11 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         check(&record, &config, &mut diags);
         assert!(
             !diags.iter().any(|d| d.rule == "S007"),
-            "stale + non-terminal status must not trigger S007 (other rules cover that mismatch), got: {diags:?}"
+            "stale + non-terminal status must not trigger S007, got: {diags:?}"
+        );
+        assert!(
+            diags.iter().any(|d| d.rule == "S008"),
+            "S008 is the rule that covers stale + non-terminal status, got: {diags:?}"
         );
     }
 

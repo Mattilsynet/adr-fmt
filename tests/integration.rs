@@ -3130,3 +3130,292 @@ fn unrecognized_status_emits_exactly_one_t006() {
         "generic remediation expected:\n{stdout}"
     );
 }
+
+fn stale_nonterminal_adr(num: &str, status: &str) -> String {
+    format!(
+        "\
+# TST-{num}. Stale Non Terminal
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: {status}
+
+## Retirement
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty.
+"
+    )
+}
+
+fn active_adr_with_section(section: &str) -> String {
+    format!(
+        "\
+# TST-0002. Residue Probe
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Related
+
+Root: TST-0002
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty.
+
+## {section}
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty.
+
+## Decision
+
+R1 [5]: We decided to create a minimal but complete probe ADR that satisfies the tagged rule shape.
+
+## Consequences
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty.
+"
+    )
+}
+
+#[test]
+fn s008_stale_with_nonterminal_status_is_diagnosed_for_each_status() {
+    let dir = setup_multi_corpus(
+        MINIMAL_CONFIG,
+        &[("test", &[("TST-0001-valid-test-adr.md", VALID_ADR)])],
+        &[
+            (
+                "TST-0002-stale-accepted.md",
+                stale_nonterminal_adr("0002", "Accepted").as_str(),
+            ),
+            (
+                "TST-0003-stale-draft.md",
+                stale_nonterminal_adr("0003", "Draft").as_str(),
+            ),
+            (
+                "TST-0004-stale-proposed.md",
+                stale_nonterminal_adr("0004", "Proposed").as_str(),
+            ),
+        ],
+    );
+
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "S008"),
+        3,
+        "each of Accepted/Draft/Proposed must be diagnosed:\n{stdout}"
+    );
+    for status in ["Accepted", "Draft", "Proposed"] {
+        assert!(
+            stdout.contains(&format!("non-terminal status '{status}'")),
+            "S008 must name the offending status {status}:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn s008_does_not_fire_on_stale_with_terminal_status() {
+    let dir = setup_multi_corpus(
+        MINIMAL_CONFIG,
+        &[("test", &[("TST-0001-valid-test-adr.md", VALID_ADR)])],
+        &[(
+            "TST-0002-stale-deprecated.md",
+            stale_nonterminal_adr("0002", "Deprecated").as_str(),
+        )],
+    );
+
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "S008"),
+        0,
+        "terminal status in the stale directory is correct:\n{stdout}"
+    );
+}
+
+#[test]
+fn s008_stays_silent_on_stale_with_unparseable_status() {
+    let dir = setup_multi_corpus(
+        MINIMAL_CONFIG,
+        &[("test", &[("TST-0001-valid-test-adr.md", VALID_ADR)])],
+        &[(
+            "TST-0002-stale-bogus.md",
+            stale_nonterminal_adr("0002", "Bogus").as_str(),
+        )],
+    );
+
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "S008"),
+        0,
+        "an unparseable status is indeterminate, not non-terminal:\n{stdout}"
+    );
+    assert_eq!(
+        count_rule_occurrences(&stdout, "T006"),
+        1,
+        "T006 must diagnose the unparseable status exactly once:\n{stdout}"
+    );
+}
+
+#[test]
+fn s008_leaves_missing_status_to_t005() {
+    let missing_status = "\
+# TST-0002. Stale No Status
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+
+## Retirement
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty.
+";
+    let dir = setup_multi_corpus(
+        MINIMAL_CONFIG,
+        &[("test", &[("TST-0001-valid-test-adr.md", VALID_ADR)])],
+        &[("TST-0002-stale-no-status.md", missing_status)],
+    );
+
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "S008"),
+        0,
+        "a missing status is T005's business, not S008's:\n{stdout}"
+    );
+    assert_eq!(
+        count_rule_occurrences(&stdout, "T005"),
+        1,
+        "T005 must still diagnose the missing status exactly once:\n{stdout}"
+    );
+}
+
+#[test]
+fn t022_active_adr_with_madr_residue_options_section_is_diagnosed() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            (
+                "TST-0002-residue-probe.md",
+                active_adr_with_section("Options").as_str(),
+            ),
+        ],
+    );
+
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "T022"),
+        1,
+        "an omitted-MADR residue section must be diagnosed exactly once:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("`## Options`"),
+        "T022 must name the offending section:\n{stdout}"
+    );
+}
+
+#[test]
+fn t022_matches_madr_residue_names_case_insensitively() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            (
+                "TST-0002-residue-probe.md",
+                active_adr_with_section("CONSIDERED OPTIONS").as_str(),
+            ),
+        ],
+    );
+
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "T022"),
+        1,
+        "residue matching must be case-insensitive:\n{stdout}"
+    );
+}
+
+#[test]
+fn t022_leaves_author_chosen_explanatory_sections_alone() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            (
+                "TST-0002-residue-probe.md",
+                active_adr_with_section("Tier classification footnote").as_str(),
+            ),
+        ],
+    );
+
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "T022"),
+        0,
+        "active ADRs stay open to author-chosen explanatory H2s:\n{stdout}"
+    );
+}
+
+#[test]
+fn t014_still_catches_inversion_when_an_unknown_section_is_present() {
+    let inverted = "\
+# TST-0002. Inverted With Unknown
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Related
+
+Root: TST-0002
+
+## Tier classification footnote
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty.
+
+## Consequences
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty.
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty.
+
+## Decision
+
+R1 [5]: We decided to create a minimal but complete probe ADR that satisfies the tagged rule shape.
+";
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            ("TST-0002-inverted-with-unknown.md", inverted),
+        ],
+    );
+
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "T014"),
+        1,
+        "an unknown H2 must not mask a known-section inversion:\n{stdout}"
+    );
+}
