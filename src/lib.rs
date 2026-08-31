@@ -46,7 +46,7 @@ pub use containment::{ContainmentError, contained_join, contained_join_optional}
 pub use model::{
     AdrId, AdrIdError, AdrRecord, DomainDir, RelVerb, Relationship, Status, Tier, parse_adr_id,
 };
-pub use parser::{FileParseFailure, ParseError, ParseOutcome, parse_domain, parse_stale};
+pub use parser::{ParseError, ParseOutcome, parse_domain, parse_stale};
 pub use report::{Diagnostic, Severity};
 
 use std::ffi::OsString;

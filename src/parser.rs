@@ -54,11 +54,6 @@ impl ParseOutcome {
         &self.diagnostics
     }
 
-    #[must_use]
-    pub fn parse_failures(&self) -> &[FileParseFailure] {
-        &self.parse_failures
-    }
-
     pub(crate) fn into_parts(self) -> (Vec<AdrRecord>, Vec<Diagnostic>, Vec<FileParseFailure>) {
         (self.records, self.diagnostics, self.parse_failures)
     }
@@ -79,7 +74,7 @@ impl ParseOutcome {
 /// some file claimed and failed to deliver. Directory-level and naming
 /// diagnostics have no constructor into this type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileParseFailure {
+pub(crate) struct FileParseFailure {
     id: AdrId,
     path: PathBuf,
     rule: &'static str,
