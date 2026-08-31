@@ -22,8 +22,8 @@ use regex::Regex;
 
 use crate::config::Config;
 use crate::model::{
-    AdrId, AdrRecord, DomainDir, MalformedReason, RelVerb, Related, Relationship, Status,
-    TaggedRule, Tier, TierField, parse_adr_id,
+    AdrId, AdrRecord, CrossDomainDefect, CrossDomainParent, DomainDir, MalformedReason, RelVerb,
+    Related, Relationship, Status, TaggedRule, Tier, TierField, parse_adr_id,
 };
 use crate::report::Diagnostic;
 use crate::rules::naming;
@@ -319,7 +319,7 @@ pub fn parse_adr_file(
 
     let crates = find_crates_field(&lines);
 
-    let (parent_cross_domain, _parent_cross_domain_reason) = find_parent_cross_domain_field(&lines);
+    let parent_cross_domain = find_parent_cross_domain_field(&lines);
 
     let decision_rules = extract_tagged_rules(&lines);
 
@@ -610,13 +610,14 @@ fn find_crates_field(lines: &[&str]) -> Vec<String> {
 }
 
 /// Parse `Parent-cross-domain: PREFIX-NNNN — reason` from the metadata
-/// preamble. Returns `(Some(id), reason)` when a valid ID is parsed,
-/// `(None, String::new())` otherwise.
+/// preamble.
 ///
 /// Accepts both em-dash (`—`) and ASCII hyphen-with-spaces (` - `) as
-/// separators between the ID and the reason. The reason is optional;
-/// the field may contain just the ID.
-fn find_parent_cross_domain_field(lines: &[&str]) -> (Option<AdrId>, String) {
+/// separators between the ID and the reason. The reason is REQUIRED:
+/// AFM-0020:R3 licenses L011 suppression only for the full
+/// `PREFIX-NNNN — reason` form, so an ID-only declaration is
+/// `Malformed`, not `Valid`.
+fn find_parent_cross_domain_field(lines: &[&str]) -> CrossDomainParent {
     for line in lines {
         if line.starts_with("## ") {
             break;
@@ -624,16 +625,32 @@ fn find_parent_cross_domain_field(lines: &[&str]) -> (Option<AdrId>, String) {
         if let Some(value) = line.strip_prefix("Parent-cross-domain:") {
             let value = value.trim();
             if value.is_empty() {
-                return (None, String::new());
+                return CrossDomainParent::Malformed {
+                    raw: String::new(),
+                    reason: CrossDomainDefect::EmptyField,
+                };
             }
             let (id_part, reason) = split_id_and_reason(value);
-            if let Some(id) = parse_adr_id(id_part.trim()) {
-                return (Some(id), reason.trim().to_owned());
+            let Some(id) = parse_adr_id(id_part.trim()) else {
+                return CrossDomainParent::Malformed {
+                    raw: value.to_owned(),
+                    reason: CrossDomainDefect::UnparseableId(id_part.trim().to_owned()),
+                };
+            };
+            let reason = reason.trim();
+            if reason.is_empty() {
+                return CrossDomainParent::Malformed {
+                    raw: value.to_owned(),
+                    reason: CrossDomainDefect::MissingReason,
+                };
             }
-            return (None, String::new());
+            return CrossDomainParent::Valid {
+                id,
+                reason: reason.to_owned(),
+            };
         }
     }
-    (None, String::new())
+    CrossDomainParent::Absent
 }
 
 /// Split a `PREFIX-NNNN — reason` string into ID and reason parts.
@@ -1106,9 +1123,12 @@ mod tests {
             "",
             "## Status",
         ];
-        let (id, reason) = find_parent_cross_domain_field(&lines);
-        assert_eq!(id.as_ref().unwrap().prefix(), "COM");
-        assert_eq!(id.unwrap().number(), 1);
+        let field = find_parent_cross_domain_field(&lines);
+        let CrossDomainParent::Valid { id, reason } = &field else {
+            panic!("expected a valid declaration, got: {field:?}");
+        };
+        assert_eq!(id.prefix(), "COM");
+        assert_eq!(id.number(), 1);
         assert_eq!(reason, "bridges principle to architecture");
     }
 
@@ -1121,13 +1141,15 @@ mod tests {
             "",
             "## Status",
         ];
-        let (id, reason) = find_parent_cross_domain_field(&lines);
-        assert!(id.is_some());
+        let field = find_parent_cross_domain_field(&lines);
+        let CrossDomainParent::Valid { reason, .. } = &field else {
+            panic!("expected a valid declaration, got: {field:?}");
+        };
         assert_eq!(reason, "reason text");
     }
 
     #[test]
-    fn find_parent_cross_domain_id_only() {
+    fn find_parent_cross_domain_id_only_is_malformed_not_valid() {
         let lines = vec![
             "# CHE-0042. Title",
             "",
@@ -1135,31 +1157,98 @@ mod tests {
             "",
             "## Status",
         ];
-        let (id, reason) = find_parent_cross_domain_field(&lines);
-        assert!(id.is_some());
-        assert_eq!(reason, "");
+        let field = find_parent_cross_domain_field(&lines);
+        assert!(
+            matches!(
+                &field,
+                CrossDomainParent::Malformed {
+                    reason: CrossDomainDefect::MissingReason,
+                    ..
+                }
+            ),
+            "AFM-0020:R3 requires `PREFIX-NNNN — reason`; an ID-only \
+             declaration must not parse as valid, got: {field:?}"
+        );
+        assert!(
+            field.honoured_id().is_none(),
+            "a reasonless declaration must carry no suppression authority"
+        );
+    }
+
+    #[test]
+    fn find_parent_cross_domain_empty_reason_after_dash_is_malformed() {
+        let lines = vec![
+            "# CHE-0042. Title",
+            "",
+            "Parent-cross-domain: COM-0001 —   ",
+            "",
+            "## Status",
+        ];
+        let field = find_parent_cross_domain_field(&lines);
+        assert!(
+            matches!(
+                &field,
+                CrossDomainParent::Malformed {
+                    reason: CrossDomainDefect::MissingReason,
+                    ..
+                }
+            ),
+            "a whitespace-only reason must not count as a reason, got: {field:?}"
+        );
     }
 
     #[test]
     fn find_parent_cross_domain_absent() {
         let lines = vec!["# CHE-0042. Title", "", "Date: 2026-04-25", "", "## Status"];
-        let (id, reason) = find_parent_cross_domain_field(&lines);
-        assert!(id.is_none());
-        assert_eq!(reason, "");
+        let field = find_parent_cross_domain_field(&lines);
+        assert!(
+            matches!(field, CrossDomainParent::Absent),
+            "no field must parse as Absent, got: {field:?}"
+        );
     }
 
     #[test]
-    fn find_parent_cross_domain_invalid_id_returns_none() {
+    fn find_parent_cross_domain_empty_field_is_malformed_not_absent() {
         let lines = vec![
             "# CHE-0042. Title",
             "",
-            "Parent-cross-domain: not-an-id",
+            "Parent-cross-domain:",
             "",
             "## Status",
         ];
-        let (id, reason) = find_parent_cross_domain_field(&lines);
-        assert!(id.is_none());
-        assert_eq!(reason, "");
+        let field = find_parent_cross_domain_field(&lines);
+        assert!(
+            matches!(
+                &field,
+                CrossDomainParent::Malformed {
+                    reason: CrossDomainDefect::EmptyField,
+                    ..
+                }
+            ),
+            "a present-but-empty field must be distinguishable from no field, got: {field:?}"
+        );
+    }
+
+    #[test]
+    fn find_parent_cross_domain_invalid_id_is_malformed_not_absent() {
+        let lines = vec![
+            "# CHE-0042. Title",
+            "",
+            "Parent-cross-domain: not-an-id — a reason",
+            "",
+            "## Status",
+        ];
+        let field = find_parent_cross_domain_field(&lines);
+        assert!(
+            matches!(
+                &field,
+                CrossDomainParent::Malformed {
+                    reason: CrossDomainDefect::UnparseableId(raw),
+                    ..
+                } if raw == "not-an-id"
+            ),
+            "an unparseable ID must be Malformed, not Absent, got: {field:?}"
+        );
     }
 
     #[test]
@@ -1171,8 +1260,11 @@ mod tests {
             "",
             "Parent-cross-domain: COM-0001 — late field",
         ];
-        let (id, _) = find_parent_cross_domain_field(&lines);
-        assert!(id.is_none());
+        let field = find_parent_cross_domain_field(&lines);
+        assert!(
+            matches!(field, CrossDomainParent::Absent),
+            "a field below the preamble must not be read, got: {field:?}"
+        );
     }
 
     #[test]
@@ -1184,9 +1276,15 @@ mod tests {
             "",
             "## Status",
         ];
-        let (id, reason) = find_parent_cross_domain_field(&lines);
-        assert!(id.is_none(), "garbage value must yield None ID");
-        assert_eq!(reason, "");
+        let field = find_parent_cross_domain_field(&lines);
+        assert!(
+            field.honoured_id().is_none(),
+            "garbage must grant no suppression, got: {field:?}"
+        );
+        assert!(
+            matches!(field, CrossDomainParent::Malformed { .. }),
+            "garbage must be Malformed, not Absent, got: {field:?}"
+        );
     }
 
     #[test]
@@ -1198,8 +1296,11 @@ mod tests {
             "",
             "## Status",
         ];
-        let (id, _) = find_parent_cross_domain_field(&lines);
-        assert!(id.is_none(), "lowercase prefix must be rejected");
+        let field = find_parent_cross_domain_field(&lines);
+        assert!(
+            matches!(field, CrossDomainParent::Malformed { .. }),
+            "lowercase prefix must be rejected as malformed, got: {field:?}"
+        );
     }
 
     #[test]

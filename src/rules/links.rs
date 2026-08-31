@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 
 use crate::index::{CorpusIndex, Resolution};
-use crate::model::{AdrId, AdrRecord, RelVerb, Relationship, Status};
+use crate::model::{AdrId, AdrRecord, CrossDomainParent, RelVerb, Relationship, Status};
 use crate::nav::{compute_parent_edges, walk_parent_chain};
 use crate::report::Diagnostic;
 
@@ -180,8 +180,23 @@ fn check_parent_cross_domain_consistency(
     by_id: &CorpusIndex<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    let Some(declared) = record.parent_cross_domain() else {
-        return;
+    let (declared, declared_reason) = match record.parent_cross_domain_field() {
+        CrossDomainParent::Absent => return,
+        CrossDomainParent::Malformed { raw, reason } => {
+            diags.push(Diagnostic::warning(
+                "L018",
+                record.file_path(),
+                0,
+                format!(
+                    "{}: unusable `Parent-cross-domain: {}` — {reason}. The \
+                     declaration grants no L011 suppression until it is fixed",
+                    record.id(),
+                    raw.escape_debug(),
+                ),
+            ));
+            return;
+        }
+        CrossDomainParent::Valid { id, reason } => (id, reason),
     };
 
     if !by_id.contains_key(declared) {
@@ -216,11 +231,12 @@ fn check_parent_cross_domain_consistency(
                 record.file_path(),
                 line,
                 format!(
-                    "{}: Parent-cross-domain declares {declared}, but first \
-                     References is {actual} — align the field with the \
+                    "{}: Parent-cross-domain declares {declared} (\"{}\"), but \
+                     first References is {actual} — align the field with the \
                      structural parent or re-order References to put \
                      {declared} first",
                     record.id(),
+                    declared_reason.escape_debug(),
                 ),
             ));
         }
@@ -1123,7 +1139,10 @@ mod tests {
 
         let mut che =
             make_record_with_rels("CHE", 2, vec![(RelVerb::References, make_id("COM", 1))]);
-        *che.parent_cross_domain_mut() = Some(make_id("COM", 1));
+        che.set_parent_cross_domain(CrossDomainParent::Valid {
+            id: make_id("COM", 1),
+            reason: "declared cross-domain parent".into(),
+        });
 
         let records = vec![com_root, che];
         let mut diags = Vec::new();
@@ -1144,7 +1163,10 @@ mod tests {
 
         let mut che =
             make_record_with_rels("CHE", 5, vec![(RelVerb::References, make_id("COM", 2))]);
-        *che.parent_cross_domain_mut() = Some(make_id("COM", 1));
+        che.set_parent_cross_domain(CrossDomainParent::Valid {
+            id: make_id("COM", 1),
+            reason: "declared cross-domain parent".into(),
+        });
         let records = vec![com1, com2, che];
         let mut diags = Vec::new();
         check(&records, &mut diags);
@@ -1407,16 +1429,66 @@ mod tests {
     }
 
     #[test]
+    fn cross_domain_suppression_requires_a_reason() {
+        let root = make_record_with_rels("COM", 1, vec![(RelVerb::Root, make_id("COM", 1))]);
+        let mut child =
+            make_record_with_rels("CHE", 5, vec![(RelVerb::References, make_id("COM", 1))]);
+        child.set_parent_cross_domain(CrossDomainParent::Malformed {
+            raw: "COM-0001".into(),
+            reason: crate::model::CrossDomainDefect::MissingReason,
+        });
+        let mut diags = Vec::new();
+        check(&[root, child], &mut diags);
+        assert!(
+            diags.iter().any(|d| d.rule == "L011"),
+            "a reasonless Parent-cross-domain must not suppress L011 \
+             (AFM-0020:R3 licenses suppression only for `PREFIX-NNNN — reason`), got: {diags:?}"
+        );
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule == "L018" && d.message.contains("no reason given")),
+            "the reasonless declaration must itself be diagnosed, got: {diags:?}"
+        );
+    }
+
+    #[test]
     fn cross_domain_suppression_independent_of_reason_text() {
         let root = make_record_with_rels("COM", 1, vec![(RelVerb::Root, make_id("COM", 1))]);
         let mut child =
             make_record_with_rels("CHE", 5, vec![(RelVerb::References, make_id("COM", 1))]);
-        *child.parent_cross_domain_mut() = Some(make_id("COM", 1));
+        child.set_parent_cross_domain(CrossDomainParent::Valid {
+            id: make_id("COM", 1),
+            reason: "any wording at all".into(),
+        });
         let mut diags = Vec::new();
         check(&[root, child], &mut diags);
         assert!(
-            !diags.iter().any(|d| d.rule == "L011"),
-            "empty-reason Parent-cross-domain must still suppress L011, got: {diags:?}"
+            !diags.iter().any(|d| d.rule == "L011" || d.rule == "L018"),
+            "suppression must depend on the reason existing, not on its wording, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_cross_domain_declaration_is_not_silence() {
+        let root = make_record_with_rels("COM", 1, vec![(RelVerb::Root, make_id("COM", 1))]);
+        let mut child =
+            make_record_with_rels("CHE", 5, vec![(RelVerb::References, make_id("COM", 1))]);
+        child.set_parent_cross_domain(CrossDomainParent::Malformed {
+            raw: "not-an-id — some reason".into(),
+            reason: crate::model::CrossDomainDefect::UnparseableId("not-an-id".into()),
+        });
+        let mut diags = Vec::new();
+        check(&[root, child], &mut diags);
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule == "L018" && d.message.contains("not-an-id")),
+            "a malformed declaration must be diagnosed and name the offending text, got: {diags:?}"
+        );
+        assert!(
+            diags.iter().any(|d| d.rule == "L011"),
+            "a malformed declaration must not suppress L011, got: {diags:?}"
         );
     }
 
@@ -1472,7 +1544,10 @@ mod tests {
                 (RelVerb::References, make_id("GND", 6)),
             ],
         );
-        *child.parent_cross_domain_mut() = Some(make_id("GND", 6));
+        child.set_parent_cross_domain(CrossDomainParent::Valid {
+            id: make_id("GND", 6),
+            reason: "declared cross-domain parent".into(),
+        });
 
         let records = vec![com_root, gnd_root, child];
         let mut diags = Vec::new();
@@ -1496,7 +1571,10 @@ mod tests {
                 (RelVerb::References, make_id("COM", 1)),
             ],
         );
-        *child.parent_cross_domain_mut() = Some(make_id("GND", 6));
+        child.set_parent_cross_domain(CrossDomainParent::Valid {
+            id: make_id("GND", 6),
+            reason: "declared cross-domain parent".into(),
+        });
 
         let records = vec![com_root, gnd_root, child];
         let mut diags = Vec::new();
@@ -1513,7 +1591,10 @@ mod tests {
 
         let mut child =
             make_record_with_rels("COM", 8, vec![(RelVerb::References, make_id("COM", 1))]);
-        *child.parent_cross_domain_mut() = Some(make_id("GND", 99));
+        child.set_parent_cross_domain(CrossDomainParent::Valid {
+            id: make_id("GND", 99),
+            reason: "declared cross-domain parent".into(),
+        });
 
         let records = vec![com_root, child];
         let mut diags = Vec::new();
@@ -1531,7 +1612,10 @@ mod tests {
 
         let mut child =
             make_record_with_rels("COM", 8, vec![(RelVerb::References, make_id("GND", 6))]);
-        *child.parent_cross_domain_mut() = Some(make_id("GND", 6));
+        child.set_parent_cross_domain(CrossDomainParent::Valid {
+            id: make_id("GND", 6),
+            reason: "declared cross-domain parent".into(),
+        });
 
         let records = vec![com_root, gnd_root, child];
         let mut diags = Vec::new();
@@ -1560,7 +1644,10 @@ mod tests {
     fn l018_fires_on_root_with_field() {
         let mut com_root =
             make_record_with_rels("COM", 1, vec![(RelVerb::Root, make_id("COM", 1))]);
-        *com_root.parent_cross_domain_mut() = Some(make_id("GND", 1));
+        com_root.set_parent_cross_domain(CrossDomainParent::Valid {
+            id: make_id("GND", 1),
+            reason: "declared cross-domain parent".into(),
+        });
 
         let gnd_root = make_record_with_rels("GND", 1, vec![(RelVerb::Root, make_id("GND", 1))]);
 
@@ -1581,7 +1668,10 @@ mod tests {
 
         let mut child =
             make_record_with_rels("COM", 8, vec![(RelVerb::References, make_id("GND", 1))]);
-        *child.parent_cross_domain_mut() = Some(make_id("GND", 6));
+        child.set_parent_cross_domain(CrossDomainParent::Valid {
+            id: make_id("GND", 6),
+            reason: "declared cross-domain parent".into(),
+        });
 
         let records = vec![com_root, gnd_a, gnd_b, child];
         let mut diags = Vec::new();
