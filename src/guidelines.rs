@@ -333,14 +333,18 @@ fn print_tagged_rules() {
 
     println!("  Tier scaling (applied to max_words and max_rules base values):");
     for tier in Tier::all() {
-        println!(
-            "    {tier:?}  factor={:.1}  min_words={}  max_refs={}",
-            tier.factor(),
-            tier.min_words(),
-            tier.max_refs()
-        );
+        println!("{}", tier_scaling_row(*tier));
     }
     println!();
+}
+
+fn tier_scaling_row(tier: Tier) -> String {
+    format!(
+        "    {tier:?}  factor={:.1}  min_words={}  max_refs={}",
+        tier.factor(),
+        tier.min_words(),
+        tier.max_refs()
+    )
 }
 
 fn print_relationships(config: &Config) {
