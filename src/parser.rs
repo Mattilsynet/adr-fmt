@@ -72,7 +72,7 @@ impl ParseOutcome {
 pub(crate) struct FileParseFailure {
     id: AdrId,
     path: PathBuf,
-    rule: &'static str,
+    cause: ParseFailureCause,
 }
 
 impl FileParseFailure {
@@ -88,12 +88,15 @@ impl FileParseFailure {
 
     #[must_use]
     pub fn rule(&self) -> &'static str {
-        self.rule
+        match self.cause {
+            ParseFailureCause::Unreadable(_) => "P001",
+            ParseFailureCause::TitleMissing => "P002",
+        }
     }
 
     #[cfg(test)]
-    pub(crate) fn test_new(id: AdrId, path: PathBuf, rule: &'static str) -> Self {
-        Self { id, path, rule }
+    pub(crate) fn test_new(id: AdrId, path: PathBuf, cause: ParseFailureCause) -> Self {
+        Self { id, path, cause }
     }
 }
 
@@ -235,22 +238,20 @@ fn absorb_file(outcome: &mut ParseOutcome, path: &Path, prefix: &str, is_stale: 
             outcome.diagnostics.extend(diagnostics);
         }
         Ok(ParseFileOutcome::TitleMissing { diagnostics }) => {
-            note_parse_failure(outcome, path, "P002");
+            note_parse_failure(outcome, path, ParseFailureCause::TitleMissing);
             outcome.diagnostics.extend(diagnostics);
         }
         Err(e) => {
-            outcome.diagnostics.push(Diagnostic::warning(
-                "P001",
-                path,
-                0,
-                e.to_string().escape_debug().to_string(),
-            ));
-            note_parse_failure(outcome, path, "P001");
+            let cause = ParseFailureCause::Unreadable(e);
+            outcome
+                .diagnostics
+                .push(Diagnostic::warning("P001", path, 0, cause.to_string()));
+            note_parse_failure(outcome, path, cause);
         }
     }
 }
 
-fn note_parse_failure(outcome: &mut ParseOutcome, path: &Path, rule: &'static str) {
+fn note_parse_failure(outcome: &mut ParseOutcome, path: &Path, cause: ParseFailureCause) {
     let Some(id) = path
         .file_stem()
         .and_then(std::ffi::OsStr::to_str)
@@ -261,7 +262,7 @@ fn note_parse_failure(outcome: &mut ParseOutcome, path: &Path, rule: &'static st
     outcome.parse_failures.push(FileParseFailure {
         id,
         path: path.to_path_buf(),
-        rule,
+        cause,
     });
 }
 
@@ -354,9 +355,44 @@ pub(crate) enum ParseFileOutcome {
 }
 
 #[derive(Debug)]
+pub(crate) enum ParseFailureCause {
+    Unreadable(ReadFileError),
+    TitleMissing,
+}
+
+#[cfg(test)]
+impl ParseFailureCause {
+    pub(crate) fn test_unreadable(path: PathBuf) -> Self {
+        Self::Unreadable(ReadFileError {
+            path,
+            source: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        })
+    }
+}
+
+impl core::fmt::Display for ParseFailureCause {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Unreadable(source) => source.fmt(f),
+            Self::TitleMissing => f.write_str("missing or malformed H1 title"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct ReadFileError {
     path: PathBuf,
     source: std::io::Error,
+}
+
+impl ReadFileError {
+    fn reason(&self) -> String {
+        match self.source.kind() {
+            std::io::ErrorKind::NotFound => "file not found".to_string(),
+            std::io::ErrorKind::PermissionDenied => "permission denied".to_string(),
+            _ => self.source.to_string().escape_debug().to_string(),
+        }
+    }
 }
 
 impl core::fmt::Display for ReadFileError {
@@ -365,7 +401,7 @@ impl core::fmt::Display for ReadFileError {
             f,
             "cannot read ADR file {}: {}",
             self.path.display().to_string().escape_debug(),
-            self.source.to_string().escape_debug()
+            self.reason()
         )
     }
 }
@@ -1906,6 +1942,49 @@ mod tests {
             err.to_string()
                 .contains("cannot read domain/stale directory"),
             "error should describe the failure: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parse_domain_preserves_read_error_kind_end_to_end() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::os::unix::fs::symlink(
+            dir.path().join("CHE-0002-vanished-target.md"),
+            dir.path().join("CHE-0002-dangling.md"),
+        )
+        .expect("create dangling symlink");
+
+        let domain_dir = DomainDir {
+            prefix: "CHE".to_string(),
+            name: "Cherry-pit Test".to_string(),
+            path: dir.path().to_owned(),
+        };
+        let outcome = parse_domain(&domain_dir).expect("read_dir should succeed");
+
+        assert_eq!(outcome.parse_failures.len(), 1, "one recorded failure");
+        let failure = &outcome.parse_failures[0];
+        assert_eq!(failure.rule(), "P001");
+
+        let ParseFailureCause::Unreadable(err) = &failure.cause else {
+            panic!("an unreadable file must record its typed read error")
+        };
+        let source = std::error::Error::source(err).expect("error must expose its io source");
+        let io = source
+            .downcast_ref::<std::io::Error>()
+            .expect("source chain must carry the original io::Error");
+        assert_eq!(
+            io.kind(),
+            std::io::ErrorKind::NotFound,
+            "ErrorKind must survive all the way to the ParseOutcome boundary"
+        );
+
+        assert_eq!(outcome.diagnostics.len(), 1, "one P001 diagnostic");
+        assert_eq!(outcome.diagnostics[0].rule, "P001");
+        assert!(
+            outcome.diagnostics[0].message.contains("file not found"),
+            "the P001 message must be derived from the io ErrorKind, got: {}",
+            outcome.diagnostics[0].message
         );
     }
 

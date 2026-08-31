@@ -761,7 +761,7 @@ mod tests {
         let failures = vec![crate::parser::FileParseFailure::test_new(
             make_id("CHE", 2),
             std::path::PathBuf::from("docs/adr/cherry/CHE-0002-broken-h1.md"),
-            "P002",
+            crate::parser::ParseFailureCause::TitleMissing,
         )];
         let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
             records.clone(),
@@ -1668,7 +1668,7 @@ mod tests {
         let failures = vec![crate::parser::FileParseFailure::test_new(
             make_id("GND", 6),
             PathBuf::from("docs/adr/ground/GND-0006-broken-h1.md"),
-            "P002",
+            crate::parser::ParseFailureCause::TitleMissing,
         )];
         let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
             records.clone(),

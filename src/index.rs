@@ -238,20 +238,20 @@ mod tests {
         CorpusIndex::build(&scan).expect_err("duplicate id must be rejected")
     }
 
-    fn parse_failure(rule: &'static str, path: &str) -> FileParseFailure {
+    fn parse_failure(cause: crate::parser::ParseFailureCause, path: &str) -> FileParseFailure {
         let id = std::path::Path::new(path)
             .file_stem()
             .and_then(std::ffi::OsStr::to_str)
             .and_then(crate::model::parse_adr_id_from_filename_stem)
             .expect("test fixture path must claim an ADR id");
-        FileParseFailure::test_new(id, PathBuf::from(path), rule)
+        FileParseFailure::test_new(id, PathBuf::from(path), cause)
     }
 
     #[test]
     fn unparsed_target_resolves_indeterminate_not_absent() {
         let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
         let diags = vec![parse_failure(
-            "P002",
+            crate::parser::ParseFailureCause::TitleMissing,
             "docs/adr/cherry/CHE-0002-broken-h1.md",
         )];
         let scan = scanned(records, diags);
@@ -270,7 +270,7 @@ mod tests {
     fn genuinely_absent_id_resolves_absent() {
         let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
         let diags = vec![parse_failure(
-            "P002",
+            crate::parser::ParseFailureCause::TitleMissing,
             "docs/adr/cherry/CHE-0002-broken-h1.md",
         )];
         let scan = scanned(records, diags);
@@ -285,7 +285,10 @@ mod tests {
     #[test]
     fn parsed_record_wins_over_unrelated_diagnostic_on_same_file() {
         let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
-        let diags = vec![parse_failure("P003", "docs/adr/cherry/CHE-0001-a.md")];
+        let diags = vec![parse_failure(
+            crate::parser::ParseFailureCause::TitleMissing,
+            "docs/adr/cherry/CHE-0001-a.md",
+        )];
         let scan = scanned(records, diags);
         let index = CorpusIndex::build(&scan).expect("unique ids must build");
 
