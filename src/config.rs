@@ -75,17 +75,72 @@ pub struct RuleConfig {
     pub params: HashMap<String, toml::Value>,
 }
 
+/// Outcome of looking up a `u64` rule parameter.
+///
+/// Absence and malformation are distinct: a key that is simply not
+/// configured is not the same as one configured with a wrong-typed or
+/// out-of-range value, and collapsing them hides user config errors
+/// behind a silent default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RuleParam {
+    /// Neither the rule nor the key is configured.
+    Absent,
+    /// A valid `u64` value.
+    Value(u64),
+    /// The key is configured but is not a representable `u64`.
+    Invalid {
+        rule_id: String,
+        key: String,
+        reason: String,
+    },
+}
+
+impl RuleParam {
+    /// The configured value, or `default` when the key is absent.
+    ///
+    /// [`RuleParam::Invalid`] also yields `default`; callers that need
+    /// to report the malformation must match on the variant instead.
+    #[must_use]
+    pub fn value_or(&self, default: u64) -> u64 {
+        match self {
+            Self::Value(v) => *v,
+            Self::Absent | Self::Invalid { .. } => default,
+        }
+    }
+}
+
 impl Config {
     /// Look up a rule parameter by rule ID and key.
     ///
-    /// Returns `None` if the rule or key does not exist.
-    pub fn rule_param_u64(&self, rule_id: &str, key: &str) -> Option<u64> {
-        self.rules
+    /// Returns [`RuleParam::Absent`] only when the rule or key is not
+    /// configured; a present-but-unusable value yields
+    /// [`RuleParam::Invalid`].
+    #[must_use]
+    pub fn rule_param_u64(&self, rule_id: &str, key: &str) -> RuleParam {
+        let Some(raw) = self
+            .rules
             .iter()
             .find(|r| r.id == rule_id)
             .and_then(|r| r.params.get(key))
-            .and_then(toml::Value::as_integer)
-            .and_then(|v| u64::try_from(v).ok())
+        else {
+            return RuleParam::Absent;
+        };
+        match raw.as_integer() {
+            None => RuleParam::Invalid {
+                rule_id: rule_id.to_owned(),
+                key: key.to_owned(),
+                reason: format!("expected an integer, found {}", raw.type_str()),
+            },
+            Some(v) => match u64::try_from(v) {
+                Ok(v) => RuleParam::Value(v),
+                Err(_) => RuleParam::Invalid {
+                    rule_id: rule_id.to_owned(),
+                    key: key.to_owned(),
+                    reason: format!("{v} is out of range for a non-negative budget"),
+                },
+            },
+        }
     }
 }
 
@@ -287,8 +342,14 @@ params = { min_words = 7, max_words = 50 }
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.rules.len(), 1);
         assert_eq!(config.rules[0].id, "T015");
-        assert_eq!(config.rule_param_u64("T015", "min_words"), Some(7));
-        assert_eq!(config.rule_param_u64("T015", "max_words"), Some(50));
+        assert_eq!(
+            config.rule_param_u64("T015", "min_words"),
+            RuleParam::Value(7)
+        );
+        assert_eq!(
+            config.rule_param_u64("T015", "max_words"),
+            RuleParam::Value(50)
+        );
     }
 
     #[test]
@@ -344,7 +405,7 @@ params = { min_words = 10 }
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.rules[0].id, "T015");
         let min_words = config.rule_param_u64("T015", "min_words");
-        assert_eq!(min_words, Some(10));
+        assert_eq!(min_words, RuleParam::Value(10));
     }
 
     #[test]
@@ -364,8 +425,61 @@ description = "Test"
 crates = []
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.rule_param_u64("T020", "min_words"), None);
-        assert_eq!(config.rule_param_u64("MISSING", "key"), None);
+        assert_eq!(
+            config.rule_param_u64("T020", "min_words"),
+            RuleParam::Absent
+        );
+        assert_eq!(config.rule_param_u64("MISSING", "key"), RuleParam::Absent);
+    }
+
+    #[test]
+    fn rule_param_u64_distinguishes_absent_from_malformed() {
+        let toml_str = r#"
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+[[domains]]
+prefix = "CHE"
+name = "Cherry"
+directory = "cherry"
+description = "Test"
+crates = []
+
+[[rules]]
+id = "T015"
+params = { min_words = 7, max_words = "seven", negative = -3 }
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        assert!(matches!(
+            config.rule_param_u64("T015", "min_words"),
+            RuleParam::Value(7)
+        ));
+        assert!(
+            matches!(config.rule_param_u64("T015", "absent"), RuleParam::Absent),
+            "an absent key is not a malformed one"
+        );
+        assert!(
+            matches!(config.rule_param_u64("MISSING", "key"), RuleParam::Absent),
+            "an absent rule is not a malformed one"
+        );
+        assert!(
+            matches!(
+                config.rule_param_u64("T015", "max_words"),
+                RuleParam::Invalid { .. }
+            ),
+            "a wrong-typed value must not read as absent"
+        );
+        assert!(
+            matches!(
+                config.rule_param_u64("T015", "negative"),
+                RuleParam::Invalid { .. }
+            ),
+            "an out-of-range value must not read as absent"
+        );
     }
 
     #[test]
