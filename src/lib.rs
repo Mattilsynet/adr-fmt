@@ -397,17 +397,6 @@ fn try_marker(marker_dir: &Path) -> Result<Option<(PathBuf, Config)>, TryMarkerE
     Ok(Some((canon_marker, config)))
 }
 
-/// Build domain directories from config, applying strict containment.
-///
-/// Each `domain.directory` from `adr-fmt.toml` is joined to `root`
-/// via [`containment::contained_join_optional`]: absolute paths and
-/// `..` components are rejected, and the canonical target must be a
-/// descendant of the canonical ADR root. Containment failures abort
-/// the run as infrastructure errors per AFM-0003 R1.
-///
-/// A configured directory that does not exist on disk is silently
-/// skipped (returns `None` from the optional join); the caller emits
-/// a diagnostic when zero domains resolve.
 fn discover_domains(root: &Path, config: &Config) -> Result<Vec<DomainDir>, String> {
     let mut dirs = Vec::new();
     for domain in &config.domains {
