@@ -505,8 +505,8 @@ fn find_relationships(lines: &[&str], path: &Path) -> (Related, bool, Vec<Diagno
     let mut malformed: Option<(String, MalformedReason)> = None;
     let mut diagnostics = Vec::new();
 
-    for (i, line) in lines.iter().enumerate() {
-        if *line == "## Related" {
+    for (line_no, line) in outside_fence_lines(lines) {
+        if line == "## Related" {
             in_related = true;
             found_section = true;
             continue;
@@ -533,7 +533,7 @@ fn find_relationships(lines: &[&str], path: &Path) -> (Related, bool, Vec<Diagno
             parse_related_segment(
                 segment,
                 line,
-                i + 1,
+                line_no,
                 path,
                 &mut rels,
                 &mut malformed,
@@ -2046,5 +2046,41 @@ crates = []
             7,
             "line number must be the real H1 line, not the fenced one"
         );
+    }
+
+    #[test]
+    fn fenced_related_section_does_not_manufacture_edges() {
+        let outcome = parse_markdown(
+            "CHE-0001-fenced-related.md",
+            "# CHE-0001. Fence Related\n\n## Context\n\nEvery ADR declares lineage like this:\n\n```markdown\n## Related\n\nReferences: CHE-0009\n```\n",
+        );
+        let record = outcome.record.expect("record should parse");
+        assert!(
+            matches!(record.related(), Related::Absent),
+            "a fenced `## Related` example must not register as a real section, got: {:?}",
+            record.related()
+        );
+    }
+
+    #[test]
+    fn fenced_related_entry_does_not_add_an_edge_or_shift_lines() {
+        let outcome = parse_markdown(
+            "CHE-0001-fenced-related-entry.md",
+            "# CHE-0001. Fence Related Entry\n\n## Related\n\nRoot: CHE-0001\n\n```markdown\nReferences: CHE-0009\n```\n",
+        );
+        let record = outcome.record.expect("record should parse");
+        let Related::Parsed(rels) = record.related() else {
+            panic!(
+                "expected a parsed Related section, got: {:?}",
+                record.related()
+            );
+        };
+        assert_eq!(
+            rels.len(),
+            1,
+            "only the unfenced entry is real, got: {rels:?}"
+        );
+        assert_eq!(rels[0].target.number(), 1);
+        assert_eq!(rels[0].line, 5, "line number must survive fence gating");
     }
 }
