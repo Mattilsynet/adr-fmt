@@ -239,7 +239,7 @@ pub struct AdrRecord {
     /// `Parent-cross-domain: PREFIX-NNNN — reason`. When present and
     /// matching the first `References:` target, suppresses L011
     /// (cross-domain parent edge) for that relationship.
-    parent_cross_domain: Option<AdrId>,
+    parent_cross_domain: CrossDomainParent,
 }
 
 impl AdrRecord {
@@ -404,9 +404,17 @@ impl AdrRecord {
     }
 
     /// Cross-domain parent exception declared via `Parent-cross-domain:`.
+    ///
+    /// Returns `Some` only for a well-formed declaration; a malformed
+    /// one yields `None` and is reported by L018 rather than granting
+    /// AFM-0020:R3 suppression.
     #[must_use]
     pub fn parent_cross_domain(&self) -> Option<&AdrId> {
-        self.parent_cross_domain.as_ref()
+        self.parent_cross_domain.honoured_id()
+    }
+
+    pub(crate) fn parent_cross_domain_field(&self) -> &CrossDomainParent {
+        &self.parent_cross_domain
     }
 
     /// Narrow, in-module constructor used exclusively by the parser
@@ -445,7 +453,7 @@ impl AdrRecord {
         section_word_counts: HashMap<String, usize>,
         crates: Vec<String>,
         decision_rules: Vec<TaggedRule>,
-        parent_cross_domain: Option<AdrId>,
+        parent_cross_domain: CrossDomainParent,
     ) -> Self {
         Self {
             id,
@@ -598,8 +606,8 @@ impl AdrRecord {
         &mut self.decision_rules
     }
 
-    pub(crate) fn parent_cross_domain_mut(&mut self) -> &mut Option<AdrId> {
-        &mut self.parent_cross_domain
+    pub(crate) fn set_parent_cross_domain(&mut self, declared: CrossDomainParent) {
+        self.parent_cross_domain = declared;
     }
 }
 
@@ -637,7 +645,7 @@ impl AdrRecord {
             section_word_counts: HashMap::new(),
             crates: Vec::new(),
             decision_rules: Vec::new(),
-            parent_cross_domain: None,
+            parent_cross_domain: CrossDomainParent::Absent,
         }
     }
 }
@@ -871,6 +879,57 @@ pub struct Relationship {
     pub verb: RelVerb,
     pub target: AdrId,
     pub line: usize,
+}
+
+/// Outcome of parsing the `Parent-cross-domain:` preamble field.
+///
+/// A declaration that fails to parse is `Malformed`, never `Absent`:
+/// AFM-0020:R3 suppresses L011 only for a well-formed
+/// `PREFIX-NNNN — reason` declaration, so a defective one must stay
+/// distinguishable from no declaration at all and must not suppress.
+#[derive(Debug, Clone)]
+pub(crate) enum CrossDomainParent {
+    Absent,
+    Valid {
+        id: AdrId,
+        reason: String,
+    },
+    Malformed {
+        raw: String,
+        reason: CrossDomainDefect,
+    },
+}
+
+impl CrossDomainParent {
+    /// The declared parent ID, but only when the declaration is
+    /// well-formed enough to carry AFM-0020:R3 suppression authority.
+    pub(crate) fn honoured_id(&self) -> Option<&AdrId> {
+        match self {
+            Self::Valid { id, .. } => Some(id),
+            Self::Absent | Self::Malformed { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum CrossDomainDefect {
+    EmptyField,
+    UnparseableId(String),
+    MissingReason,
+}
+
+impl fmt::Display for CrossDomainDefect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyField => write!(f, "the field is present but empty"),
+            Self::UnparseableId(id) => write!(f, "`{id}` is not a PREFIX-NNNN ADR id"),
+            Self::MissingReason => write!(
+                f,
+                "no reason given after the ID — AFM-0020:R3 suppresses L011 only for \
+                 `PREFIX-NNNN — reason`"
+            ),
+        }
+    }
 }
 
 /// Outcome of parsing the `Tier:` preamble field.
