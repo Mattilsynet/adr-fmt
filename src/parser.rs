@@ -2836,7 +2836,8 @@ crates = []
         );
         assert!(
             record.status_from_section(),
-            "no metadata field plus a legacy heading means status_from_section"
+            "no non-empty `Status:` preamble value plus a legacy heading means \
+             status_from_section"
         );
         assert_eq!(
             record.legacy_status_section_line(),
@@ -2864,6 +2865,41 @@ crates = []
     }
 
     #[test]
+    fn empty_metadata_status_field_still_sets_status_from_section() {
+        let outcome = parse_markdown(
+            "CHE-0001-empty-metadata-status.md",
+            "# CHE-0001. Empty Metadata Status\n\nStatus:\n\n## Status\n\nAccepted\n\n## Context\n\nBody.\n",
+        );
+        let ParseFileOutcome::Parsed {
+            record,
+            diagnostics,
+        } = outcome
+        else {
+            panic!("record should parse")
+        };
+        assert_eq!(
+            record.status(),
+            Some(&Status::Accepted),
+            "the legacy section supplies the value when the metadata field is empty"
+        );
+        assert_eq!(record.status_raw(), Some("Accepted"));
+        assert_eq!(record.status_line(), 7);
+        assert!(
+            record.status_from_section(),
+            "a literal empty `Status:` field parses to no value, so the predicate \
+             holds even though the file physically carries the field"
+        );
+        assert!(record.has_legacy_status_section());
+        assert_eq!(record.legacy_status_section_line(), Some(5));
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "an empty metadata field with a populated legacy section is not \
+             itself a parse-level diagnostic"
+        );
+    }
+
+    #[test]
     fn empty_legacy_status_section_yields_no_value_but_records_the_heading() {
         let outcome = parse_markdown(
             "CHE-0001-empty-status.md",
@@ -2877,8 +2913,8 @@ crates = []
         assert_eq!(record.status_line(), 0);
         assert!(
             record.status_from_section(),
-            "status_from_section is a metadata-absence predicate and stays true \
-             even though no value was read"
+            "the predicate holds when no non-empty `Status:` preamble value was \
+             parsed and a legacy heading exists, even though no value was read"
         );
         assert!(record.has_legacy_status_section());
         assert_eq!(record.legacy_status_section_line(), Some(7));

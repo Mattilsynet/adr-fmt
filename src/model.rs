@@ -227,10 +227,11 @@ pub struct AdrRecord {
     has_retirement: bool,
     /// True when the ADR file lives in the stale archive directory.
     is_stale: bool,
-    /// True when no `Status:` preamble metadata field was found and a
-    /// legacy `## Status` heading exists. This is a metadata-absence
-    /// predicate, not a value-provenance one: an empty legacy section
-    /// sets it while `status` stays `None`.
+    /// True when no non-empty `Status:` preamble value was parsed and a
+    /// legacy `## Status` heading exists. This is neither a
+    /// field-presence nor a value-provenance predicate: a literal empty
+    /// `Status:` line parses to no value and so sets it, and an empty
+    /// legacy section sets it while `status` stays `None`.
     status_from_section: bool,
     /// The legacy `## Status` section heading, recorded independently of
     /// whether a `Status:` metadata field is present.
@@ -377,13 +378,15 @@ impl AdrRecord {
         self.is_stale
     }
 
-    /// True when no `Status:` preamble metadata field was found and a
+    /// True when no non-empty `Status:` preamble value was parsed and a
     /// legacy `## Status` heading exists.
     ///
     /// This is the historical v0.1 predicate, pinned bit-for-bit by
-    /// AFM-0032:R5. It reports metadata absence alongside a legacy
-    /// heading; it does **not** assert that a status value was read from
-    /// that section. An empty legacy section returns `true` while
+    /// AFM-0032:R5. It does **not** establish that the file physically
+    /// lacks a `Status:` field: a literal empty `Status:` line parses to
+    /// no value, so the predicate holds for a file that carries the
+    /// field. Nor does it assert that a status value was read from the
+    /// legacy section — an empty legacy section returns `true` while
     /// [`AdrRecord::status`] is `None`. A value was sourced from the
     /// legacy section exactly when this returns `true` and
     /// [`AdrRecord::status`] is `Some`.
@@ -395,7 +398,7 @@ impl AdrRecord {
     /// True when a legacy `## Status` section heading exists, whether or
     /// not a `Status:` preamble metadata field is also present. Distinct
     /// from [`AdrRecord::status_from_section`], which additionally
-    /// requires the metadata field to be absent.
+    /// requires that no non-empty preamble value was parsed.
     #[must_use]
     pub fn has_legacy_status_section(&self) -> bool {
         self.legacy_status_section_line().is_some()
