@@ -1,18 +1,3 @@
-//! ADR file parser — extracts metadata from markdown files.
-//!
-//! Per AFM-0017, parser-stage failures are surfaced through the
-//! `P###` diagnostic namespace:
-//! - `P001` — unreadable file (filename matches the prefix pattern
-//!   but `fs::read_to_string` fails for a non-infrastructure reason
-//!   such as transient I/O). The ADR is excluded from rule checks.
-//! - `P002` — missing or malformed H1 title (filename matches but
-//!   no `# PREFIX-NNNN. Title` header is found). Excluded from rules.
-//!
-//! Infrastructure failures (unreadable domain directory after
-//! containment passes, e.g. permission denied on a canonicalized
-//! path) bubble as [`ParseError`] for `eprintln!` + `process::exit(1)`
-//! per AFM-0003 R1.
-
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -412,12 +397,6 @@ impl std::error::Error for ReadFileError {
     }
 }
 
-/// Parse a single ADR file.
-///
-/// # Errors
-///
-/// Returns [`ReadFileError`] when the file cannot be read; the caller
-/// maps it to P001.
 pub(crate) fn parse_adr_file(
     path: &Path,
     expected_prefix: &str,
@@ -517,7 +496,6 @@ pub(crate) fn parse_adr_file(
     })
 }
 
-/// Parse the H1 title line: `# PREFIX-NNNN. Title text`.
 fn parse_title(
     outside: &OutsideLines<'_>,
     expected_prefix: &str,
@@ -538,7 +516,6 @@ fn parse_title(
     None
 }
 
-/// Find a simple `Key: value` field in the preamble (before first H2 heading).
 fn find_field(lines: &[&str], key: &str) -> (Option<String>, usize) {
     for (i, line) in lines.iter().enumerate() {
         if line.starts_with("## ") {
@@ -554,7 +531,6 @@ fn find_field(lines: &[&str], key: &str) -> (Option<String>, usize) {
     (None, 0)
 }
 
-/// Find `Tier:` field in the preamble (before first H2 heading).
 fn find_tier_field(lines: &[&str]) -> (TierField, usize) {
     for (i, line) in lines.iter().enumerate() {
         if line.starts_with("## ") {
@@ -574,7 +550,6 @@ fn find_tier_field(lines: &[&str]) -> (TierField, usize) {
     (TierField::Absent, 0)
 }
 
-/// Find `Status:` metadata field in the preamble (before first H2 heading).
 fn find_status_field(lines: &[&str]) -> (Option<Status>, usize, Option<String>) {
     for (i, line) in lines.iter().enumerate() {
         if line.starts_with("## ") {
@@ -832,9 +807,6 @@ impl<'a> RuleScanLines<'a> {
     }
 }
 
-/// Analyze H2 sections: extract ordering and word counts.
-///
-/// Word counts exclude fenced code blocks.
 fn analyze_sections(outside: &OutsideLines<'_>) -> (Vec<String>, HashMap<String, usize>) {
     let mut order = Vec::new();
     let mut word_counts: HashMap<String, usize> = HashMap::new();
@@ -864,9 +836,6 @@ fn analyze_sections(outside: &OutsideLines<'_>) -> (Vec<String>, HashMap<String,
     (order, word_counts)
 }
 
-/// Parse `Crates: crate-a, crate-b` from the metadata preamble.
-///
-/// Returns an empty vec if the field is absent or empty.
 fn find_crates_field(lines: &[&str]) -> Vec<String> {
     for line in lines {
         if let Some(value) = line.strip_prefix("Crates:") {
@@ -919,7 +888,6 @@ fn find_parent_cross_domain_field(lines: &[&str]) -> CrossDomainParent {
     CrossDomainParent::Absent
 }
 
-/// Split a `PREFIX-NNNN — reason` string into ID and reason parts.
 fn split_id_and_reason(value: &str) -> (&str, &str) {
     if let Some(idx) = value.find('—') {
         return (&value[..idx], &value[idx + '—'.len_utf8()..]);
@@ -933,15 +901,6 @@ fn split_id_and_reason(value: &str) -> (&str, &str) {
     (value, "")
 }
 
-///
-/// Matches `RN [L]: text` pattern within the Decision section where
-/// N is the sequential rule number and L is the Meadows layer (1-12).
-/// Continuation lines (indented ≥2 spaces, not a new tagged rule)
-/// are joined to the current rule with a space.
-/// A blank line terminates continuation.
-///
-/// Returns an empty vec when no tagged rules are found.
-/// Regex for tagged rules: `R1 [5]: Rule text here`
 static TAGGED_RULE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^R(\d+)\s*\[(\d+)\]:\s*(.+)").expect("valid regex"));
 
@@ -1016,7 +975,6 @@ fn extract_tagged_rules(scan: &RuleScanLines<'_>) -> Vec<TaggedRule> {
     rules
 }
 
-/// Strip trailing annotations like ` (indirect)` or `` (`#[non_exhaustive]`) ``.
 fn strip_annotation(s: &str) -> &str {
     let s = s.trim();
     if let Some(paren_start) = s.find(" (") {
@@ -1026,16 +984,6 @@ fn strip_annotation(s: &str) -> &str {
     }
 }
 
-/// Measure fenced code blocks (triple-backtick delimiters).
-///
-/// Returns `(max_lines, max_block_start_line)` where
-/// `max_block_start_line` is the 1-indexed line number of the opening
-/// fence of the largest block (0 if no blocks or all blocks are empty).
-/// Fence lines themselves are excluded from the count. Language
-/// annotations on opening fences (e.g., ` ```rust `) are ignored.
-///
-/// Known limitation: nested backticks (markdown documenting markdown)
-/// cause false open/close toggling. Acceptable for ADR content.
 fn measure_code_blocks(source: &SourceLines<'_>) -> (usize, usize) {
     let mut current_lines = 0usize;
     let mut current_start = 0usize;
@@ -1070,7 +1018,6 @@ fn measure_code_blocks(source: &SourceLines<'_>) -> (usize, usize) {
     (max_lines, max_start)
 }
 
-/// Check if a `## Heading` exists.
 fn has_heading(outside: &OutsideLines<'_>, name: &str) -> bool {
     let target = format!("## {name}");
     outside.iter().any(|(_, line)| line == target)
