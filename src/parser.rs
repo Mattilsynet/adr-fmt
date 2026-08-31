@@ -343,9 +343,9 @@ fn collect_stale_entries(
 /// `record` is `None` when the file could be read but the H1 title
 /// is missing or malformed (a P002 diagnostic accompanies it).
 #[derive(Debug, Default)]
-pub struct ParseFileOutcome {
-    pub record: Option<AdrRecord>,
-    pub diagnostics: Vec<Diagnostic>,
+pub(crate) struct ParseFileOutcome {
+    pub(crate) record: Option<AdrRecord>,
+    pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
 /// Parse a single ADR file.
@@ -353,7 +353,7 @@ pub struct ParseFileOutcome {
 /// Returns `Err` when the file cannot be read (caller maps to P001).
 /// Returns `Ok` with an empty `record` and a P002 diagnostic when the
 /// H1 title is missing or malformed.
-pub fn parse_adr_file(
+pub(crate) fn parse_adr_file(
     path: &Path,
     expected_prefix: &str,
     is_stale: bool,
