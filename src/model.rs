@@ -827,7 +827,10 @@ impl Tier {
     ///
     /// S-tier decisions are broad (paradigm-level) and get more room.
     /// D-tier decisions are narrow (parameters) and should be tighter.
-    /// Applied as a multiplier to `max_words` and `max_rules` base values.
+    /// Applied as a multiplier to the configured `min_words`,
+    /// `max_words`, and `max_rules` base values. This factor — not
+    /// [`Tier::min_words`] — is the multiplier T015 enforcement and
+    /// generated guidance both use for the effective minimum.
     #[must_use]
     pub fn factor(self) -> f64 {
         match self {
@@ -839,9 +842,18 @@ impl Tier {
         }
     }
 
-    /// Tier-scaled minimum word count for prose sections.
+    /// Fixed legacy default minimum word count per tier.
     ///
-    /// Higher-tier ADRs need more substance; lower-tier can be brief.
+    /// This table does NOT reflect configured T015 enforcement. Actual
+    /// enforcement scales the configured `T015.min_words` base by
+    /// [`Tier::factor`], so a corpus that sets that parameter enforces
+    /// minima this table does not reproduce. The values here are not a
+    /// factor curve either: S/A/B are `10 * factor`, but C and D both
+    /// flatten to 7, so no base reproduces the table.
+    ///
+    /// Callers that need the minimum a corpus actually enforces MUST
+    /// derive it from the configured base times [`Tier::factor`], and
+    /// MUST NOT read it from this function.
     #[must_use]
     pub fn min_words(self) -> u64 {
         match self {

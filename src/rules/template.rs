@@ -18,7 +18,7 @@
 use std::path::Path;
 
 use crate::config::{Config, RuleParam};
-use crate::model::{AdrRecord, RelVerb, Related, Status, TierField, layer_to_tier};
+use crate::model::{AdrRecord, RelVerb, Related, Status, Tier, TierField, layer_to_tier};
 use crate::report::Diagnostic;
 
 const MAX_CODE_BLOCK_LINES: usize = 20;
@@ -88,6 +88,10 @@ impl Budgets {
                 diags,
             ),
         }
+    }
+
+    pub(crate) fn min_words_for(&self, tier: Tier) -> u64 {
+        tier_scaled(self.min_words, tier)
     }
 }
 
@@ -168,8 +172,12 @@ const TIER_SCALED_CHECKS: &str = "tier-scaled checks (T015 word budgets, T016 ru
     clippy::cast_sign_loss,
     reason = "rounding a non-negative bounded tier-scaled budget to u64; value is small and non-negative by construction, truncation/sign-loss cannot occur"
 )]
+fn tier_scaled(base: u64, tier: Tier) -> u64 {
+    (base as f64 * tier.factor()).round() as u64
+}
+
 fn scale(base: u64, tier: ValidTier) -> u64 {
-    (base as f64 * tier.get().factor()).round() as u64
+    tier_scaled(base, tier.get())
 }
 
 pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut Vec<Diagnostic>) {
@@ -188,7 +196,7 @@ pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut
 
     let effective_min = match TierScaling::classify(record.tier_field()) {
         TierScaling::Scaled(tier) => {
-            let min_words = scale(budgets.min_words, tier);
+            let min_words = budgets.min_words_for(tier.get());
             let max_words = scale(budgets.max_words, tier);
             check_section_word_counts(record, min_words, max_words, tier, diags);
             check_rule_count(record, tier, scale(budgets.max_rules, tier), diags);
@@ -959,6 +967,73 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         ];
         *record.section_word_counts_mut() = word_counts;
         record
+    }
+
+    fn non_default_min_words_config() -> Config {
+        toml::from_str(
+            r#"
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+[[domains]]
+prefix = "CHE"
+name = "Cherry"
+directory = "cherry"
+description = "Test"
+crates = []
+
+[[rules]]
+id = "T015"
+params = { min_words = 20, max_words = 200 }
+"#,
+        )
+        .unwrap()
+    }
+
+    fn enforced_min_words(config: &Config, tier: Tier) -> u64 {
+        let mut record = make_record();
+        record.set_tier(Some(tier));
+        let mut counts = HashMap::new();
+        counts.insert("Context".to_string(), 1);
+        counts.insert("Decision".to_string(), 1);
+        counts.insert("Consequences".to_string(), 1);
+        *record.section_word_counts_mut() = counts;
+
+        let mut diags = Vec::new();
+        check(&record, config, &mut diags);
+
+        let marker = format!("{tier}-tier minimum ");
+        diags
+            .iter()
+            .filter(|d| d.rule == "T015")
+            .find_map(|d| {
+                d.message
+                    .split(&marker)
+                    .nth(1)?
+                    .split(')')
+                    .next()?
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
+            })
+            .expect("a one-word section under a configured minimum must raise T015")
+    }
+
+    #[test]
+    fn guidance_tier_scaling_cites_the_enforced_minimum() {
+        let config = non_default_min_words_config();
+        for tier in Tier::all() {
+            let enforced = enforced_min_words(&config, *tier);
+            let row = crate::guidelines::tier_scaling_row(&config, *tier);
+            assert!(
+                row.contains(&format!("min_words={enforced}")),
+                "guidance row for {tier:?} must cite the enforced minimum \
+                 {enforced} under a non-default configured base, got: {row}"
+            );
+        }
     }
 
     #[test]
