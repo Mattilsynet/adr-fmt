@@ -436,8 +436,11 @@ fn parse_title(lines: &[&str], expected_prefix: &str) -> Option<(AdrId, String, 
             && let Some(id) = parse_adr_id(&rest[..dot_pos])
             && id.prefix() == expected_prefix
         {
-            let title = rest[dot_pos + 2..].to_owned();
-            return Some((id, title, line_no));
+            let title = rest[dot_pos + 2..].trim();
+            if title.is_empty() {
+                continue;
+            }
+            return Some((id, title.to_owned(), line_no));
         }
     }
     None
@@ -2150,5 +2153,33 @@ crates = []
             "known limitation: only ``` fences are recognized (AFM-0006:R3); \
              ~~~ and indented fences are deliberately NOT inert"
         );
+    }
+
+    #[test]
+    fn empty_h1_title_emits_p002_at_line_zero() {
+        let outcome = parse_markdown(
+            "CHE-0001-empty-title.md",
+            "# CHE-0001. \n\n## Context\n\nProse.\n",
+        );
+        assert!(
+            outcome.record.is_none(),
+            "an H1 with no title text is not a valid title"
+        );
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].rule, "P002");
+        assert_eq!(
+            outcome.diagnostics[0].line, 0,
+            "AFM-0017:R3 pins P002 at line 0"
+        );
+    }
+
+    #[test]
+    fn whitespace_only_h1_title_emits_p002() {
+        let outcome = parse_markdown(
+            "CHE-0001-blank-title.md",
+            "# CHE-0001.    \n\n## Context\n\nProse.\n",
+        );
+        assert!(outcome.record.is_none());
+        assert_eq!(outcome.diagnostics[0].rule, "P002");
     }
 }
