@@ -2480,9 +2480,6 @@ fn corpus_root_nonexistent_dir() {
     cmd.current_dir(dir.path()).arg("--lint").assert().failure();
 }
 
-/// A malformed `adr-fmt.toml` must STOP the walk-up. Silently
-/// skipping it lints a DIFFERENT corpus (the ancestor's) and reports
-/// exit 0, so the user believes their own corpus is clean.
 #[test]
 fn malformed_marker_does_not_silently_lint_ancestor_corpus() {
     let dir = setup_corpus(MINIMAL_CONFIG, &[]);
@@ -2497,9 +2494,6 @@ fn malformed_marker_does_not_silently_lint_ancestor_corpus() {
         .stderr(predicate::str::contains("adr-fmt.toml"));
 }
 
-/// Default mode must distinguish "no config" from "broken config".
-/// Printing the setup guide tells a user whose config is broken that
-/// they have no config at all.
 #[test]
 fn default_mode_with_broken_config_reports_error_not_setup_guide() {
     let dir = TempDir::new().expect("create tempdir");
@@ -2857,8 +2851,6 @@ fn symlinked_marker_file_is_accepted() {
     cmd.current_dir(dir.path()).arg("--lint").assert().success();
 }
 
-/// A real, existing ADR file whose H1 is malformed — the parser emits
-/// P002 and produces no record, so the ID never reaches `CorpusIndex`.
 const UNPARSEABLE_H1_ADR: &str = "\
 ## TST-0005 Unparseable Heading
 
@@ -2884,7 +2876,6 @@ R1 [5]: We deliberately malform the H1 to exercise the indeterminate resolution 
 Citations to TST-0005 are indeterminate, not dangling.
 ";
 
-/// An ADR citing TST-0005, whose file exists but fails to parse.
 const CITES_UNPARSEABLE_ADR: &str = "\
 # TST-0004. Cites Unparseable ADR
 

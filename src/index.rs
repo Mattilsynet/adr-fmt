@@ -10,21 +10,12 @@ pub struct DuplicateId {
     pub paths: [PathBuf; 2],
 }
 
-/// A file that claims an [`AdrId`] but could not be parsed into a
-/// record — the provenance behind [`Resolution::Indeterminate`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnparsedTarget {
     pub path: String,
     pub rule: &'static str,
 }
 
-/// Outcome of resolving an [`AdrId`] against the corpus.
-///
-/// The three cases are mutually exclusive and exhaustive, so a caller
-/// cannot fold a parse failure into a definitive absence verdict:
-/// `Absent` means the corpus was searched and the ID is genuinely not
-/// there, while `Indeterminate` means a file claiming that ID exists
-/// on disk but could not be parsed (AFM-0017 P001/P002).
 #[derive(Debug, Clone, Copy)]
 pub enum Resolution<'a> {
     Resolved(&'a AdrRecord),
