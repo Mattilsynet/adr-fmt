@@ -383,8 +383,7 @@ pub fn parse_adr_file(
     let (status, status_line, status_raw) = find_status_field(&lines);
     let status_from_section = status.is_none() && has_heading(&outside, "Status");
 
-    let (related, _related_has_placeholder, related_diagnostics) =
-        find_relationships(&outside, path);
+    let (related, related_diagnostics) = find_relationships(&outside, path);
     outcome.diagnostics.extend(related_diagnostics);
 
     let has_context = has_heading(&outside, "Context");
@@ -400,8 +399,7 @@ pub fn parse_adr_file(
 
     let decision_rules = extract_tagged_rules(&source.rule_scan());
 
-    let (max_code_block_lines, _code_block_count, max_code_block_line) =
-        measure_code_blocks(&source);
+    let (max_code_block_lines, max_code_block_line) = measure_code_blocks(&source);
 
     outcome.record = Some(AdrRecord::from_parser_fields(
         id,
@@ -507,11 +505,10 @@ fn find_status_field(lines: &[&str]) -> (Option<Status>, usize, Option<String>) 
     (None, 0, None)
 }
 
-fn find_relationships(outside: &OutsideLines<'_>, path: &Path) -> (Related, bool, Vec<Diagnostic>) {
+fn find_relationships(outside: &OutsideLines<'_>, path: &Path) -> (Related, Vec<Diagnostic>) {
     let mut rels = Vec::new();
     let mut in_related = false;
     let mut found_section = false;
-    let mut has_placeholder = false;
     let mut malformed: Option<(String, MalformedReason)> = None;
     let mut diagnostics = Vec::new();
 
@@ -532,7 +529,6 @@ fn find_relationships(outside: &OutsideLines<'_>, path: &Path) -> (Related, bool
         }
         let trimmed = line.trim();
         if trimmed == "—" || trimmed == "- —" {
-            has_placeholder = true;
             continue;
         }
         for segment in trimmed.split(" | ") {
@@ -562,7 +558,7 @@ fn find_relationships(outside: &OutsideLines<'_>, path: &Path) -> (Related, bool
         None => Related::Absent,
     };
 
-    (related, has_placeholder, diagnostics)
+    (related, diagnostics)
 }
 
 fn parse_related_segment(
@@ -945,7 +941,7 @@ fn strip_annotation(s: &str) -> &str {
 
 /// Measure fenced code blocks (triple-backtick delimiters).
 ///
-/// Returns `(max_lines, block_count, max_block_start_line)` where
+/// Returns `(max_lines, max_block_start_line)` where
 /// `max_block_start_line` is the 1-indexed line number of the opening
 /// fence of the largest block (0 if no blocks or all blocks are empty).
 /// Fence lines themselves are excluded from the count. Language
@@ -953,12 +949,11 @@ fn strip_annotation(s: &str) -> &str {
 ///
 /// Known limitation: nested backticks (markdown documenting markdown)
 /// cause false open/close toggling. Acceptable for ADR content.
-fn measure_code_blocks(source: &SourceLines<'_>) -> (usize, usize, usize) {
+fn measure_code_blocks(source: &SourceLines<'_>) -> (usize, usize) {
     let mut current_lines = 0usize;
     let mut current_start = 0usize;
     let mut max_lines = 0usize;
     let mut max_start = 0usize;
-    let mut block_count = 0usize;
     let mut unclosed = false;
 
     for line in source.classified() {
@@ -966,7 +961,6 @@ fn measure_code_blocks(source: &SourceLines<'_>) -> (usize, usize, usize) {
             LineKind::FenceOpen => {
                 current_lines = 0;
                 current_start = line.line_no;
-                block_count += 1;
                 unclosed = true;
             }
             LineKind::FenceClose => {
@@ -986,7 +980,7 @@ fn measure_code_blocks(source: &SourceLines<'_>) -> (usize, usize, usize) {
         max_start = current_start;
     }
 
-    (max_lines, block_count, max_start)
+    (max_lines, max_start)
 }
 
 /// Check if a `## Heading` exists.
@@ -1053,8 +1047,7 @@ mod tests {
             "",
             "## Context",
         ];
-        let (related, _placeholder, _diags) =
-            find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert_eq!(rels.len(), 3);
@@ -1068,7 +1061,7 @@ mod tests {
     #[test]
     fn find_relationships_parses_root_verb() {
         let lines = vec!["## Related", "", "Root: CHE-0001", "", "## Context"];
-        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert_eq!(rels.len(), 1);
@@ -1119,9 +1112,8 @@ mod tests {
             "```",
             "more text",
         ];
-        let (max, count, start) = measure_code_blocks(&source_of(&lines));
+        let (max, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 3, "3 lines between fences");
-        assert_eq!(count, 1);
         assert_eq!(start, 2, "opening fence is line 2 (1-indexed)");
     }
 
@@ -1130,79 +1122,65 @@ mod tests {
         let lines = vec![
             "```", "line1", "```", "text", "```rust", "a", "b", "c", "d", "e", "```",
         ];
-        let (max, count, start) = measure_code_blocks(&source_of(&lines));
+        let (max, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 5, "second block has 5 lines");
-        assert_eq!(count, 2);
         assert_eq!(start, 5, "second block opens at line 5 (1-indexed)");
     }
 
     #[test]
     fn measure_code_blocks_empty_block() {
         let lines = vec!["```", "```"];
-        let (max, count, start) = measure_code_blocks(&source_of(&lines));
+        let (max, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 0);
-        assert_eq!(count, 1);
         assert_eq!(start, 0);
     }
 
     #[test]
     fn measure_code_blocks_no_blocks() {
         let lines = vec!["some text", "more text"];
-        let (max, count, start) = measure_code_blocks(&source_of(&lines));
+        let (max, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 0);
-        assert_eq!(count, 0);
         assert_eq!(start, 0, "no blocks means start line 0");
     }
 
     #[test]
     fn measure_code_blocks_fence_lines_excluded() {
         let lines = vec!["```", "only_this", "```"];
-        let (max, count, start) = measure_code_blocks(&source_of(&lines));
+        let (max, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 1, "only content line counted, not fences");
-        assert_eq!(count, 1);
         assert_eq!(start, 1);
     }
 
     #[test]
     fn measure_code_blocks_unclosed_block() {
         let lines = vec!["text", "```rust", "fn main() {}", "let x = 1;"];
-        let (max, count, start) = measure_code_blocks(&source_of(&lines));
+        let (max, start) = measure_code_blocks(&source_of(&lines));
         assert_eq!(max, 2, "unclosed block has 2 content lines");
-        assert_eq!(count, 1);
         assert_eq!(start, 2, "opening fence at line 2 (1-indexed)");
     }
 
     #[test]
     fn find_relationships_detects_placeholder() {
         let lines = vec!["## Related", "", "- —", "", "## Context"];
-        let (related, placeholder, _diags) =
-            find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         assert!(related.relationships().is_empty());
-        assert!(placeholder, "should detect `- —` as placeholder");
     }
 
     #[test]
     fn find_relationships_detects_bare_dash_placeholder() {
         let lines = vec!["## Related", "", "—", "", "## Context"];
-        let (related, placeholder, _diags) =
-            find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         assert!(related.relationships().is_empty());
-        assert!(placeholder, "should detect bare `—` as placeholder");
     }
 
     #[test]
     fn find_relationships_no_placeholder_with_rels() {
         let lines = vec!["## Related", "", "References: CHE-0001", "", "## Context"];
-        let (related, placeholder, _diags) =
-            find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         assert_eq!(related.relationships().len(), 1);
-        assert!(
-            !placeholder,
-            "should not detect placeholder when rels exist"
-        );
     }
 
     #[test]
@@ -1274,7 +1252,7 @@ mod tests {
     #[test]
     fn self_referencing_detected() {
         let lines = vec!["## Related", "", "Root: CHE-0001", "", "## Context"];
-        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         let rels = related.relationships();
         let id = AdrId::test_new("CHE", 1);
         let is_self_ref = rels
@@ -1286,7 +1264,7 @@ mod tests {
     #[test]
     fn self_referencing_wrong_id_not_detected() {
         let lines = vec!["## Related", "", "Root: CHE-0002", "", "## Context"];
-        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         let rels = related.relationships();
         let id = AdrId::test_new("CHE", 1);
         let is_self_ref = rels
@@ -1965,7 +1943,7 @@ crates = []
     #[test]
     fn find_relationships_empty_section_returns_no_rels() {
         let lines = vec!["## Related", "", "", "## Context"];
-        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert!(rels.is_empty());
@@ -1981,7 +1959,7 @@ crates = []
             "",
             "## Context",
         ];
-        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert!(rels.is_empty());
@@ -1990,7 +1968,7 @@ crates = []
     #[test]
     fn find_relationships_single_verb_no_pipe() {
         let lines = vec!["## Related", "", "References: CHE-0005", "", "## Context"];
-        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert_eq!(rels.len(), 1);
@@ -2007,7 +1985,7 @@ crates = []
             "",
             "## Context",
         ];
-        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert_eq!(rels.len(), 3);
@@ -2025,7 +2003,7 @@ crates = []
             "",
             "## Context",
         ];
-        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert!(
@@ -2045,7 +2023,7 @@ crates = []
             "",
             "## Context",
         ];
-        let (related, _, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        let (related, _diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
         assert!(!matches!(related, Related::Absent));
         let rels = related.relationships();
         assert_eq!(rels.len(), 3);
