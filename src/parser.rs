@@ -901,11 +901,11 @@ fn extract_tagged_rules(scan: &RuleScanLines<'_>) -> Vec<TaggedRule> {
         if line.starts_with("## ") {
             break;
         }
-        if let Some(caps) = TAGGED_RULE_RE.captures(line) {
-            let num = caps.get(1).unwrap().as_str();
-            let layer_str = caps.get(2).unwrap().as_str();
+        if let Some((_, [num, layer_str, rule_text])) =
+            TAGGED_RULE_RE.captures(line).map(|caps| caps.extract())
+        {
             let layer: u8 = layer_str.parse().unwrap_or(0);
-            let mut text = caps.get(3).unwrap().as_str().trim().to_owned();
+            let mut text = rule_text.trim().to_owned();
             let rule_line = line_no;
 
             i += 1;
@@ -1661,6 +1661,27 @@ mod tests {
             "Construct via `EventEnvelope::new()` which \
              returns `Result<Self, EnvelopeError>`"
         );
+    }
+
+    #[test]
+    fn extract_tagged_rules_non_numeric_layer_is_not_a_rule() {
+        let lines = vec![
+            "## Decision",
+            "",
+            "R1 [abc]: Non-numeric layer",
+            "R2 []: Empty layer",
+            "R3 [5]: Valid rule",
+            "",
+            "## Consequences",
+        ];
+        let rules = extract_tagged_rules(&rule_scan_of(&lines));
+        assert_eq!(
+            rules.len(),
+            1,
+            "a non-numeric or empty layer fails the tag regex, so the line is \
+             not recognised as a tagged rule at all: {rules:?}"
+        );
+        assert_eq!(rules[0].id, "R3");
     }
 
     #[test]
