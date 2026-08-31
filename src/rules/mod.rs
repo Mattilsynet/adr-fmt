@@ -1,7 +1,7 @@
 //! Rule modules — each validates one aspect of ADR compliance.
 
 mod links;
-mod naming;
+pub(crate) mod naming;
 mod template;
 
 use crate::config::Config;
