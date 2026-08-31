@@ -2950,3 +2950,183 @@ fn refs_on_genuinely_absent_target_still_reports_not_found() {
         .failure()
         .stderr(predicate::str::contains("TST-9999 not found"));
 }
+
+fn t015_config(min_words: u64) -> String {
+    format!(
+        r#"
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+[[domains]]
+prefix = "TST"
+name = "Test Domain"
+directory = "test"
+description = "Integration test domain."
+crates = []
+
+[[rules]]
+id = "T015"
+params = {{ min_words = {min_words} }}
+"#
+    )
+}
+
+fn word_count_adr(tier: &str, status: &str, context: &str) -> String {
+    format!(
+        "\
+# TST-0001. Word Count Probe
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: {tier}
+Status: {status}
+
+## Related
+
+Root: TST-0001
+
+## Context
+
+{context}
+
+## Decision
+
+R1 [5]: We decided to create a minimal but complete probe ADR that satisfies the tagged rule shape.
+
+## Consequences
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty.
+"
+    )
+}
+
+const TWENTY_WORD_PROSE: &str = "One two three four five six seven eight nine ten \
+eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty.";
+
+#[test]
+fn t015_raised_min_words_makes_the_guard_bite() {
+    let dir = setup_corpus(
+        &t015_config(50),
+        &[(
+            "TST-0001-word-count-probe.md",
+            &word_count_adr("B", "Accepted", TWENTY_WORD_PROSE),
+        )],
+    );
+
+    adr_fmt_in(&dir)
+        .arg("--lint")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "`## Context` has 20 word(s) (B-tier minimum 50)",
+        ));
+}
+
+#[test]
+fn t015_lowered_min_words_silences_the_guard() {
+    let dir = setup_corpus(
+        &t015_config(2),
+        &[(
+            "TST-0001-word-count-probe.md",
+            &word_count_adr("B", "Accepted", "Three words only."),
+        )],
+    );
+
+    adr_fmt_in(&dir)
+        .arg("--lint")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("minimum").not());
+}
+
+#[test]
+fn t015_effective_minimum_is_tier_scaled_from_the_configured_base() {
+    let dir = setup_corpus(
+        &t015_config(20),
+        &[(
+            "TST-0001-word-count-probe.md",
+            &word_count_adr("S", "Accepted", TWENTY_WORD_PROSE),
+        )],
+    );
+
+    adr_fmt_in(&dir)
+        .arg("--lint")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "`## Context` has 20 word(s) (S-tier minimum 30)",
+        ));
+}
+
+#[test]
+fn t015_and_s006_cite_the_same_effective_minimum() {
+    let dir = setup_corpus(
+        &t015_config(50),
+        &[(
+            "TST-0001-word-count-probe.md",
+            &word_count_adr("B", "Deprecated", TWENTY_WORD_PROSE),
+        )],
+    );
+
+    adr_fmt_in(&dir).arg("--lint").assert().success().stdout(
+        predicate::str::contains("(B-tier minimum 50)").and(predicate::str::contains(
+            "`## Retirement` section (≥50 words)",
+        )),
+    );
+}
+
+fn count_rule_occurrences(output: &str, rule: &str) -> usize {
+    let needle = format!("**warning[{rule}]**");
+    output.matches(&needle).count()
+}
+
+#[test]
+fn parenthetical_status_emits_exactly_one_t006() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[(
+            "TST-0001-word-count-probe.md",
+            &word_count_adr("B", "Accepted (pending review)", TWENTY_WORD_PROSE),
+        )],
+    );
+
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "T006"),
+        1,
+        "expected exactly one T006, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("remove annotations"),
+        "parenthetical-specific remediation must survive:\n{stdout}"
+    );
+}
+
+#[test]
+fn unrecognized_status_emits_exactly_one_t006() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[(
+            "TST-0001-word-count-probe.md",
+            &word_count_adr("B", "Bogus", TWENTY_WORD_PROSE),
+        )],
+    );
+
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "T006"),
+        1,
+        "expected exactly one T006, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("unrecognized status"),
+        "generic remediation expected:\n{stdout}"
+    );
+}
