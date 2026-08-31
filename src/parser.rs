@@ -26,6 +26,7 @@ use crate::model::{
     TaggedRule, Tier, parse_adr_id,
 };
 use crate::report::Diagnostic;
+use crate::rules::naming;
 
 /// Records and diagnostics produced by parsing a directory of ADRs.
 ///
@@ -92,12 +93,19 @@ impl std::error::Error for ParseError {
 ///
 /// Panics only if the internally-constructed filename regex is invalid.
 pub fn parse_domain(dir: &DomainDir) -> Result<ParseOutcome, ParseError> {
-    let mut outcome = ParseOutcome::default();
-
     let entries = fs::read_dir(&dir.path).map_err(|e| ParseError::ReadDir {
         path: dir.path.clone(),
         source: e,
     })?;
+
+    Ok(collect_domain_entries(dir, entries))
+}
+
+fn collect_domain_entries(
+    dir: &DomainDir,
+    entries: impl Iterator<Item = std::io::Result<fs::DirEntry>>,
+) -> ParseOutcome {
+    let mut outcome = ParseOutcome::default();
 
     let filename_re = Regex::new(&format!(
         r"^{}-(\d{{4}})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$",
@@ -105,34 +113,71 @@ pub fn parse_domain(dir: &DomainDir) -> Result<ParseOutcome, ParseError> {
     ))
     .expect("valid regex");
 
-    for entry in entries.flatten() {
+    let known_prefixes = [dir.prefix.as_str()];
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                outcome.diagnostics.push(unreadable_entry(&dir.path, &e));
+                continue;
+            }
+        };
+
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
+
+        if !is_adr_candidate(&name) {
+            continue;
+        }
+
+        let path = entry.path();
+        naming::check_file_name(&path, &known_prefixes, &mut outcome.diagnostics);
 
         if !filename_re.is_match(&name) {
             continue;
         }
 
-        match parse_adr_file(&entry.path(), &dir.prefix, false) {
-            Ok(file_outcome) => {
-                if let Some(record) = file_outcome.record {
-                    outcome.records.push(record);
-                }
-                outcome.diagnostics.extend(file_outcome.diagnostics);
-            }
-            Err(e) => {
-                outcome.diagnostics.push(Diagnostic::warning(
-                    "P001",
-                    &entry.path(),
-                    0,
-                    format!("cannot read ADR file: {}", e.escape_debug()),
-                ));
-            }
-        }
+        absorb_file(&mut outcome, &path, &dir.prefix, false);
     }
 
     outcome.records.sort_by_key(|r| r.id().number());
-    Ok(outcome)
+    outcome
+}
+
+fn is_adr_candidate(name: &str) -> bool {
+    Path::new(name).extension().is_some_and(|ext| ext == "md") && name != "README.md"
+}
+
+fn unreadable_entry(dir: &Path, e: &std::io::Error) -> Diagnostic {
+    Diagnostic::warning(
+        "P001",
+        dir,
+        0,
+        format!(
+            "cannot read directory entry: {}",
+            e.to_string().escape_debug()
+        ),
+    )
+}
+
+fn absorb_file(outcome: &mut ParseOutcome, path: &Path, prefix: &str, is_stale: bool) {
+    match parse_adr_file(path, prefix, is_stale) {
+        Ok(file_outcome) => {
+            if let Some(record) = file_outcome.record {
+                outcome.records.push(record);
+            }
+            outcome.diagnostics.extend(file_outcome.diagnostics);
+        }
+        Err(e) => {
+            outcome.diagnostics.push(Diagnostic::warning(
+                "P001",
+                path,
+                0,
+                format!("cannot read ADR file: {}", e.escape_debug()),
+            ));
+        }
+    }
 }
 
 /// Parse all ADR files in the stale directory.
@@ -171,32 +216,30 @@ pub fn parse_stale(stale_dir: &Path, config: &Config) -> Result<ParseOutcome, Pa
         })
         .collect();
 
-    for entry in entries.flatten() {
+    let known_prefixes: Vec<&str> = prefixes.iter().map(|(p, _)| *p).collect();
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                outcome.diagnostics.push(unreadable_entry(stale_dir, &e));
+                continue;
+            }
+        };
+
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
 
-        if !name.ends_with(".md") || name == "README.md" {
+        if !is_adr_candidate(&name) {
             continue;
         }
 
+        let path = entry.path();
+        naming::check_file_name(&path, &known_prefixes, &mut outcome.diagnostics);
+
         for (prefix, re) in &prefixes {
             if re.is_match(&name) {
-                match parse_adr_file(&entry.path(), prefix, true) {
-                    Ok(file_outcome) => {
-                        if let Some(record) = file_outcome.record {
-                            outcome.records.push(record);
-                        }
-                        outcome.diagnostics.extend(file_outcome.diagnostics);
-                    }
-                    Err(e) => {
-                        outcome.diagnostics.push(Diagnostic::warning(
-                            "P001",
-                            &entry.path(),
-                            0,
-                            format!("cannot read ADR file: {}", e.escape_debug()),
-                        ));
-                    }
-                }
+                absorb_file(&mut outcome, &path, prefix, true);
                 break;
             }
         }
@@ -1456,6 +1499,37 @@ mod tests {
                 .contains("cannot read ADR file"),
             "P001 message should describe failure"
         );
+    }
+
+    #[test]
+    fn parse_domain_with_unreadable_dir_entry_emits_diagnostic() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let domain_dir = DomainDir {
+            prefix: "CHE".to_string(),
+            name: "Cherry-pit Test".to_string(),
+            path: dir.path().to_owned(),
+        };
+        let entries = fs::read_dir(&domain_dir.path).expect("read_dir");
+        let outcome = collect_domain_entries(&domain_dir, failing_entries(entries));
+        assert_eq!(
+            outcome.diagnostics.len(),
+            1,
+            "an unreadable directory entry is indeterminate, not absent"
+        );
+        assert_eq!(outcome.diagnostics[0].rule, "P001");
+        assert!(
+            outcome.diagnostics[0]
+                .message
+                .contains("cannot read directory entry"),
+            "diagnostic should name the entry failure: {}",
+            outcome.diagnostics[0].message
+        );
+    }
+
+    fn failing_entries(
+        _real: fs::ReadDir,
+    ) -> impl Iterator<Item = std::io::Result<fs::DirEntry>> + use<> {
+        std::iter::once(Err(std::io::Error::other("simulated entry failure")))
     }
 
     #[test]
