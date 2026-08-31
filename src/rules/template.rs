@@ -1,4 +1,4 @@
-//! Template compliance rules (T002–T020) and structure rules (S004–S007).
+//! Template compliance rules (T002–T022) and structure rules (S004–S008).
 //!
 //! T002–T005c: preamble metadata fields (Date, Last-reviewed, Tier,
 //! Status; T005c flags legacy `## Status` heading). T006 status value
@@ -6,12 +6,14 @@
 //! code-block size. T014 section ordering. T015 tier-scaled prose
 //! word-count range. T016 tagged-rule validation (tier-scaled count,
 //! 7–60 words each). T019 rule/ADR tier tension. T020 tier-scaled
-//! `References:` load.
+//! `References:` load. T022 omitted-MADR-template residue section
+//! names on active ADRs.
 //!
 //! S004/S005: stale ↔ Retirement-section presence mismatch. S006:
 //! terminal-status ADR not in the stale directory. S007: stale-stub
 //! structure per AFM-0022 — disallowed sections or non-lineage
-//! relationship verbs in stale stubs.
+//! relationship verbs in stale stubs. S008: stale-directory ADR whose
+//! status is still live — the reverse direction of S006.
 
 use std::path::Path;
 
@@ -443,21 +445,33 @@ fn check_stale_lifecycle(
 
     if let Some(status) = record.status()
         && record.is_stale()
-        && let StatusLiveness::Live(live) = StatusLiveness::classify(status)
     {
-        diags.push(Diagnostic::warning(
-            "S008",
-            record.file_path(),
-            record.status_line(),
-            format!(
-                "{} is in the {stale_dir}/ directory but has non-terminal status \
-                 '{live}'. Action: either set a terminal status (Rejected, \
-                 Deprecated, or Superseded by PREFIX-NNNN) to record how this ADR \
-                 left active service, or move the file back out of {stale_dir}/.",
-                record.id(),
-                stale_dir = config.stale.directory,
-            ),
-        ));
+        match StatusLiveness::classify(status) {
+            StatusLiveness::Live(live) => diags.push(Diagnostic::warning(
+                "S008",
+                record.file_path(),
+                record.status_line(),
+                format!(
+                    "{} is in the {stale_dir}/ directory but has non-terminal status \
+                     '{live}'. Action: either set a terminal status (Rejected, \
+                     Deprecated, or Superseded by PREFIX-NNNN) to record how this ADR \
+                     left active service, or move the file back out of {stale_dir}/.",
+                    record.id(),
+                    stale_dir = config.stale.directory,
+                ),
+            )),
+            StatusLiveness::Terminal => {}
+            StatusLiveness::Indeterminate => {
+                debug_assert!(
+                    {
+                        let file = record.file_path().display().to_string();
+                        diags.iter().any(|d| d.rule == "T006" && d.file == file)
+                    },
+                    "an indeterminate status must already have been diagnosed by T006 \
+                     before the stale lifecycle check declines to emit S008"
+                );
+            }
+        }
     }
 }
 
