@@ -19,32 +19,23 @@ use crate::config::{Config, RuleParam};
 use crate::model::{AdrRecord, RelVerb, Related, Status, Tier, TierField, layer_to_tier};
 use crate::report::Diagnostic;
 
-/// Maximum lines in a single fenced code block before T011 fires.
 const MAX_CODE_BLOCK_LINES: usize = 20;
 
-/// Default minimum word count for prose sections.
 const DEFAULT_MIN_WORDS: u64 = 7;
 
-/// Default maximum word count for prose sections.
 const DEFAULT_MAX_WORDS: u64 = 100;
 
-/// Default maximum number of tagged rules per ADR.
 const DEFAULT_MAX_RULES: u64 = 10;
 
-/// Default minimum words per tagged rule.
 const DEFAULT_MIN_RULE_WORDS: u64 = 7;
 
-/// Default maximum words per tagged rule.
 const DEFAULT_MAX_RULE_WORDS: u64 = 60;
 
-/// Canonical H2 section order for active ADRs (with legacy ## Status heading).
 const ACTIVE_SECTION_ORDER_WITH_STATUS: &[&str] =
     &["Status", "Related", "Context", "Decision", "Consequences"];
 
-/// Canonical H2 section order for active ADRs (new format — no ## Status heading).
 const ACTIVE_SECTION_ORDER: &[&str] = &["Related", "Context", "Decision", "Consequences"];
 
-/// Canonical H2 section order for stale ADRs (with legacy ## Status heading).
 const STALE_SECTION_ORDER_WITH_STATUS: &[&str] = &[
     "Status",
     "Related",
@@ -54,7 +45,6 @@ const STALE_SECTION_ORDER_WITH_STATUS: &[&str] = &[
     "Retirement",
 ];
 
-/// Canonical H2 section order for stale ADRs (new format — no ## Status heading).
 const STALE_SECTION_ORDER: &[&str] = &[
     "Related",
     "Context",
@@ -63,11 +53,6 @@ const STALE_SECTION_ORDER: &[&str] = &[
     "Retirement",
 ];
 
-/// H2 sections allowed in a stale stub (per AFM-0022 / S007).
-///
-/// Retired ADRs reduce to preamble + optional `## Related`
-/// (containing only `Supersedes:` edges) + `## Retirement`. Any
-/// other H2 section is a stub violation.
 const STUB_ALLOWED_SECTIONS: &[&str] = &["Related", "Retirement"];
 
 const CONFIG_FILE_NAME: &str = "adr-fmt.toml";
@@ -181,7 +166,6 @@ pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut
     check_stale_stub_structure(record, diags);
 }
 
-/// T002–T005c: Preamble metadata field checks.
 fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     if record.date().is_none() {
         diags.push(Diagnostic::warning(
@@ -247,7 +231,6 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     }
 }
 
-/// T006–T007: Status value and relationship validity checks.
 fn check_status_validity(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     if let Some(raw) = record.status_raw() {
         if Status::has_parenthetical(raw) {
@@ -301,15 +284,6 @@ fn check_status_validity(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     }
 }
 
-/// T008–T011: Required sections and code block checks.
-///
-/// T008/T009/T010 (`## Context`, `## Decision`, `## Consequences`)
-/// are skipped for stale ADRs: per AFM-0022, stale stubs reduce to
-/// preamble + optional `## Related` + `## Retirement`, so requiring
-/// the active-ADR triple would always fire on compliant stubs.
-/// S007 enforces stub structure positively. T011 (code block size)
-/// applies to every ADR — stubs rarely contain code, so it is
-/// effectively dormant on stale.
 fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     if !record.is_stale() && !record.has_context() {
         diags.push(Diagnostic::warning(
@@ -354,7 +328,6 @@ fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     }
 }
 
-/// S004–S006: Stale/active lifecycle alignment checks.
 fn check_stale_lifecycle(
     record: &AdrRecord,
     config: &Config,
@@ -410,20 +383,6 @@ fn check_stale_lifecycle(
     }
 }
 
-/// S007: Stale stub-structure compliance (per AFM-0022).
-///
-/// A stale ADR carrying a terminal status (Rejected, Deprecated,
-/// or Superseded by …) must reduce to a stub: preamble, optional
-/// `## Related` containing only `Supersedes:` edges (forward
-/// lineage; the reverse direction is already recorded in the
-/// `Status:` field), and a `## Retirement` section. Any other H2
-/// section (`## Context`, `## Decision`, `## Consequences`, etc.)
-/// or any non-`Supersedes` relationship verb emits one warning per
-/// occurrence.
-///
-/// Missing `## Retirement` is covered by S004 — not duplicated here.
-/// Non-terminal stale ADRs (status = Accepted, Draft, Proposed)
-/// do not match the rule conditions and produce no S007 diagnostics.
 fn check_stale_stub_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     if !record.is_stale() {
         return;
@@ -472,12 +431,6 @@ fn check_stale_stub_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     }
 }
 
-/// T014: H2 sections must appear in canonical order.
-///
-/// Only validates the relative ordering of known canonical sections.
-/// Extra subsections (e.g., `### Rules`) within a section are ignored.
-/// Dynamically selects expected order based on whether `## Status` is
-/// present (legacy format) or absent (new metadata-field format).
 fn check_section_order(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     let has_status_section = record.section_order().iter().any(|s| s == "Status");
 
@@ -520,12 +473,6 @@ fn check_section_order(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     }
 }
 
-/// T015: Prose sections must meet word count range.
-///
-/// Applies to Context, Consequences, and Retirement only.
-/// Decision section is validated by T016 (rule count, not word count).
-/// Min and max are tier-scaled: higher-tier ADRs need more substance,
-/// lower-tier ADRs should be tighter.
 fn check_section_word_counts(
     record: &AdrRecord,
     min_words: u64,
@@ -588,18 +535,6 @@ fn check_section_word_counts(
     }
 }
 
-/// T016: Tagged rules validation in Decision section.
-///
-/// Checks:
-/// - At least one tagged rule present (all statuses)
-/// - Sequential IDs (R1, R2, R3 — no gaps)
-/// - Maximum rule count (tier-scaled)
-/// - Word count per rule (default 7-60)
-/// - Layer range: 1-12 (Meadows leverage points)
-///
-/// Skipped for stale stubs (per AFM-0022): stubs have no `## Decision`
-/// section, so requiring tagged rules would always fire on compliant
-/// stubs. The original tagged rules remain accessible via git history.
 fn check_tagged_rules(
     record: &AdrRecord,
     tier: Tier,
@@ -701,17 +636,6 @@ fn check_tagged_rules(
     }
 }
 
-/// T019: Rule-tier tension — fires iff the rule's layer-derived tier has higher
-/// leverage than the ADR's tier (`rule_rank < adr_rank`).
-///
-/// Under the asymmetric rule: a rule operating at a *higher* leverage layer
-/// than its ADR warrants is a structural mismatch (e.g. an S-tier rule in a
-/// D-tier ADR signals the rule should live in a more authoritative document).
-/// A rule at equal or lower leverage than its ADR tier is intentional and passes
-/// silently — lower-leverage enforcement within a higher-leverage decision is
-/// expected (e.g. a C-tier rule in an S-tier ADR).
-///
-/// No domain-specific carve-outs; the asymmetric bound applies uniformly.
 fn check_rule_tier_tension(
     record: &AdrRecord,
     adr_tier: Tier,
@@ -744,11 +668,6 @@ fn check_rule_tier_tension(
     }
 }
 
-/// T020: Reference load — tier-scaled limit on `References:` count.
-///
-/// Only `References:` targets count toward load. `Root:` and `Supersedes:`
-/// are structural relationships, not content dependencies. High reference
-/// count signals broad scope that may warrant splitting.
 fn check_reference_load(record: &AdrRecord, tier: Tier, diags: &mut Vec<Diagnostic>) {
     use crate::model::RelVerb;
 
@@ -2127,7 +2046,6 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         );
     }
 
-    /// Build a stub-shaped stale record with terminal status + lineage edge.
     fn make_stale_stub() -> AdrRecord {
         use crate::model::{RelVerb, Relationship};
         let mut record = make_record();
