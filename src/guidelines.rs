@@ -429,6 +429,7 @@ fn print_link_rules() {
         "    L018  Parent-cross-domain mismatch — declaration ID does not match first References"
     );
     println!("    L019  Parent-cross-domain target missing — declared ADR does not exist");
+    println!("    L020  Link integrity indeterminate — target exists but failed to parse");
     println!("    T020  Reference load — tier-scaled max on References: count");
     println!();
 }
@@ -599,6 +600,21 @@ crates = []
                  print_relationships/print_link_rules source range"
             );
         }
+    }
+
+    #[test]
+    fn link_rules_registry_lists_l020() {
+        let src = include_str!("guidelines.rs");
+        let start = src
+            .find("fn print_link_rules")
+            .expect("print_link_rules exists");
+        let end = src.find("fn print_stale").expect("print_stale exists");
+        let scan = &src[start..end];
+        assert!(
+            scan.contains("L020"),
+            "print_link_rules must register L020, or a shipped rule code is \
+             invisible in governance output"
+        );
     }
 
     #[test]
