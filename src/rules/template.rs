@@ -18,7 +18,7 @@
 use std::path::Path;
 
 use crate::config::{Config, RuleParam};
-use crate::model::{AdrRecord, RelVerb, Related, Status, Tier, TierField, layer_to_tier};
+use crate::model::{AdrRecord, RelVerb, Related, Status, TierField, layer_to_tier};
 use crate::report::Diagnostic;
 
 const MAX_CODE_BLOCK_LINES: usize = 20;
@@ -122,6 +122,56 @@ fn resolve_param(
     }
 }
 
+mod tier_lane {
+    use crate::model::{Tier, TierField};
+
+    #[derive(Clone, Copy)]
+    pub(super) struct ValidTier(Tier);
+
+    impl ValidTier {
+        pub(super) fn get(self) -> Tier {
+            self.0
+        }
+    }
+
+    impl std::fmt::Display for ValidTier {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    pub(super) enum TierScaling {
+        Scaled(ValidTier),
+        Indeterminate,
+    }
+
+    impl TierScaling {
+        pub(super) fn classify(field: &TierField) -> Self {
+            match field {
+                TierField::Valid(tier) => Self::Scaled(ValidTier(*tier)),
+                TierField::Absent | TierField::Invalid { .. } => Self::Indeterminate,
+            }
+        }
+    }
+}
+
+use tier_lane::{TierScaling, ValidTier};
+
+const TIER_SCALED_CHECKS: &str = "tier-scaled checks (T015 word budgets, T016 rule-count \
+                                  budget, T019 tier tension, T020 reference load) cannot be \
+                                  evaluated and were skipped";
+
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "rounding a non-negative bounded tier-scaled budget to u64; value is small and non-negative by construction, truncation/sign-loss cannot occur"
+)]
+fn scale(base: u64, tier: ValidTier) -> u64 {
+    (base as f64 * tier.get().factor()).round() as u64
+}
+
 pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut Vec<Diagnostic>) {
     check_metadata(record, diags);
     check_status_validity(record, diags);
@@ -129,48 +179,25 @@ pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut
     check_section_order(record, diags);
     check_residue_sections(record, diags);
 
-    let tier = record.tier().unwrap_or(Tier::B);
-
-    let base_max_words = budgets.max_words;
-    let base_min_words = budgets.min_words;
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss,
-        reason = "rounding a non-negative bounded tier-scaled budget to u64; value is small and non-negative by construction, truncation/sign-loss cannot occur"
-    )]
-    let effective_min = (base_min_words as f64 * tier.factor()).round() as u64;
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss,
-        reason = "rounding a non-negative bounded tier-scaled budget to u64; value is small and non-negative by construction, truncation/sign-loss cannot occur"
-    )]
-    let effective_max = (base_max_words as f64 * tier.factor()).round() as u64;
-    check_section_word_counts(record, effective_min, effective_max, tier, diags);
-
-    let base_max_rules = budgets.max_rules;
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss,
-        reason = "rounding a non-negative bounded tier-scaled budget to u64; value is small and non-negative by construction, truncation/sign-loss cannot occur"
-    )]
-    let effective_max_rules = (base_max_rules as f64 * tier.factor()).round() as u64;
-    let min_rule_words = budgets.min_rule_words;
-    let max_rule_words = budgets.max_rule_words;
     check_tagged_rules(
         record,
-        tier,
-        effective_max_rules,
-        min_rule_words,
-        max_rule_words,
+        budgets.min_rule_words,
+        budgets.max_rule_words,
         diags,
     );
 
-    check_rule_tier_tension(record, tier, config, diags);
-
-    check_reference_load(record, tier, diags);
+    let effective_min = match TierScaling::classify(record.tier_field()) {
+        TierScaling::Scaled(tier) => {
+            let min_words = scale(budgets.min_words, tier);
+            let max_words = scale(budgets.max_words, tier);
+            check_section_word_counts(record, min_words, max_words, tier, diags);
+            check_rule_count(record, tier, scale(budgets.max_rules, tier), diags);
+            check_rule_tier_tension(record, tier, config, diags);
+            check_reference_load(record, tier, diags);
+            Some(min_words)
+        }
+        TierScaling::Indeterminate => None,
+    };
 
     check_stale_lifecycle(record, config, effective_min, diags);
     check_stale_stub_structure(record, diags);
@@ -202,7 +229,7 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
                 "T004",
                 record.file_path(),
                 0,
-                "missing `Tier:` field".into(),
+                format!("missing `Tier:` field — {TIER_SCALED_CHECKS}"),
             ));
         }
         TierField::Invalid { raw } => {
@@ -212,8 +239,7 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
                 0,
                 format!(
                     "unrecognized `Tier:` value `{}` — expected one of S/A/B/C/D; \
-                     tier-scaled checks fall back to B and do not reflect the \
-                     intended tier",
+                     {TIER_SCALED_CHECKS}",
                     raw.escape_debug()
                 ),
             ));
@@ -392,7 +418,7 @@ fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
 fn check_stale_lifecycle(
     record: &AdrRecord,
     config: &Config,
-    effective_min: u64,
+    effective_min: Option<u64>,
     diags: &mut Vec<Diagnostic>,
 ) {
     if record.is_stale() && !record.has_retirement() {
@@ -427,7 +453,10 @@ fn check_stale_lifecycle(
             Status::SupersededBy(id) => format!("Superseded by {id}"),
             _ => format!("{status:?}"),
         };
-        let min_words = effective_min;
+        let retirement_budget = match effective_min {
+            Some(min_words) => format!(" (≥{min_words} words)"),
+            None => String::new(),
+        };
         diags.push(Diagnostic::warning(
             "S006",
             record.file_path(),
@@ -435,7 +464,7 @@ fn check_stale_lifecycle(
             format!(
                 "{} has terminal status '{status_display}' but is not in the \
                  stale directory. Action: move this file to {stale_dir}/ and add a \
-                 `## Retirement` section (≥{min_words} words) explaining why this \
+                 `## Retirement` section{retirement_budget} explaining why this \
                  ADR left active service.",
                 record.id(),
                 stale_dir = config.stale.directory,
@@ -482,8 +511,20 @@ fn check_stale_stub_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     let Some(status) = record.status() else {
         return;
     };
-    if !status.is_terminal() {
-        return;
+    match StatusLiveness::classify(status) {
+        StatusLiveness::Terminal => {}
+        StatusLiveness::Live(_) => return,
+        StatusLiveness::Indeterminate => {
+            debug_assert!(
+                {
+                    let file = record.file_path().display().to_string();
+                    diags.iter().any(|d| d.rule == "T006" && d.file == file)
+                },
+                "an indeterminate status must already have been diagnosed by T006 \
+                 before the stale stub structure check declines to emit S007"
+            );
+            return;
+        }
     }
 
     for section in record.section_order() {
@@ -600,7 +641,7 @@ fn check_section_word_counts(
     record: &AdrRecord,
     min_words: u64,
     max_words: u64,
-    tier: Tier,
+    tier: ValidTier,
     diags: &mut Vec<Diagnostic>,
 ) {
     let prose_sections = ["Context", "Consequences"];
@@ -658,10 +699,31 @@ fn check_section_word_counts(
     }
 }
 
+fn check_rule_count(
+    record: &AdrRecord,
+    tier: ValidTier,
+    max_rules: u64,
+    diags: &mut Vec<Diagnostic>,
+) {
+    if record.is_stale() || record.decision_rules().is_empty() {
+        return;
+    }
+    if record.decision_rules().len() as u64 > max_rules {
+        diags.push(Diagnostic::warning(
+            "T016",
+            record.file_path(),
+            0,
+            format!(
+                "Decision section has {} tagged rules ({tier}-tier limit {max_rules}) — \
+                 some tension is expected; consider splitting or re-tiering if scope is broad",
+                record.decision_rules().len(),
+            ),
+        ));
+    }
+}
+
 fn check_tagged_rules(
     record: &AdrRecord,
-    tier: Tier,
-    max_rules: u64,
     min_rule_words: u64,
     max_rule_words: u64,
     diags: &mut Vec<Diagnostic>,
@@ -677,19 +739,6 @@ fn check_tagged_rules(
             "Decision section lacks tagged rules (RN [L]: pattern)".into(),
         ));
         return;
-    }
-
-    if record.decision_rules().len() as u64 > max_rules {
-        diags.push(Diagnostic::warning(
-            "T016",
-            record.file_path(),
-            0,
-            format!(
-                "Decision section has {} tagged rules ({tier}-tier limit {max_rules}) — \
-                 some tension is expected; consider splitting or re-tiering if scope is broad",
-                record.decision_rules().len(),
-            ),
-        ));
     }
 
     for rule in record.decision_rules() {
@@ -761,12 +810,12 @@ fn check_tagged_rules(
 
 fn check_rule_tier_tension(
     record: &AdrRecord,
-    adr_tier: Tier,
+    adr_tier: ValidTier,
     config: &Config,
     diags: &mut Vec<Diagnostic>,
 ) {
     let _ = config;
-    let adr_rank = adr_tier.rank();
+    let adr_rank = adr_tier.get().rank();
 
     for rule in record.decision_rules() {
         let Some(rule_tier) = layer_to_tier(rule.layer) else {
@@ -791,7 +840,7 @@ fn check_rule_tier_tension(
     }
 }
 
-fn check_reference_load(record: &AdrRecord, tier: Tier, diags: &mut Vec<Diagnostic>) {
+fn check_reference_load(record: &AdrRecord, tier: ValidTier, diags: &mut Vec<Diagnostic>) {
     use crate::model::RelVerb;
 
     let ref_count = record
@@ -800,7 +849,7 @@ fn check_reference_load(record: &AdrRecord, tier: Tier, diags: &mut Vec<Diagnost
         .filter(|r| r.verb == RelVerb::References)
         .count();
 
-    let max_refs = tier.max_refs();
+    let max_refs = tier.get().max_refs();
     if ref_count > max_refs {
         diags.push(Diagnostic::warning(
             "T020",
@@ -2158,7 +2207,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     }
 
     #[test]
-    fn t019_missing_tier_defaults_to_b() {
+    fn t019_missing_tier_is_indeterminate_not_defaulted_to_b() {
         use crate::model::TaggedRule;
         let mut record = make_record();
         record.set_tier(None);
@@ -2171,15 +2220,198 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
-        let t019 = diags.iter().find(|d| d.rule == "T019");
         assert!(
-            t019.is_some(),
-            "S-tier rule in missing-tier (default B) ADR should trigger T019, got: {diags:?}"
+            !diags.iter().any(|d| d.rule == "T019"),
+            "a tier-less ADR has no tier to be in tension with; T019 must not \
+             report a verdict computed from a fabricated tier, got: {diags:?}"
         );
+    }
+
+    fn tierless_lane_record() -> AdrRecord {
+        use crate::model::TaggedRule;
+        let mut record = make_record();
+        record.set_tier(None);
+        *record.decision_rules_mut() = vec![
+            TaggedRule {
+                id: "R1".into(),
+                text: "All events must be versioned with semantic version numbers always".into(),
+                line: 10,
+                layer: 1,
+            },
+            TaggedRule {
+                id: "R2".into(),
+                text: "All events must carry a monotonic sequence number for ordering".into(),
+                line: 11,
+                layer: 13,
+            },
+        ];
+        record
+    }
+
+    #[test]
+    fn tierless_record_still_receives_tier_independent_t016() {
+        let record = tierless_lane_record();
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(&record, &config, &mut diags);
         assert!(
-            t019.unwrap().message.contains("2 tiers"),
-            "distance should be 2 (B→S): {}",
-            t019.unwrap().message
+            diags
+                .iter()
+                .any(|d| d.rule == "T016" && d.message.contains("layer 13")),
+            "AFM-0012:R3 layer-range validation is tier-independent and must \
+             survive tier indeterminacy, got: {diags:?}"
+        );
+    }
+
+    fn count_code(record: &AdrRecord, code: &str) -> usize {
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(record, &config, &mut diags);
+        diags.iter().filter(|d| d.rule == code).count()
+    }
+
+    fn assert_lane_b_emission_withheld(fixture: fn() -> AdrRecord, code: &str) {
+        let mut scaled = fixture();
+        scaled.set_tier_field(TierField::Valid(Tier::B));
+        let under_b = count_code(&scaled, code);
+        assert!(
+            under_b > 0,
+            "boundary fixture is inert: {code} must actually emit under Tier::B, \
+             otherwise its absence under indeterminacy proves nothing"
+        );
+
+        for field in [TierField::Absent, TierField::Invalid { raw: "Z".into() }] {
+            let mut indeterminate = fixture();
+            indeterminate.set_tier_field(field);
+            let under_indeterminate = count_code(&indeterminate, code);
+            assert_eq!(
+                under_indeterminate,
+                under_b - 1,
+                "exactly the tier-scaled {code} emission must be withheld when the \
+                 tier is indeterminate; tier-independent {code} emissions must survive"
+            );
+        }
+    }
+
+    fn t015_boundary_record() -> AdrRecord {
+        let mut record = make_record();
+        record
+            .section_word_counts_mut()
+            .insert("Context".into(), 51);
+        record
+    }
+
+    fn t016_rule_count_boundary_record() -> AdrRecord {
+        use crate::model::TaggedRule;
+        let mut record = make_record();
+        *record.decision_rules_mut() = (1..=11)
+            .map(|n| TaggedRule {
+                id: format!("R{n}"),
+                text: "All events must carry a monotonic sequence number for ordering".into(),
+                line: 9 + n,
+                layer: if n == 11 { 13 } else { 5 },
+            })
+            .collect();
+        record
+    }
+
+    fn t019_boundary_record() -> AdrRecord {
+        use crate::model::TaggedRule;
+        let mut record = make_record();
+        *record.decision_rules_mut() = vec![TaggedRule {
+            id: "R1".into(),
+            text: "All events must be versioned with semantic version numbers always".into(),
+            line: 10,
+            layer: 1,
+        }];
+        record
+    }
+
+    fn t020_boundary_record() -> AdrRecord {
+        use crate::model::{RelVerb, Relationship};
+        let mut record = t019_boundary_record();
+        *record.relationships_mut() = (0..8)
+            .map(|i| Relationship {
+                verb: RelVerb::References,
+                target: record.id().clone(),
+                line: 20 + i,
+            })
+            .collect();
+        record
+    }
+
+    #[test]
+    fn tierless_record_withholds_t015_word_budget_verdict() {
+        assert_lane_b_emission_withheld(t015_boundary_record, "T015");
+    }
+
+    #[test]
+    fn tierless_record_withholds_t016_rule_count_verdict() {
+        assert_lane_b_emission_withheld(t016_rule_count_boundary_record, "T016");
+    }
+
+    #[test]
+    fn tierless_record_withholds_t019_tension_verdict() {
+        assert_lane_b_emission_withheld(t019_boundary_record, "T019");
+    }
+
+    #[test]
+    fn tierless_record_withholds_t020_reference_load_verdict() {
+        assert_lane_b_emission_withheld(t020_boundary_record, "T020");
+    }
+
+    #[test]
+    fn t016_rule_count_boundary_retains_lane_a_layer_diagnostic() {
+        let mut record = t016_rule_count_boundary_record();
+        record.set_tier_field(TierField::Absent);
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(&record, &config, &mut diags);
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.rule == "T016" && d.line == 20 && d.message.contains("layer 13")),
+            "the surviving T016 on the rule-count boundary fixture must be the \
+             tier-independent AFM-0012:R3 layer diagnostic, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn tierless_record_gets_exactly_one_indeterminacy_warning() {
+        for field in [TierField::Absent, TierField::Invalid { raw: "Z".into() }] {
+            let mut record = tierless_lane_record();
+            record.set_tier_field(field);
+            let config = make_config();
+            let mut diags = Vec::new();
+            check(&record, &config, &mut diags);
+            let indeterminate: Vec<_> = diags
+                .iter()
+                .filter(|d| d.message.contains("cannot be evaluated"))
+                .collect();
+            assert_eq!(
+                indeterminate.len(),
+                1,
+                "exactly one explicit indeterminacy warning expected, got: {diags:?}"
+            );
+            assert_eq!(indeterminate[0].rule, "T004");
+        }
+    }
+
+    #[test]
+    fn t004_no_longer_claims_a_fallback_to_b() {
+        let mut record = make_record();
+        record.set_tier_field(TierField::Invalid { raw: "Z".into() });
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(&record, &config, &mut diags);
+        let msg = diags
+            .iter()
+            .find(|d| d.rule == "T004")
+            .map(|d| d.message.clone())
+            .expect("invalid tier must produce T004");
+        assert!(
+            !msg.contains("fall back to B"),
+            "T004 must not advertise a fallback that no longer happens: {msg}"
         );
     }
 
