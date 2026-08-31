@@ -1400,6 +1400,30 @@ mod tests {
     }
 
     #[test]
+    fn parent_cross_domain_separator_is_any_whitespace_not_only_a_dash() {
+        for (separator, line) in [
+            (
+                "plain space",
+                "Parent-cross-domain: COM-0001 arbitrary text",
+            ),
+            ("tab", "Parent-cross-domain: COM-0001\tarbitrary text"),
+            (
+                "non-breaking space",
+                "Parent-cross-domain: COM-0001\u{a0}arbitrary text",
+            ),
+        ] {
+            let lines = vec!["# CHE-0042. Title", "", line, "", "## Status"];
+            let field = find_parent_cross_domain_field(&lines);
+            let CrossDomainParent::Valid { id, reason } = &field else {
+                panic!("expected {separator} to separate id from reason, got: {field:?}");
+            };
+            assert_eq!(id.prefix(), "COM", "prefix under {separator}");
+            assert_eq!(id.number(), 1, "number under {separator}");
+            assert_eq!(reason, "arbitrary text", "reason under {separator}");
+        }
+    }
+
+    #[test]
     fn find_parent_cross_domain_id_only_is_malformed_not_valid() {
         let lines = vec![
             "# CHE-0042. Title",
