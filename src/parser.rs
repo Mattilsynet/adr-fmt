@@ -38,9 +38,39 @@ use crate::rules::naming;
 /// surface as [`ParseError`] from the calling parser entrypoints.
 #[derive(Debug, Default)]
 pub struct ParseOutcome {
-    pub records: Vec<AdrRecord>,
-    pub diagnostics: Vec<Diagnostic>,
-    pub parse_failures: Vec<FileParseFailure>,
+    records: Vec<AdrRecord>,
+    diagnostics: Vec<Diagnostic>,
+    parse_failures: Vec<FileParseFailure>,
+}
+
+impl ParseOutcome {
+    #[must_use]
+    pub fn records(&self) -> &[AdrRecord] {
+        &self.records
+    }
+
+    #[must_use]
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+
+    #[must_use]
+    pub fn parse_failures(&self) -> &[FileParseFailure] {
+        &self.parse_failures
+    }
+
+    pub(crate) fn into_parts(self) -> (Vec<AdrRecord>, Vec<Diagnostic>, Vec<FileParseFailure>) {
+        (self.records, self.diagnostics, self.parse_failures)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_new(records: Vec<AdrRecord>, parse_failures: Vec<FileParseFailure>) -> Self {
+        Self {
+            records,
+            diagnostics: Vec::new(),
+            parse_failures,
+        }
+    }
 }
 
 /// A single ADR file whose name claims an [`AdrId`] but which produced no record.
@@ -1714,8 +1744,9 @@ mod tests {
             outcome.diagnostics[0].file
         );
 
-        let index = crate::index::CorpusIndex::build(&outcome.records, &outcome.parse_failures)
-            .expect("no records, so build must succeed");
+        let scan = crate::index::ScannedCorpus::test_of(outcome);
+        let index =
+            crate::index::CorpusIndex::build(&scan).expect("no records, so build must succeed");
 
         assert!(
             matches!(

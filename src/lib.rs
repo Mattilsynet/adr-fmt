@@ -54,12 +54,6 @@ use std::path::{Path, PathBuf};
 
 use clap::Parser;
 
-struct CorpusScan {
-    records: Vec<model::AdrRecord>,
-    diagnostics: Vec<report::Diagnostic>,
-    parse_failures: Vec<parser::FileParseFailure>,
-}
-
 /// ADR template and link-integrity validator.
 #[derive(Parser)]
 #[command(name = "adr-fmt", version)]
@@ -168,19 +162,17 @@ where
         return 1;
     }
 
-    let CorpusScan {
-        records: all_records,
-        diagnostics: parse_diagnostics,
-        parse_failures,
-    } = match scan_corpus(&adr_root, &config, &domain_dirs) {
+    let mut scan = match scan_corpus(&adr_root, &config, &domain_dirs) {
         Ok(scan) => scan,
         Err(e) => {
             eprintln!("error: {e}");
             return 1;
         }
     };
+    let parse_diagnostics = scan.take_diagnostics();
+    let all_records = scan.records();
 
-    let index = match index::CorpusIndex::build(&all_records, &parse_failures) {
+    let index = match index::CorpusIndex::build(&scan) {
         Ok(idx) => idx,
         Err(dup) => {
             return report_duplicate_id(cli.lint, parse_diagnostics, all_records.len(), &dup);
@@ -189,7 +181,7 @@ where
 
     dispatch_mode(
         &cli,
-        &all_records,
+        all_records,
         &config,
         &domain_dirs,
         &index,
@@ -326,16 +318,11 @@ fn scan_corpus(
     adr_root: &Path,
     config: &Config,
     domain_dirs: &[DomainDir],
-) -> Result<CorpusScan, String> {
-    let mut records = Vec::new();
-    let mut diagnostics = Vec::new();
-    let mut parse_failures = Vec::new();
+) -> Result<index::ScannedCorpus, String> {
+    let mut scan = index::ScannedCorpus::default();
 
     for dir in domain_dirs {
-        let outcome = parser::parse_domain(dir).map_err(|e| e.to_string())?;
-        records.extend(outcome.records);
-        diagnostics.extend(outcome.diagnostics);
-        parse_failures.extend(outcome.parse_failures);
+        scan.absorb(parser::parse_domain(dir).map_err(|e| e.to_string())?);
     }
 
     let stale_dir = containment::contained_join_optional(adr_root, &config.stale.directory)
@@ -343,17 +330,10 @@ fn scan_corpus(
     if let Some(stale_dir) = stale_dir
         && stale_dir.is_dir()
     {
-        let outcome = parser::parse_stale(&stale_dir, config).map_err(|e| e.to_string())?;
-        records.extend(outcome.records);
-        diagnostics.extend(outcome.diagnostics);
-        parse_failures.extend(outcome.parse_failures);
+        scan.absorb(parser::parse_stale(&stale_dir, config).map_err(|e| e.to_string())?);
     }
 
-    Ok(CorpusScan {
-        records,
-        diagnostics,
-        parse_failures,
-    })
+    Ok(scan)
 }
 
 enum ConfigDiscovery {

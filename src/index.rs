@@ -2,7 +2,45 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::model::{AdrId, AdrRecord};
-use crate::parser::FileParseFailure;
+use crate::parser::{FileParseFailure, ParseOutcome};
+use crate::report::Diagnostic;
+
+/// Records and their parse provenance, accumulated from whole [`ParseOutcome`]s.
+///
+/// Fields are private and [`absorb`](Self::absorb) takes an entire outcome, so
+/// a caller cannot hand [`CorpusIndex::build`] a set of records while omitting
+/// or substituting the parse failures those records were scanned alongside.
+#[derive(Debug, Default)]
+pub struct ScannedCorpus {
+    records: Vec<AdrRecord>,
+    diagnostics: Vec<Diagnostic>,
+    failures: Vec<FileParseFailure>,
+}
+
+impl ScannedCorpus {
+    pub fn absorb(&mut self, outcome: ParseOutcome) {
+        let (records, diagnostics, failures) = outcome.into_parts();
+        self.records.extend(records);
+        self.diagnostics.extend(diagnostics);
+        self.failures.extend(failures);
+    }
+
+    #[must_use]
+    pub fn records(&self) -> &[AdrRecord] {
+        &self.records
+    }
+
+    pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
+        std::mem::take(&mut self.diagnostics)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_of(outcome: ParseOutcome) -> Self {
+        let mut scan = Self::default();
+        scan.absorb(outcome);
+        scan
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuplicateId {
@@ -31,10 +69,8 @@ pub struct CorpusIndex<'a> {
 }
 
 impl<'a> CorpusIndex<'a> {
-    pub fn build(
-        records: &'a [AdrRecord],
-        parse_failures: &[FileParseFailure],
-    ) -> Result<Self, DuplicateId> {
+    pub fn build(scan: &'a ScannedCorpus) -> Result<Self, DuplicateId> {
+        let records: &'a [AdrRecord] = &scan.records;
         let mut ordered: Vec<&'a AdrRecord> = records.iter().collect();
         ordered.sort_by(|a, b| {
             a.id()
@@ -59,7 +95,7 @@ impl<'a> CorpusIndex<'a> {
             }
         }
 
-        let unparsed = collect_unparsed(parse_failures, &by_id);
+        let unparsed = collect_unparsed(&scan.failures, &by_id);
 
         Ok(Self {
             records,
@@ -152,7 +188,8 @@ mod tests {
             make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md"),
             make_record("CHE", 2, "docs/adr/cherry/CHE-0002-b.md"),
         ];
-        let index = CorpusIndex::build(&records, &[]).expect("unique ids must build");
+        let scan = ScannedCorpus::test_of(ParseOutcome::test_new(records, Vec::new()));
+        let index = CorpusIndex::build(&scan).expect("unique ids must build");
         assert!(index.contains_key(&make_id("CHE", 1)));
         assert!(index.contains_key(&make_id("CHE", 2)));
         assert!(!index.contains_key(&make_id("CHE", 99)));
@@ -163,7 +200,7 @@ mod tests {
         let a = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md");
         let b = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-b.md");
 
-        let err = CorpusIndex::build(&[a, b], &[]).expect_err("duplicate id must be rejected");
+        let err = build_err(vec![a, b]);
         assert_eq!(err.id, make_id("CHE", 1));
         assert_eq!(
             err.paths,
@@ -179,9 +216,8 @@ mod tests {
         let a = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md");
         let b = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-b.md");
 
-        let forward = CorpusIndex::build(&[a.clone(), b.clone()], &[])
-            .expect_err("duplicate id must be rejected");
-        let reversed = CorpusIndex::build(&[b, a], &[]).expect_err("duplicate id must be rejected");
+        let forward = build_err(vec![a.clone(), b.clone()]);
+        let reversed = build_err(vec![b, a]);
 
         assert_eq!(
             forward, reversed,
@@ -194,8 +230,17 @@ mod tests {
         let a = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md");
         let b = make_record("CHE", 1, "docs/adr/common/CHE-0001-b.md");
 
-        let err = CorpusIndex::build(&[a, b], &[]).expect_err("duplicate id must be rejected");
+        let err = build_err(vec![a, b]);
         assert_eq!(err.id, make_id("CHE", 1));
+    }
+
+    fn scanned(records: Vec<AdrRecord>, parse_failures: Vec<FileParseFailure>) -> ScannedCorpus {
+        ScannedCorpus::test_of(ParseOutcome::test_new(records, parse_failures))
+    }
+
+    fn build_err(records: Vec<AdrRecord>) -> DuplicateId {
+        let scan = ScannedCorpus::test_of(ParseOutcome::test_new(records, Vec::new()));
+        CorpusIndex::build(&scan).expect_err("duplicate id must be rejected")
     }
 
     fn parse_failure(rule: &'static str, path: &str) -> FileParseFailure {
@@ -214,7 +259,8 @@ mod tests {
             "P002",
             "docs/adr/cherry/CHE-0002-broken-h1.md",
         )];
-        let index = CorpusIndex::build(&records, &diags).expect("unique ids must build");
+        let scan = scanned(records, diags);
+        let index = CorpusIndex::build(&scan).expect("unique ids must build");
 
         match index.resolve(&make_id("CHE", 2)) {
             Resolution::Indeterminate(unparsed) => {
@@ -232,7 +278,8 @@ mod tests {
             "P002",
             "docs/adr/cherry/CHE-0002-broken-h1.md",
         )];
-        let index = CorpusIndex::build(&records, &diags).expect("unique ids must build");
+        let scan = scanned(records, diags);
+        let index = CorpusIndex::build(&scan).expect("unique ids must build");
 
         assert!(
             matches!(index.resolve(&make_id("CHE", 99)), Resolution::Absent),
@@ -244,7 +291,8 @@ mod tests {
     fn parsed_record_wins_over_unrelated_diagnostic_on_same_file() {
         let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
         let diags = vec![parse_failure("P003", "docs/adr/cherry/CHE-0001-a.md")];
-        let index = CorpusIndex::build(&records, &diags).expect("unique ids must build");
+        let scan = scanned(records, diags);
+        let index = CorpusIndex::build(&scan).expect("unique ids must build");
 
         assert!(
             matches!(index.resolve(&make_id("CHE", 1)), Resolution::Resolved(_)),
@@ -272,15 +320,15 @@ mod tests {
 
         assert!(
             outcome
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.file.contains("CHE-0002-Bad_Name.md")),
             "fixture must emit a diagnostic on the id-bearing path: {:?}",
-            outcome.diagnostics
+            outcome.diagnostics()
         );
 
-        let index = CorpusIndex::build(&outcome.records, &outcome.parse_failures)
-            .expect("unique ids must build");
+        let scan = ScannedCorpus::test_of(outcome);
+        let index = CorpusIndex::build(&scan).expect("unique ids must build");
 
         assert!(
             matches!(index.resolve(&make_id("CHE", 2)), Resolution::Absent),
