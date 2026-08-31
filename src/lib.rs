@@ -104,8 +104,8 @@ where
 {
     let cli = Cli::parse_from(args);
 
-    let marker = match discover_marker() {
-        Ok(opt) => opt,
+    let discovery = match discover_marker() {
+        Ok(d) => d,
         Err(msg) => {
             eprintln!("error: {msg}");
             return 1;
@@ -116,15 +116,29 @@ where
         cli.lint || cli.refs.is_some() || cli.context.is_some() || cli.tree.is_some();
 
     if !is_non_default_mode {
-        return run_default_mode(marker);
+        return run_default_mode(discovery);
     }
 
-    let Some((marker_dir, config)) = marker else {
-        eprintln!(
-            "error: no adr-fmt.toml with a valid [corpus] table found in any parent directory"
-        );
-        eprintln!("       run from the workspace root, or create adr-fmt.toml there");
-        return 1;
+    let (marker_dir, config) = match discovery {
+        ConfigDiscovery::Ready { marker_dir, config } => (marker_dir, config),
+        ConfigDiscovery::Invalid {
+            marker_path,
+            reason,
+        } => {
+            eprintln!("error: {} is not usable: {reason}", marker_path.display());
+            eprintln!(
+                "       refusing to fall back to a parent corpus — that would lint a \
+                 different corpus and report success"
+            );
+            return 1;
+        }
+        ConfigDiscovery::Absent => {
+            eprintln!(
+                "error: no adr-fmt.toml with a valid [corpus] table found in any parent directory"
+            );
+            eprintln!("       run from the workspace root, or create adr-fmt.toml there");
+            return 1;
+        }
     };
 
     config::emit_legacy_rule_warnings(&config);
@@ -271,16 +285,39 @@ fn duplicate_id_diagnostic(dup: &index::DuplicateId) -> report::Diagnostic {
     )
 }
 
-fn run_default_mode(marker: Option<(PathBuf, Config)>) -> i32 {
-    if let Some((marker_dir, config)) = marker {
-        match config::resolve_corpus_root(&marker_dir, &config.corpus) {
-            Ok(_) => guidelines::print_governance(&config),
-            Err(_) => guidelines::print_setup_guide(),
+fn run_default_mode(discovery: ConfigDiscovery) -> i32 {
+    match discovery {
+        ConfigDiscovery::Ready { marker_dir, config } => {
+            match config::resolve_corpus_root(&marker_dir, &config.corpus) {
+                Ok(_) => {
+                    guidelines::print_governance(&config);
+                    0
+                }
+                Err(e) => {
+                    eprintln!("error: adr-fmt.toml in {}: {e}", marker_dir.display());
+                    eprintln!(
+                        "       the config was found but is not usable; fix it rather than re-running setup"
+                    );
+                    1
+                }
+            }
         }
-    } else {
-        guidelines::print_setup_guide();
+        ConfigDiscovery::Invalid {
+            marker_path,
+            reason,
+        } => {
+            eprintln!("error: {} is not usable: {reason}", marker_path.display());
+            eprintln!(
+                "       adr-fmt found this config but cannot use it, so it will not fall back \
+                 to a parent corpus"
+            );
+            1
+        }
+        ConfigDiscovery::Absent => {
+            guidelines::print_setup_guide();
+            0
+        }
     }
-    0
 }
 
 fn scan_corpus(
@@ -313,7 +350,28 @@ fn scan_corpus(
     })
 }
 
-fn discover_marker() -> Result<Option<(PathBuf, Config)>, String> {
+enum ConfigDiscovery {
+    Absent,
+    Ready {
+        marker_dir: PathBuf,
+        config: Box<Config>,
+    },
+    Invalid {
+        marker_path: PathBuf,
+        reason: String,
+    },
+}
+
+enum MarkerVerdict {
+    Unfit(String),
+    Ready {
+        marker_dir: PathBuf,
+        config: Box<Config>,
+    },
+    Invalid(String),
+}
+
+fn discover_marker() -> Result<ConfigDiscovery, String> {
     let cwd =
         std::env::current_dir().map_err(|e| format!("cannot determine current directory: {e}"))?;
     let canon_cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
@@ -321,80 +379,75 @@ fn discover_marker() -> Result<Option<(PathBuf, Config)>, String> {
     loop {
         let candidate = dir.join("adr-fmt.toml");
         if candidate.is_file() {
-            match try_marker(dir) {
-                Ok(Some(pair)) => return Ok(Some(pair)),
-                Ok(None) => {
-                    eprintln!(
-                        "note: skipping {}: marker is structurally invalid (no [corpus] table, \
-                         missing corpus dir, no existing domain, or containment violation)",
-                        candidate.display()
-                    );
+            match try_marker(dir)? {
+                MarkerVerdict::Ready { marker_dir, config } => {
+                    return Ok(ConfigDiscovery::Ready { marker_dir, config });
                 }
-                Err(TryMarkerError::Parse(msg)) => {
-                    eprintln!("note: skipping {}: {msg}", candidate.display());
+                MarkerVerdict::Invalid(reason) => {
+                    return Ok(ConfigDiscovery::Invalid {
+                        marker_path: candidate,
+                        reason,
+                    });
                 }
-                Err(TryMarkerError::Io(msg)) => {
-                    return Err(msg);
+                MarkerVerdict::Unfit(note) => {
+                    eprintln!("note: skipping {}: {note}", candidate.display());
                 }
             }
         }
         match dir.parent() {
             Some(parent) => dir = parent,
-            None => return Ok(None),
+            None => return Ok(ConfigDiscovery::Absent),
         }
     }
 }
 
-/// Internal error from [`try_marker`]: distinguishes parse failures
-/// (skip-with-note in walk-up) from IO failures (hard error).
-enum TryMarkerError {
-    Parse(String),
-    Io(String),
-}
-
-/// Load `marker_dir`'s `adr-fmt.toml`; validate the corpus root
-/// has at least one configured domain.
-///
-/// `Ok(Some)` on full validity; `Ok(None)` if well-formed but unfit
-/// (no `[corpus]` table, missing corpus root, or no domain resolves
-/// or intentionally violates containment — see **Marker-claim
-/// rule**). `Err(Parse)` on TOML parse failure (caller notes and
-/// continues); `Err(Io)` if unreadable, including a TOCTOU race
-/// where the file vanishes between the caller's check and this read.
-///
-/// **Marker-claim rule.** Claimed when the corpus root exists and
-/// a domain resolves to an existing directory, or raises a
-/// containment violation (surfaced downstream per AFM-0003:R1). A
-/// stray marker whose root exists and whose only domain violates
-/// containment can mask a
-/// valid parent — mitigated by the corpus-root-must-exist precheck.
-/// Pinned by
-/// `stray_marker_with_violating_domain_masks_parent`.
-fn try_marker(marker_dir: &Path) -> Result<Option<(PathBuf, Config)>, TryMarkerError> {
-    let config = config::load_quiet(marker_dir).map_err(|e| match e {
-        config::LoadError::Io(m) => TryMarkerError::Io(m),
-        config::LoadError::Parse(m) => TryMarkerError::Parse(m),
-    })?;
+fn try_marker(marker_dir: &Path) -> Result<MarkerVerdict, String> {
+    let config = match config::load_quiet(marker_dir) {
+        Ok(c) => c,
+        Err(config::LoadError::Io(m)) => return Err(m),
+        Err(config::LoadError::Parse(m)) => return Ok(MarkerVerdict::Invalid(m)),
+        Err(config::LoadError::NotAMarker(m)) => return Ok(MarkerVerdict::Unfit(m)),
+    };
     let Ok(corpus_root) = config::resolve_corpus_root(marker_dir, &config.corpus) else {
-        return Ok(None);
+        return Ok(MarkerVerdict::Unfit(
+            "[corpus] root does not resolve within this directory".to_owned(),
+        ));
     };
     if !corpus_root.is_dir() {
-        return Ok(None);
+        return Ok(MarkerVerdict::Unfit(format!(
+            "corpus root {} is not a directory",
+            corpus_root.display()
+        )));
     }
-    let any_domain_intended = config.domains.iter().any(|d| {
+
+    let mut any_domain_intended = false;
+    for d in &config.domains {
         match containment::contained_join_optional(&corpus_root, &d.directory) {
-            Err(_) => true,
-            Ok(Some(p)) => p.is_dir(),
-            Ok(None) => false,
+            Err(containment::ContainmentError::MetadataFailed { segment, reason }) => {
+                return Ok(MarkerVerdict::Invalid(format!(
+                    "domain '{}' directory {}: {reason} — whether this marker \
+                     describes the corpus here cannot be determined",
+                    d.prefix,
+                    segment.escape_debug()
+                )));
+            }
+            Err(_) => any_domain_intended = true,
+            Ok(Some(p)) => any_domain_intended |= p.is_dir(),
+            Ok(None) => {}
         }
-    });
-    if !any_domain_intended {
-        return Ok(None);
     }
-    let canon_marker = std::fs::canonicalize(marker_dir).map_err(|e| {
-        TryMarkerError::Io(format!("cannot canonicalize {}: {e}", marker_dir.display()))
-    })?;
-    Ok(Some((canon_marker, config)))
+    if !any_domain_intended {
+        return Ok(MarkerVerdict::Unfit(
+            "no configured domain resolves to an existing directory".to_owned(),
+        ));
+    }
+
+    let marker_dir = std::fs::canonicalize(marker_dir)
+        .map_err(|e| format!("cannot canonicalize {}: {e}", marker_dir.display()))?;
+    Ok(MarkerVerdict::Ready {
+        marker_dir,
+        config: Box::new(config),
+    })
 }
 
 fn discover_domains(root: &Path, config: &Config) -> Result<Vec<DomainDir>, String> {

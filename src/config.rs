@@ -170,6 +170,11 @@ pub fn load_quiet(marker_dir: &Path) -> Result<Config, LoadError> {
 pub enum LoadError {
     Io(String),
     Parse(String),
+    /// The file parsed as TOML but declares no `[corpus]` table, so it
+    /// does not claim to be an adr-fmt marker at all. Distinct from
+    /// [`LoadError::Parse`]: discovery may walk past a non-marker, but
+    /// a broken marker must not be silently skipped.
+    NotAMarker(String),
 }
 
 impl core::fmt::Display for LoadError {
@@ -177,6 +182,7 @@ impl core::fmt::Display for LoadError {
         match self {
             LoadError::Io(msg) => write!(f, "adr-fmt config I/O error: {msg}"),
             LoadError::Parse(msg) => write!(f, "adr-fmt config parse error: {msg}"),
+            LoadError::NotAMarker(msg) => write!(f, "not an adr-fmt marker: {msg}"),
         }
     }
 }
@@ -196,7 +202,7 @@ fn load_inner_typed(marker_dir: &Path) -> Result<Config, LoadError> {
     let config: Config = toml::from_str(&content).map_err(|e| {
         let msg = e.to_string();
         if msg.contains("missing field `corpus`") {
-            LoadError::Parse(format!(
+            LoadError::NotAMarker(format!(
                 "{}: missing required `[corpus]` table\n\
                  \n\
                  Example:\n\
@@ -483,6 +489,27 @@ params = { min_words = 7, max_words = "seven", negative = -3 }
     }
 
     #[test]
+    fn missing_corpus_table_is_not_a_marker_but_bad_toml_is_malformed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("adr-fmt.toml"),
+            "[stale]\ndirectory = \"x\"\n",
+        )
+        .expect("write");
+        assert!(
+            matches!(load_quiet(dir.path()), Err(LoadError::NotAMarker(_))),
+            "a toml without [corpus] does not claim to be an adr-fmt marker"
+        );
+
+        let dir2 = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir2.path().join("adr-fmt.toml"), "not valid toml ===").expect("write");
+        assert!(
+            matches!(load_quiet(dir2.path()), Err(LoadError::Parse(_))),
+            "unparseable toml is a broken marker, not a non-marker"
+        );
+    }
+
+    #[test]
     fn missing_required_field_fails() {
         let toml_str = r#"
 [corpus]
@@ -587,8 +614,9 @@ crates = []
 "#;
         std::fs::write(dir.path().join("adr-fmt.toml"), toml_str).unwrap();
         let err = match load_quiet(dir.path()).unwrap_err() {
-            LoadError::Parse(m) => m,
-            LoadError::Io(m) => panic!("expected Parse error, got Io: {m}"),
+            LoadError::NotAMarker(m) => m,
+            LoadError::Parse(m) => panic!("expected NotAMarker, got Parse: {m}"),
+            LoadError::Io(m) => panic!("expected NotAMarker, got Io: {m}"),
         };
         assert!(
             err.contains("`[corpus]`"),

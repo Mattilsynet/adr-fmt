@@ -2480,10 +2480,11 @@ fn corpus_root_nonexistent_dir() {
     cmd.current_dir(dir.path()).arg("--lint").assert().failure();
 }
 
-/// Walk-up skips a malformed toml (parse error) with a `note:` and
-/// continues to find a valid marker in a parent directory.
+/// A malformed `adr-fmt.toml` must STOP the walk-up. Silently
+/// skipping it lints a DIFFERENT corpus (the ancestor's) and reports
+/// exit 0, so the user believes their own corpus is clean.
 #[test]
-fn walk_up_skips_malformed_toml_and_finds_parent_marker() {
+fn malformed_marker_does_not_silently_lint_ancestor_corpus() {
     let dir = setup_corpus(MINIMAL_CONFIG, &[]);
     let nested = dir.path().join("docs/adr/test");
     fs::write(nested.join("adr-fmt.toml"), "this is not valid toml ===")
@@ -2492,8 +2493,26 @@ fn walk_up_skips_malformed_toml_and_finds_parent_marker() {
     cmd.current_dir(&nested)
         .arg("--lint")
         .assert()
-        .success()
-        .stderr(predicate::str::contains("skipping"));
+        .failure()
+        .stderr(predicate::str::contains("adr-fmt.toml"));
+}
+
+/// Default mode must distinguish "no config" from "broken config".
+/// Printing the setup guide tells a user whose config is broken that
+/// they have no config at all.
+#[test]
+fn default_mode_with_broken_config_reports_error_not_setup_guide() {
+    let dir = TempDir::new().expect("create tempdir");
+    fs::write(
+        dir.path().join("adr-fmt.toml"),
+        "this is not valid toml ===",
+    )
+    .expect("write malformed toml");
+
+    adr_fmt_in(&dir)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("QUICK START").not());
 }
 
 /// Walk-up skips a toml that parses but lacks `[corpus]` and finds
