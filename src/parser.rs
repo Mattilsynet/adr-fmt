@@ -7,9 +7,9 @@ use regex::Regex;
 
 use crate::config::Config;
 use crate::model::{
-    AdrId, AdrRecord, CrossDomainDefect, CrossDomainParent, DomainDir, MalformedReason,
-    MalformedRule, RelVerb, Related, Relationship, Status, TaggedRule, Tier, TierField,
-    parse_adr_id, parse_adr_id_from_filename_stem,
+    AdrId, AdrRecord, CrossDomainDefect, CrossDomainParent, DomainDir, LegacyStatusSection,
+    MalformedReason, MalformedRule, RelVerb, Related, Relationship, Status, TaggedRule, Tier,
+    TierField, parse_adr_id, parse_adr_id_from_filename_stem,
 };
 use crate::report::Diagnostic;
 use crate::rules::naming;
@@ -444,8 +444,12 @@ pub(crate) fn parse_adr_file(
     let (tier, _) = find_tier_field(&lines);
 
     let (metadata_status, metadata_status_line, metadata_status_raw) = find_status_field(&lines);
-    let has_legacy_status_section = has_heading(&outside, "Status");
-    let status_from_section = metadata_status.is_none() && has_legacy_status_section;
+    let legacy_status_section = match find_heading_line(&outside, "Status") {
+        None => LegacyStatusSection::Absent,
+        Some(heading_line) => LegacyStatusSection::Present { heading_line },
+    };
+    let status_from_section =
+        metadata_status.is_none() && legacy_status_section != LegacyStatusSection::Absent;
 
     let (status, status_line, status_raw) = if metadata_status.is_none() {
         let (section_status, section_line, section_raw) = find_status_in_section(&outside);
@@ -497,7 +501,7 @@ pub(crate) fn parse_adr_file(
         has_retirement,
         is_stale,
         status_from_section,
-        has_legacy_status_section,
+        legacy_status_section,
         max_code_block_lines,
         max_code_block_line,
         section_order,
@@ -1100,8 +1104,15 @@ fn measure_code_blocks(source: &SourceLines<'_>) -> (usize, usize) {
 }
 
 fn has_heading(outside: &OutsideLines<'_>, name: &str) -> bool {
+    find_heading_line(outside, name).is_some()
+}
+
+fn find_heading_line(outside: &OutsideLines<'_>, name: &str) -> Option<usize> {
     let target = format!("## {name}");
-    outside.iter().any(|(_, line)| line == target)
+    outside
+        .iter()
+        .find(|(_, line)| *line == target)
+        .map(|(line_no, _)| line_no)
 }
 
 #[cfg(test)]
@@ -2805,5 +2816,117 @@ crates = []
             ["CHE-0001-alpha.md", "DEC-0001-beta.md", "CHE-0002-gamma.md"],
             "the tie between equal numbers breaks on prefix, then file path"
         );
+    }
+
+    #[test]
+    fn legacy_status_section_supplies_first_non_empty_value() {
+        let outcome = parse_markdown(
+            "CHE-0001-legacy-status.md",
+            "# CHE-0001. Legacy Status\n\n## Status\n\nAccepted\n\n## Context\n\nBody.\n",
+        );
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
+        assert_eq!(record.status(), Some(&Status::Accepted));
+        assert_eq!(record.status_raw(), Some("Accepted"));
+        assert_eq!(
+            record.status_line(),
+            5,
+            "status_line must be the section's value line"
+        );
+        assert!(
+            record.status_from_section(),
+            "no metadata field plus a legacy heading means status_from_section"
+        );
+        assert_eq!(
+            record.legacy_status_section_line(),
+            Some(3),
+            "the legacy heading line must be retained for diagnostics"
+        );
+    }
+
+    #[test]
+    fn legacy_status_section_stops_at_the_next_h2() {
+        let outcome = parse_markdown(
+            "CHE-0001-status-terminates.md",
+            "# CHE-0001. Terminating Status\n\n## Status\n\n## Context\n\nRejected\n",
+        );
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
+        assert_eq!(
+            record.status(),
+            None,
+            "a value under a later H2 must not be read as the legacy status"
+        );
+        assert_eq!(record.status_raw(), None);
+        assert_eq!(record.status_line(), 0);
+    }
+
+    #[test]
+    fn empty_legacy_status_section_yields_no_value_but_records_the_heading() {
+        let outcome = parse_markdown(
+            "CHE-0001-empty-status.md",
+            "# CHE-0001. Empty Status\n\n## Context\n\nBody.\n\n## Status\n\n",
+        );
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
+        assert_eq!(record.status(), None, "an empty section supplies no value");
+        assert_eq!(record.status_raw(), None);
+        assert_eq!(record.status_line(), 0);
+        assert!(
+            record.status_from_section(),
+            "status_from_section is a metadata-absence predicate and stays true \
+             even though no value was read"
+        );
+        assert!(record.has_legacy_status_section());
+        assert_eq!(record.legacy_status_section_line(), Some(7));
+    }
+
+    #[test]
+    fn duplicate_status_headings_traverse_to_the_first_non_empty_body() {
+        let outcome = parse_markdown(
+            "CHE-0001-duplicate-status.md",
+            "# CHE-0001. Duplicate Status\n\n## Status\n\n## Status\n\nAccepted\n\n## Context\n",
+        );
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
+        assert_eq!(
+            record.status(),
+            Some(&Status::Accepted),
+            "an empty first `## Status` must not shadow a later populated one"
+        );
+        assert_eq!(record.status_line(), 7);
+        assert_eq!(
+            record.legacy_status_section_line(),
+            Some(3),
+            "the first heading is the one diagnostics point at"
+        );
+    }
+
+    #[test]
+    fn metadata_field_wins_over_a_disagreeing_legacy_section() {
+        let outcome = parse_markdown(
+            "CHE-0001-both-status.md",
+            "# CHE-0001. Both Forms\nStatus: Accepted\n\n## Status\n\nRejected\n",
+        );
+        let ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("record should parse")
+        };
+        assert_eq!(
+            record.status(),
+            Some(&Status::Accepted),
+            "the metadata field is authoritative on disagreement"
+        );
+        assert_eq!(record.status_raw(), Some("Accepted"));
+        assert_eq!(record.status_line(), 2);
+        assert!(
+            !record.status_from_section(),
+            "a present metadata field clears status_from_section"
+        );
+        assert!(record.has_legacy_status_section());
+        assert_eq!(record.legacy_status_section_line(), Some(4));
     }
 }
