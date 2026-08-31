@@ -2265,7 +2265,7 @@ crates = []
     }
 
     #[test]
-    fn tilde_and_indented_fences_are_documented_as_unsupported() {
+    fn tilde_fences_are_documented_as_unsupported() {
         let outcome = parse_markdown(
             "CHE-0001-tilde-fence.md",
             "# CHE-0001. Tilde Fence\n\n## Decision\n\n~~~markdown\nR9 [3]: Tilde-fenced example rule.\n~~~\n",
@@ -2275,7 +2275,35 @@ crates = []
             record.decision_rules().len(),
             1,
             "known limitation: only ``` fences are recognized (AFM-0006:R3); \
-             ~~~ and indented fences are deliberately NOT inert"
+             ~~~ fences are deliberately NOT inert"
+        );
+    }
+
+    #[test]
+    fn four_space_indented_code_blocks_are_not_inert() {
+        let outcome = parse_markdown(
+            "CHE-0001-indented-block.md",
+            "# CHE-0001. Indented Block\n\n## Context\n\nAn indented block follows.\n\n    one two three four\n    five six\n\n## Decision\n\n    ## Consequences\n",
+        );
+        let record = outcome.record.expect("record should parse");
+        assert_eq!(
+            record.max_code_block_lines(),
+            0,
+            "AFM-0006:R3: an indented block is not a recognized fenced block"
+        );
+        assert_eq!(
+            record.section_word_counts().get("Context"),
+            Some(&10),
+            "AFM-0006:R3: indented lines stay live prose and are still word-counted"
+        );
+        assert!(
+            !record.has_consequences(),
+            "an indented `## Consequences` is not an ATX heading (AFM-0006:R3)"
+        );
+        assert_eq!(
+            record.section_order(),
+            ["Context", "Decision"],
+            "indented content must not add or suppress a section"
         );
     }
 
