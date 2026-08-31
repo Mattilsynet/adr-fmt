@@ -179,7 +179,7 @@ mod tests {
         *record.file_path_mut() = PathBuf::from(format!("nonexistent/{prefix}-{num:04}-test.md"));
         *record.title_mut() = Some(format!("Test {prefix}-{num:04}"));
         *record.title_line_mut() = 1;
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.status_mut() = Some(Status::Accepted);
         *record.status_raw_mut() = Some("Accepted".into());
         record.set_related(Related::Parsed(relationships));
@@ -377,15 +377,15 @@ mod tests {
     #[test]
     fn sort_order_tier_prefix_number_verb() {
         let mut s_record = make_record("ZZZ", 9, vec![(RelVerb::References, make_id("CHE", 1))]);
-        *s_record.tier_mut() = Some(Tier::S);
+        s_record.set_tier(Some(Tier::S));
         let mut a_record = make_record("AAA", 5, vec![(RelVerb::References, make_id("CHE", 1))]);
-        *a_record.tier_mut() = Some(Tier::A);
+        a_record.set_tier(Some(Tier::A));
         let mut b_record_high_num =
             make_record("CHE", 10, vec![(RelVerb::References, make_id("CHE", 1))]);
-        *b_record_high_num.tier_mut() = Some(Tier::B);
+        b_record_high_num.set_tier(Some(Tier::B));
         let mut b_record_low_num =
             make_record("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        *b_record_low_num.tier_mut() = Some(Tier::B);
+        b_record_low_num.set_tier(Some(Tier::B));
         let records = vec![
             make_record("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]),
             s_record,
@@ -435,9 +435,9 @@ mod tests {
     #[test]
     fn missing_tier_sorts_last_and_title_none_preserved() {
         let mut tier_b = make_record("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        *tier_b.tier_mut() = Some(Tier::B);
+        tier_b.set_tier(Some(Tier::B));
         let mut no_tier = make_record("CHE", 3, vec![(RelVerb::References, make_id("CHE", 1))]);
-        *no_tier.tier_mut() = None;
+        no_tier.set_tier(None);
         *no_tier.title_mut() = None;
         let records = vec![
             make_record("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]),

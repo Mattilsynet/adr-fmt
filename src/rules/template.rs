@@ -817,7 +817,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         *record.title_line_mut() = 1;
         *record.date_mut() = Some("2026-04-25".into());
         *record.last_reviewed_mut() = Some("2026-04-25".into());
-        *record.tier_mut() = Some(Tier::S);
+        record.set_tier(Some(Tier::S));
         *record.status_mut() = Some(Status::Accepted);
         *record.status_line_mut() = 8;
         *record.status_raw_mut() = Some("Accepted".into());
@@ -838,7 +838,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn valid_record_produces_no_diagnostics() {
         use crate::model::{RelVerb, Relationship, TaggedRule};
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.relationships_mut() = vec![Relationship {
             verb: RelVerb::Root,
             target: record.id().clone(),
@@ -860,7 +860,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     #[test]
     fn missing_tier_produces_t004() {
         let mut record = make_record();
-        *record.tier_mut() = None;
+        record.set_tier(None);
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
@@ -871,7 +871,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn missing_last_reviewed_all_tiers_is_warning() {
         for tier in [Tier::S, Tier::A, Tier::B, Tier::C, Tier::D] {
             let mut record = make_record();
-            *record.tier_mut() = Some(tier);
+            record.set_tier(Some(tier));
             *record.last_reviewed_mut() = None;
             let config = make_config();
             let mut diags = Vec::new();
@@ -1035,7 +1035,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     #[test]
     fn section_too_many_words_produces_t015() {
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         record
             .section_word_counts_mut()
             .insert("Context".into(), 60);
@@ -1236,7 +1236,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn too_many_rules_produces_t016() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.decision_rules_mut() = (1..=11)
             .map(|i| TaggedRule {
                 id: format!("R{i}"),
@@ -1261,7 +1261,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn ten_rules_within_limit() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.decision_rules_mut() = (1..=10)
             .map(|i| TaggedRule {
                 id: format!("R{i}"),
@@ -1449,7 +1449,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     #[test]
     fn t015_s_tier_allows_more_words() {
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::S);
+        record.set_tier(Some(Tier::S));
         record
             .section_word_counts_mut()
             .insert("Context".into(), 70);
@@ -1465,7 +1465,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     #[test]
     fn t015_d_tier_tighter_limit() {
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::D);
+        record.set_tier(Some(Tier::D));
         record
             .section_word_counts_mut()
             .insert("Context".into(), 35);
@@ -1484,7 +1484,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     #[test]
     fn t015_s_tier_higher_minimum() {
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::S);
+        record.set_tier(Some(Tier::S));
         record
             .section_word_counts_mut()
             .insert("Context".into(), 10);
@@ -1504,7 +1504,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t016_d_tier_fewer_rules_allowed() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::D);
+        record.set_tier(Some(Tier::D));
         *record.decision_rules_mut() = (1..=7)
             .map(|i| TaggedRule {
                 id: format!("R{i}"),
@@ -1605,7 +1605,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t016_layer_boundary_one_and_twelve_pass() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::D);
+        record.set_tier(Some(Tier::D));
         *record.decision_rules_mut() = vec![
             TaggedRule {
                 id: "R1".into(),
@@ -1637,7 +1637,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t019_aligned_rules_no_warning() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1657,7 +1657,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t019_equal_tier_rank_passes() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::A);
+        record.set_tier(Some(Tier::A));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1677,7 +1677,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t019_lower_leverage_rule_passes() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::A);
+        record.set_tier(Some(Tier::A));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1697,7 +1697,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t019_higher_leverage_rule_fires() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::D);
+        record.set_tier(Some(Tier::D));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1717,7 +1717,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t019_adjacent_tier_higher_leverage_fires() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1737,7 +1737,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t019_large_distance_produces_warning() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::D);
+        record.set_tier(Some(Tier::D));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1763,7 +1763,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t019_distance_two_lower_leverage_no_warning() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::S);
+        record.set_tier(Some(Tier::S));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1784,7 +1784,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         use crate::model::TaggedRule;
         let mut record = make_record();
         *record.id_mut() = AdrId::test_new("GND", 1);
-        *record.tier_mut() = Some(Tier::S);
+        record.set_tier(Some(Tier::S));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1806,7 +1806,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         use crate::model::TaggedRule;
         let mut record = make_record();
         *record.id_mut() = AdrId::test_new("GND", 1);
-        *record.tier_mut() = Some(Tier::C);
+        record.set_tier(Some(Tier::C));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1828,7 +1828,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         use crate::model::TaggedRule;
         let mut record = make_record();
         *record.id_mut() = AdrId::test_new("GND", 1);
-        *record.tier_mut() = Some(Tier::A);
+        record.set_tier(Some(Tier::A));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1850,7 +1850,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         use crate::model::TaggedRule;
         let mut record = make_record();
         *record.id_mut() = AdrId::test_new("ZZZ", 1);
-        *record.tier_mut() = Some(Tier::S);
+        record.set_tier(Some(Tier::S));
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
@@ -1871,7 +1871,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t020_within_limit_no_warning() {
         use crate::model::{AdrId, RelVerb, Relationship};
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.relationships_mut() = (1..=7)
             .map(|i| Relationship {
                 verb: RelVerb::References,
@@ -1892,7 +1892,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t020_over_limit_produces_warning() {
         use crate::model::{AdrId, RelVerb, Relationship};
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::B);
+        record.set_tier(Some(Tier::B));
         *record.relationships_mut() = (1..=8)
             .map(|i| Relationship {
                 verb: RelVerb::References,
@@ -1914,7 +1914,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t020_root_and_supersedes_not_counted() {
         use crate::model::{AdrId, RelVerb, Relationship};
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::S);
+        record.set_tier(Some(Tier::S));
         *record.relationships_mut() = vec![
             Relationship {
                 verb: RelVerb::Root,
@@ -1945,7 +1945,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t020_s_tier_tight_limit() {
         use crate::model::{AdrId, RelVerb, Relationship};
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::S);
+        record.set_tier(Some(Tier::S));
         *record.relationships_mut() = (1..=4)
             .map(|i| Relationship {
                 verb: RelVerb::References,
@@ -1970,7 +1970,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     #[test]
     fn t015_fractional_rounding_uses_round_not_floor() {
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::D);
+        record.set_tier(Some(Tier::D));
         record
             .section_word_counts_mut()
             .insert("Context".into(), 20);
@@ -2012,7 +2012,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     #[test]
     fn t015_fractional_rounding_boundary_plus_one_fires() {
         let mut record = make_record();
-        *record.tier_mut() = Some(Tier::D);
+        record.set_tier(Some(Tier::D));
         record
             .section_word_counts_mut()
             .insert("Context".into(), 21);
@@ -2055,7 +2055,7 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     fn t019_missing_tier_defaults_to_b() {
         use crate::model::TaggedRule;
         let mut record = make_record();
-        *record.tier_mut() = None;
+        record.set_tier(None);
         *record.decision_rules_mut() = vec![TaggedRule {
             id: "R1".into(),
             text: "All events must be versioned with semantic version numbers always".into(),
