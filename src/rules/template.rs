@@ -129,7 +129,14 @@ pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut
     let tier = record.tier().unwrap_or(Tier::B);
 
     let base_max_words = budgets.max_words;
-    let effective_min = tier.min_words();
+    let base_min_words = budgets.min_words;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss,
+        reason = "rounding a non-negative bounded tier-scaled budget to u64; value is small and non-negative by construction, truncation/sign-loss cannot occur"
+    )]
+    let effective_min = (base_min_words as f64 * tier.factor()).round() as u64;
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
@@ -162,7 +169,7 @@ pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut
 
     check_reference_load(record, tier, diags);
 
-    check_stale_lifecycle(record, config, budgets, diags);
+    check_stale_lifecycle(record, config, effective_min, diags);
     check_stale_stub_structure(record, diags);
 }
 
@@ -231,31 +238,47 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     }
 }
 
+enum InvalidStatus<'a> {
+    Parenthetical(&'a str),
+    Unrecognized(&'a str),
+}
+
+impl<'a> InvalidStatus<'a> {
+    fn classify(raw: &'a str, status: Option<&'a Status>) -> Option<Self> {
+        match status {
+            Some(Status::Invalid(_)) if Status::has_parenthetical(raw) => {
+                Some(Self::Parenthetical(raw))
+            }
+            Some(Status::Invalid(s)) => Some(Self::Unrecognized(s)),
+            _ => None,
+        }
+    }
+
+    fn message(&self) -> String {
+        match self {
+            Self::Parenthetical(raw) => format!(
+                "status line contains parenthetical annotation: `{raw}` — \
+                 remove annotations, use a valid status keyword"
+            ),
+            Self::Unrecognized(s) => format!(
+                "unrecognized status: `{s}` — expected one of: \
+                 Draft, Proposed, Accepted, Rejected, Deprecated, \
+                 Superseded by PREFIX-NNNN"
+            ),
+        }
+    }
+}
+
 fn check_status_validity(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
-    if let Some(raw) = record.status_raw() {
-        if Status::has_parenthetical(raw) {
-            diags.push(Diagnostic::warning(
-                "T006",
-                record.file_path(),
-                record.status_line(),
-                format!(
-                    "status line contains parenthetical annotation: `{raw}` — \
-                     remove annotations, use a valid status keyword"
-                ),
-            ));
-        }
-        if let Some(Status::Invalid(s)) = record.status() {
-            diags.push(Diagnostic::warning(
-                "T006",
-                record.file_path(),
-                record.status_line(),
-                format!(
-                    "unrecognized status: `{s}` — expected one of: \
-                     Draft, Proposed, Accepted, Rejected, Deprecated, \
-                     Superseded by PREFIX-NNNN"
-                ),
-            ));
-        }
+    if let Some(raw) = record.status_raw()
+        && let Some(invalid) = InvalidStatus::classify(raw, record.status())
+    {
+        diags.push(Diagnostic::warning(
+            "T006",
+            record.file_path(),
+            record.status_line(),
+            invalid.message(),
+        ));
     }
 
     if record.is_stale() {
@@ -331,7 +354,7 @@ fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
 fn check_stale_lifecycle(
     record: &AdrRecord,
     config: &Config,
-    budgets: &Budgets,
+    effective_min: u64,
     diags: &mut Vec<Diagnostic>,
 ) {
     if record.is_stale() && !record.has_retirement() {
@@ -366,7 +389,7 @@ fn check_stale_lifecycle(
             Status::SupersededBy(id) => format!("Superseded by {id}"),
             _ => format!("{status:?}"),
         };
-        let min_words = budgets.min_words;
+        let min_words = effective_min;
         diags.push(Diagnostic::warning(
             "S006",
             record.file_path(),
@@ -862,9 +885,16 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
+        assert_eq!(
+            diags.iter().filter(|d| d.rule == "T006").count(),
+            1,
+            "expected exactly one T006, got: {diags:?}"
+        );
         assert!(
-            diags.iter().any(|d| d.rule == "T006"),
-            "expected T006, got: {diags:?}"
+            diags
+                .iter()
+                .any(|d| d.rule == "T006" && d.message.contains("remove annotations")),
+            "parenthetical-specific remediation must survive: {diags:?}"
         );
     }
 
@@ -876,9 +906,16 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
+        assert_eq!(
+            diags.iter().filter(|d| d.rule == "T006").count(),
+            1,
+            "Amended should trigger exactly one T006 as invalid, got: {diags:?}"
+        );
         assert!(
-            diags.iter().any(|d| d.rule == "T006"),
-            "Amended should trigger T006 as invalid, got: {diags:?}"
+            diags
+                .iter()
+                .any(|d| d.rule == "T006" && d.message.contains("unrecognized status")),
+            "generic remediation expected: {diags:?}"
         );
     }
 
