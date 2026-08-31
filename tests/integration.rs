@@ -697,6 +697,90 @@ fn t005c_legacy_status_section() {
         .stdout(predicate::str::contains("T005c"));
 }
 
+const LEGACY_AND_METADATA_STATUS_ADR: &str = "\
+# TST-0012. Legacy Section And Metadata Field
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Status
+
+Accepted
+
+## Related
+
+Root: TST-0012
+
+## Context
+
+This ADR carries both a legacy status section and a preamble status field.
+
+## Decision
+
+R1 [5]: A dead leftover legacy status section MUST be reported exactly once.
+
+## Consequences
+
+The metadata field stays authoritative and the leftover section is flagged.
+";
+
+#[test]
+fn t005c_legacy_section_with_metadata_reports_dead_content_once() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[(
+            "TST-0012-legacy-and-metadata.md",
+            LEGACY_AND_METADATA_STATUS_ADR,
+        )],
+    );
+
+    let output = adr_fmt_in(&dir).args(["--lint"]).assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        stdout.matches("warning[T005c]").count(),
+        1,
+        "both-present should emit exactly one T005c, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("delete the leftover"),
+        "T005c should advise deleting the leftover section, got:\n{stdout}"
+    );
+    assert_eq!(
+        stdout.matches("warning[T005]").count(),
+        0,
+        "both-present must not report a missing status, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn t005c_legacy_only_reports_migration_once_and_no_t005() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[("TST-0011-legacy-status-format.md", LEGACY_STATUS_ADR)],
+    );
+
+    let output = adr_fmt_in(&dir).args(["--lint"]).assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        stdout.matches("warning[T005c]").count(),
+        1,
+        "legacy-only should emit exactly one T005c, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("migrate"),
+        "legacy-only T005c should advise migration, got:\n{stdout}"
+    );
+    assert_eq!(
+        stdout.matches("warning[T005]").count(),
+        0,
+        "legacy-only must not also report a missing status, got:\n{stdout}"
+    );
+}
+
 #[test]
 fn t005c_preamble_status_field_no_warning() {
     let dir = setup_corpus(MINIMAL_CONFIG, &[("TST-0001-valid-test-adr.md", VALID_ADR)]);
