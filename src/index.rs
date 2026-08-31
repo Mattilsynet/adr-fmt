@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::model::{AdrId, AdrRecord, parse_adr_id_from_filename_stem};
-use crate::report::Diagnostic;
+use crate::model::{AdrId, AdrRecord};
+use crate::parser::FileParseFailure;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuplicateId {
@@ -33,7 +33,7 @@ pub struct CorpusIndex<'a> {
 impl<'a> CorpusIndex<'a> {
     pub fn build(
         records: &'a [AdrRecord],
-        parse_diagnostics: &[Diagnostic],
+        parse_failures: &[FileParseFailure],
     ) -> Result<Self, DuplicateId> {
         let mut ordered: Vec<&'a AdrRecord> = records.iter().collect();
         ordered.sort_by(|a, b| {
@@ -59,7 +59,7 @@ impl<'a> CorpusIndex<'a> {
             }
         }
 
-        let unparsed = collect_unparsed(parse_diagnostics, &by_id);
+        let unparsed = collect_unparsed(parse_failures, &by_id);
 
         Ok(Self {
             records,
@@ -96,26 +96,21 @@ impl<'a> CorpusIndex<'a> {
 }
 
 fn collect_unparsed(
-    parse_diagnostics: &[Diagnostic],
+    parse_failures: &[FileParseFailure],
     by_id: &HashMap<&AdrId, &AdrRecord>,
 ) -> HashMap<AdrId, UnparsedTarget> {
     let mut unparsed: HashMap<AdrId, UnparsedTarget> = HashMap::new();
 
-    for diagnostic in parse_diagnostics {
-        let Some(id) = std::path::Path::new(&diagnostic.file)
-            .file_stem()
-            .and_then(std::ffi::OsStr::to_str)
-            .and_then(parse_adr_id_from_filename_stem)
-        else {
-            continue;
-        };
-        if by_id.contains_key(&id) {
+    for failure in parse_failures {
+        if by_id.contains_key(failure.id()) {
             continue;
         }
-        unparsed.entry(id).or_insert_with(|| UnparsedTarget {
-            path: diagnostic.file.clone(),
-            rule: diagnostic.rule,
-        });
+        unparsed
+            .entry(failure.id().clone())
+            .or_insert_with(|| UnparsedTarget {
+                path: failure.path().display().to_string(),
+                rule: failure.rule(),
+            });
     }
 
     unparsed
@@ -203,8 +198,13 @@ mod tests {
         assert_eq!(err.id, make_id("CHE", 1));
     }
 
-    fn parse_failure(rule: &'static str, path: &str) -> Diagnostic {
-        Diagnostic::warning(rule, std::path::Path::new(path), 0, "parse failed".into())
+    fn parse_failure(rule: &'static str, path: &str) -> FileParseFailure {
+        let id = std::path::Path::new(path)
+            .file_stem()
+            .and_then(std::ffi::OsStr::to_str)
+            .and_then(crate::model::parse_adr_id_from_filename_stem)
+            .expect("test fixture path must claim an ADR id");
+        FileParseFailure::test_new(id, PathBuf::from(path), rule)
     }
 
     #[test]
@@ -253,14 +253,39 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_on_non_adr_path_is_ignored() {
-        let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
-        let diags = vec![parse_failure("P001", "docs/adr/cherry")];
-        let index = CorpusIndex::build(&records, &diags).expect("unique ids must build");
+    fn naming_violation_on_id_bearing_path_does_not_manufacture_indeterminate() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("CHE-0001-valid.md"),
+            "# CHE-0001. Valid\n\nDate: 2026-04-29\nTier: B\nStatus: Accepted\n\n## Related\n\nRoot: CHE-0001\n\n## Context\n\nProse.\n",
+        )
+        .expect("write valid");
+        std::fs::write(dir.path().join("CHE-0002-Bad_Name.md"), "# CHE-0002. Bad\n")
+            .expect("write badly named");
+
+        let domain_dir = crate::model::DomainDir {
+            prefix: "CHE".to_string(),
+            name: "Cherry-pit Test".to_string(),
+            path: dir.path().to_owned(),
+        };
+        let outcome = crate::parser::parse_domain(&domain_dir).expect("read_dir must succeed");
+
+        assert!(
+            outcome
+                .diagnostics
+                .iter()
+                .any(|d| d.file.contains("CHE-0002-Bad_Name.md")),
+            "fixture must emit a diagnostic on the id-bearing path: {:?}",
+            outcome.diagnostics
+        );
+
+        let index = CorpusIndex::build(&outcome.records, &outcome.parse_failures)
+            .expect("unique ids must build");
 
         assert!(
             matches!(index.resolve(&make_id("CHE", 2)), Resolution::Absent),
-            "a directory-level diagnostic yields no ADR id and must not create an indeterminate"
+            "no file delivered CHE-0002, so it is absent — a naming diagnostic on an \
+             id-bearing path must not manufacture an indeterminate"
         );
     }
 }

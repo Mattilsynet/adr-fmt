@@ -733,14 +733,13 @@ mod tests {
             1,
             vec![(RelVerb::References, make_id("CHE", 2))],
         )];
-        let diags_in = vec![Diagnostic::warning(
+        let failures = vec![crate::parser::FileParseFailure::test_new(
+            make_id("CHE", 2),
+            std::path::PathBuf::from("docs/adr/cherry/CHE-0002-broken-h1.md"),
             "P002",
-            std::path::Path::new("docs/adr/cherry/CHE-0002-broken-h1.md"),
-            0,
-            "missing or malformed H1 title".into(),
         )];
         let index =
-            CorpusIndex::build(&records, &diags_in).expect("test fixture ids must be unique");
+            CorpusIndex::build(&records, &failures).expect("test fixture ids must be unique");
 
         let mut diags = Vec::new();
         super::check(&records, &index, &mut diags);

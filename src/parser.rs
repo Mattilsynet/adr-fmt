@@ -24,6 +24,7 @@ use crate::config::Config;
 use crate::model::{
     AdrId, AdrRecord, CrossDomainDefect, CrossDomainParent, DomainDir, MalformedReason, RelVerb,
     Related, Relationship, Status, TaggedRule, Tier, TierField, parse_adr_id,
+    parse_adr_id_from_filename_stem,
 };
 use crate::report::Diagnostic;
 use crate::rules::naming;
@@ -39,6 +40,41 @@ use crate::rules::naming;
 pub struct ParseOutcome {
     pub records: Vec<AdrRecord>,
     pub diagnostics: Vec<Diagnostic>,
+    pub parse_failures: Vec<FileParseFailure>,
+}
+
+/// A single ADR file whose name claims an [`AdrId`] but which produced no record.
+///
+/// Emitted only by per-file parsing, so an id carried here is always an id
+/// some file claimed and failed to deliver. Directory-level and naming
+/// diagnostics have no constructor into this type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileParseFailure {
+    id: AdrId,
+    path: PathBuf,
+    rule: &'static str,
+}
+
+impl FileParseFailure {
+    #[must_use]
+    pub fn id(&self) -> &AdrId {
+        &self.id
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    #[must_use]
+    pub fn rule(&self) -> &'static str {
+        self.rule
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_new(id: AdrId, path: PathBuf, rule: &'static str) -> Self {
+        Self { id, path, rule }
+    }
 }
 
 /// Infrastructure failure from [`parse_domain`] or [`parse_stale`].
@@ -164,8 +200,9 @@ fn unreadable_entry(dir: &Path, e: &std::io::Error) -> Diagnostic {
 fn absorb_file(outcome: &mut ParseOutcome, path: &Path, prefix: &str, is_stale: bool) {
     match parse_adr_file(path, prefix, is_stale) {
         Ok(file_outcome) => {
-            if let Some(record) = file_outcome.record {
-                outcome.records.push(record);
+            match file_outcome.record {
+                Some(record) => outcome.records.push(record),
+                None => note_parse_failure(outcome, path, "P002"),
             }
             outcome.diagnostics.extend(file_outcome.diagnostics);
         }
@@ -176,8 +213,24 @@ fn absorb_file(outcome: &mut ParseOutcome, path: &Path, prefix: &str, is_stale: 
                 0,
                 format!("cannot read ADR file: {}", e.escape_debug()),
             ));
+            note_parse_failure(outcome, path, "P001");
         }
     }
+}
+
+fn note_parse_failure(outcome: &mut ParseOutcome, path: &Path, rule: &'static str) {
+    let Some(id) = path
+        .file_stem()
+        .and_then(std::ffi::OsStr::to_str)
+        .and_then(parse_adr_id_from_filename_stem)
+    else {
+        return;
+    };
+    outcome.parse_failures.push(FileParseFailure {
+        id,
+        path: path.to_path_buf(),
+        rule,
+    });
 }
 
 /// Parse all ADR files in the stale directory.
@@ -1637,6 +1690,41 @@ mod tests {
         _real: fs::ReadDir,
     ) -> impl Iterator<Item = std::io::Result<fs::DirEntry>> + use<> {
         std::iter::once(Err(std::io::Error::other("simulated entry failure")))
+    }
+
+    #[test]
+    fn directory_level_p001_on_id_bearing_dir_does_not_manufacture_indeterminate() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let dir_path = root.path().join("CHE-0002-domain");
+        fs::create_dir(&dir_path).expect("create id-bearing domain dir");
+
+        let domain_dir = DomainDir {
+            prefix: "CHE".to_string(),
+            name: "Cherry-pit Test".to_string(),
+            path: dir_path,
+        };
+        let entries = fs::read_dir(&domain_dir.path).expect("read_dir");
+        let outcome = collect_domain_entries(&domain_dir, failing_entries(entries));
+
+        assert_eq!(outcome.diagnostics.len(), 1, "one directory-level P001");
+        assert_eq!(outcome.diagnostics[0].rule, "P001");
+        assert!(
+            outcome.diagnostics[0].file.contains("CHE-0002-domain"),
+            "fixture must put an id-bearing path on the diagnostic: {}",
+            outcome.diagnostics[0].file
+        );
+
+        let index = crate::index::CorpusIndex::build(&outcome.records, &outcome.parse_failures)
+            .expect("no records, so build must succeed");
+
+        assert!(
+            matches!(
+                index.resolve(&AdrId::test_new("CHE", 2)),
+                crate::index::Resolution::Absent
+            ),
+            "no ADR file claimed CHE-0002 — a directory-level P001 must not \
+             manufacture an indeterminate"
+        );
     }
 
     #[test]

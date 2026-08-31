@@ -328,13 +328,13 @@ mod tests {
             1,
             vec![(RelVerb::Root, make_id("CHE", 1))],
         )];
-        let diags = vec![crate::report::Diagnostic::warning(
+        let failures = vec![crate::parser::FileParseFailure::test_new(
+            make_id("CHE", 2),
+            std::path::PathBuf::from("docs/adr/cherry/CHE-0002-broken-h1.md"),
             "P002",
-            std::path::Path::new("docs/adr/cherry/CHE-0002-broken-h1.md"),
-            0,
-            "missing or malformed H1 title".into(),
         )];
-        let index = CorpusIndex::build(&records, &diags).expect("test fixture ids must be unique");
+        let index =
+            CorpusIndex::build(&records, &failures).expect("test fixture ids must be unique");
 
         let err = super::find_refs(&make_id("CHE", 2), &index).unwrap_err();
         assert!(
@@ -354,13 +354,13 @@ mod tests {
             1,
             vec![(RelVerb::Root, make_id("CHE", 1))],
         )];
-        let diags = vec![crate::report::Diagnostic::warning(
+        let failures = vec![crate::parser::FileParseFailure::test_new(
+            make_id("CHE", 2),
+            std::path::PathBuf::from("docs/adr/cherry/CHE-0002-unreadable.md"),
             "P001",
-            std::path::Path::new("docs/adr/cherry/CHE-0002-unreadable.md"),
-            0,
-            "cannot read ADR file".into(),
         )];
-        let index = CorpusIndex::build(&records, &diags).expect("test fixture ids must be unique");
+        let index =
+            CorpusIndex::build(&records, &failures).expect("test fixture ids must be unique");
 
         let err = super::find_refs(&make_id("CHE", 2), &index).unwrap_err();
         let rendered = err.to_string();
