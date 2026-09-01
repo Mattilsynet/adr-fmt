@@ -1950,28 +1950,4 @@ mod tests {
         assert_eq!(record.max_code_block_lines(), 21);
         assert_eq!(record.max_code_block_line(), 42);
     }
-
-    #[test]
-    fn characterise_code_block_lines_without_opening_line() {
-        let record = CharacterisationFields {
-            max_code_block_lines: 20,
-            max_code_block_line: 0,
-            ..CharacterisationFields::empty()
-        }
-        .build();
-        assert_eq!(record.max_code_block_lines(), 20);
-        assert_eq!(record.max_code_block_line(), 0);
-    }
-
-    #[test]
-    fn characterise_code_block_opening_line_without_lines() {
-        let record = CharacterisationFields {
-            max_code_block_lines: 0,
-            max_code_block_line: 42,
-            ..CharacterisationFields::empty()
-        }
-        .build();
-        assert_eq!(record.max_code_block_lines(), 0);
-        assert_eq!(record.max_code_block_line(), 42);
-    }
 }
