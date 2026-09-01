@@ -1596,6 +1596,36 @@ mod tests {
     }
 
     #[test]
+    fn status_short_display_covers_every_variant() {
+        let cases: Vec<(Status, &str)> = vec![
+            (Status::Draft, "Draft"),
+            (Status::Proposed, "Proposed"),
+            (Status::Accepted, "Accepted"),
+            (Status::Rejected, "Rejected"),
+            (Status::Deprecated, "Deprecated"),
+            (
+                Status::SupersededBy(AdrId {
+                    prefix: "CHE".into(),
+                    number: 99,
+                }),
+                "Superseded by CHE-0099",
+            ),
+            (
+                Status::Invalid("Accepted (partly)".into()),
+                "Accepted (partly)",
+            ),
+        ];
+
+        for (status, expected) in cases {
+            assert_eq!(
+                status.short_display(),
+                expected,
+                "short_display({status:?})"
+            );
+        }
+    }
+
+    #[test]
     fn layer_to_tier_mapping() {
         use super::layer_to_tier;
 

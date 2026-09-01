@@ -221,6 +221,44 @@ mod tests {
     }
 
     #[test]
+    fn build_reports_the_lowest_duplicate_id_when_several_ids_are_duplicated() {
+        let records = vec![
+            make_record("CHE", 2, "docs/adr/cherry/CHE-0002-a.md"),
+            make_record("CHE", 2, "docs/adr/cherry/CHE-0002-b.md"),
+            make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md"),
+            make_record("CHE", 1, "docs/adr/cherry/CHE-0001-b.md"),
+        ];
+        let forward = build_err(records.clone());
+        let reversed = build_err(records.into_iter().rev().collect());
+
+        assert_eq!(
+            forward.id,
+            make_id("CHE", 1),
+            "the lowest duplicated id must be the reported one"
+        );
+        assert_eq!(forward, reversed, "report must not depend on scan order");
+    }
+
+    #[test]
+    fn build_orders_duplicate_candidates_by_prefix_before_number() {
+        let records = vec![
+            make_record("ZED", 1, "docs/adr/zed/ZED-0001-a.md"),
+            make_record("ZED", 1, "docs/adr/zed/ZED-0001-b.md"),
+            make_record("ACE", 9, "docs/adr/ace/ACE-0009-a.md"),
+            make_record("ACE", 9, "docs/adr/ace/ACE-0009-b.md"),
+        ];
+        let forward = build_err(records.clone());
+        let reversed = build_err(records.into_iter().rev().collect());
+
+        assert_eq!(
+            forward.id,
+            make_id("ACE", 9),
+            "prefix orders ahead of number when selecting the reported duplicate"
+        );
+        assert_eq!(forward, reversed, "report must not depend on scan order");
+    }
+
+    #[test]
     fn build_detects_duplicate_across_two_directories() {
         let a = make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md");
         let b = make_record("CHE", 1, "docs/adr/common/CHE-0001-b.md");
