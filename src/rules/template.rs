@@ -815,9 +815,7 @@ fn check_tagged_rules(
 
     let mut nums: Vec<u32> = Vec::new();
     for rule in record.decision_rules() {
-        if let Some(num_str) = rule.id.strip_prefix('R')
-            && let Ok(num) = num_str.parse::<u32>()
-        {
+        if let Some(num) = rule.id.ordinal() {
             nums.push(num);
         }
     }
@@ -1038,7 +1036,7 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn valid_record_produces_no_diagnostics() {
-        use crate::model::{RelVerb, Relationship, TaggedRule};
+        use crate::model::{RelVerb, Relationship, RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::B));
         *record.relationships_mut() = vec![Relationship {
@@ -1047,7 +1045,7 @@ params = { min_words = 20, max_words = 200 }
             line: 10,
         }];
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers".into(),
             line: 10,
             layer: 5,
@@ -1415,17 +1413,17 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn tagged_rules_present_no_t016() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.decision_rules_mut() = vec![
             TaggedRule {
-                id: "R1".into(),
+                id: RuleId::test_new("R1"),
                 text: "All events must be versioned with semantic version numbers always".into(),
                 line: 10,
                 layer: 5,
             },
             TaggedRule {
-                id: "R2".into(),
+                id: RuleId::test_new("R2"),
                 text: "Snapshots are created at one hundred event intervals minimum always".into(),
                 line: 11,
                 layer: 5,
@@ -1545,12 +1543,12 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn too_many_rules_produces_t016() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::B));
         *record.decision_rules_mut() = (1..=11)
             .map(|i| TaggedRule {
-                id: format!("R{i}"),
+                id: RuleId::test_new(&format!("R{i}")),
                 text: "This rule has enough words to pass the minimum check here".into(),
                 line: 10 + i,
                 layer: 5,
@@ -1570,12 +1568,12 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn ten_rules_within_limit() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::B));
         *record.decision_rules_mut() = (1..=10)
             .map(|i| TaggedRule {
-                id: format!("R{i}"),
+                id: RuleId::test_new(&format!("R{i}")),
                 text: "This rule has enough words to pass the minimum check here".into(),
                 line: 10 + i,
                 layer: 5,
@@ -1595,10 +1593,10 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn rule_too_few_words_produces_t016() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "Too short".into(),
             line: 10,
             layer: 5,
@@ -1617,11 +1615,11 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn rule_too_many_words_produces_t016() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         let long_text = (0..61).map(|_| "word").collect::<Vec<_>>().join(" ");
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: long_text,
             line: 10,
             layer: 5,
@@ -1640,11 +1638,11 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn sixty_word_rule_within_limit() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         let text = (0..60).map(|_| "word").collect::<Vec<_>>().join(" ");
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text,
             line: 10,
             layer: 5,
@@ -1663,17 +1661,17 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn non_sequential_ids_produces_t016() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.decision_rules_mut() = vec![
             TaggedRule {
-                id: "R1".into(),
+                id: RuleId::test_new("R1"),
                 text: "This rule has enough words to pass the minimum check here".into(),
                 line: 10,
                 layer: 5,
             },
             TaggedRule {
-                id: "R3".into(),
+                id: RuleId::test_new("R3"),
                 text: "This rule also has enough words to pass the minimum check".into(),
                 line: 12,
                 layer: 5,
@@ -1762,7 +1760,7 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn metadata_status_field_no_t005c() {
-        use crate::model::{RelVerb, Relationship, TaggedRule};
+        use crate::model::{RelVerb, Relationship, RuleId, TaggedRule};
         let mut record = make_record();
         *record.status_from_section_mut() = false;
         *record.relationships_mut() = vec![Relationship {
@@ -1771,7 +1769,7 @@ params = { min_words = 20, max_words = 200 }
             line: 10,
         }];
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers".into(),
             line: 10,
             layer: 5,
@@ -1896,12 +1894,12 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t016_d_tier_fewer_rules_allowed() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::D));
         *record.decision_rules_mut() = (1..=7)
             .map(|i| TaggedRule {
-                id: format!("R{i}"),
+                id: RuleId::test_new(&format!("R{i}")),
                 text: "This rule has enough words to pass the minimum check here".into(),
                 line: 10 + i,
                 layer: 10,
@@ -1921,10 +1919,10 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t016_layer_zero_is_warning() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 0,
@@ -1948,10 +1946,10 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t016_layer_thirteen_is_warning() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 13,
@@ -1975,10 +1973,10 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t016_layer_valid_no_error() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 5,
@@ -1997,18 +1995,18 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t016_layer_boundary_one_and_twelve_pass() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::D));
         *record.decision_rules_mut() = vec![
             TaggedRule {
-                id: "R1".into(),
+                id: RuleId::test_new("R1"),
                 text: "All events must be versioned with semantic version numbers always".into(),
                 line: 10,
                 layer: 1,
             },
             TaggedRule {
-                id: "R2".into(),
+                id: RuleId::test_new("R2"),
                 text: "All events must be versioned with semantic version numbers always".into(),
                 line: 11,
                 layer: 12,
@@ -2029,11 +2027,11 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_aligned_rules_no_warning() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::B));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 5,
@@ -2049,11 +2047,11 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_equal_tier_rank_passes() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::A));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 4,
@@ -2069,11 +2067,11 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_lower_leverage_rule_passes() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::A));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 7,
@@ -2089,11 +2087,11 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_higher_leverage_rule_fires() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::D));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 1,
@@ -2109,11 +2107,11 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_adjacent_tier_higher_leverage_fires() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::B));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 4,
@@ -2129,11 +2127,11 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_large_distance_produces_warning() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::D));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 1,
@@ -2155,11 +2153,11 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_distance_two_lower_leverage_no_warning() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(Some(Tier::S));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 5,
@@ -2175,12 +2173,12 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_foundation_s_tier_lower_leverage_no_warning() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.id_mut() = AdrId::test_new("GND", 1);
         record.set_tier(Some(Tier::S));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 5,
@@ -2197,12 +2195,12 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_s_tier_rule_in_c_tier_foundation_adr_lower_leverage_no_warning() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.id_mut() = AdrId::test_new("GND", 1);
         record.set_tier(Some(Tier::C));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 9,
@@ -2219,12 +2217,12 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_equal_tier_no_warning() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.id_mut() = AdrId::test_new("GND", 1);
         record.set_tier(Some(Tier::A));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 4,
@@ -2241,12 +2239,12 @@ params = { min_words = 20, max_words = 200 }
 
     #[test]
     fn t019_unknown_prefix_no_carve_out_needed() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.id_mut() = AdrId::test_new("ZZZ", 1);
         record.set_tier(Some(Tier::S));
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 5,
@@ -2447,11 +2445,11 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
 
     #[test]
     fn t019_missing_tier_is_indeterminate_not_defaulted_to_b() {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(None);
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 1,
@@ -2467,18 +2465,18 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     }
 
     fn tierless_lane_record() -> AdrRecord {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         record.set_tier(None);
         *record.decision_rules_mut() = vec![
             TaggedRule {
-                id: "R1".into(),
+                id: RuleId::test_new("R1"),
                 text: "All events must be versioned with semantic version numbers always".into(),
                 line: 10,
                 layer: 1,
             },
             TaggedRule {
-                id: "R2".into(),
+                id: RuleId::test_new("R2"),
                 text: "All events must carry a monotonic sequence number for ordering".into(),
                 line: 11,
                 layer: 13,
@@ -2541,11 +2539,11 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     }
 
     fn t016_rule_count_boundary_record() -> AdrRecord {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.decision_rules_mut() = (1..=11)
             .map(|n| TaggedRule {
-                id: format!("R{n}"),
+                id: RuleId::test_new(&format!("R{n}")),
                 text: "All events must carry a monotonic sequence number for ordering".into(),
                 line: 9 + n,
                 layer: if n == 11 { 13 } else { 5 },
@@ -2555,10 +2553,10 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
     }
 
     fn t019_boundary_record() -> AdrRecord {
-        use crate::model::TaggedRule;
+        use crate::model::{RuleId, TaggedRule};
         let mut record = make_record();
         *record.decision_rules_mut() = vec![TaggedRule {
-            id: "R1".into(),
+            id: RuleId::test_new("R1"),
             text: "All events must be versioned with semantic version numbers always".into(),
             line: 10,
             layer: 1,

@@ -11,13 +11,97 @@ pub struct DomainDir {
     pub name: String,
 }
 
+/// Identifier of a tagged rule within a Decision section, e.g. `R1`.
+///
+/// # Invariants (enforced by construction)
+///
+/// Every `RuleId` renders as `R` followed by one or more ASCII digits —
+/// exactly the image of the pinned `^R(\d+)\s*\[(\d+)\]:` parser regex
+/// (AFM-0012:R2). The digit run is stored as text and is *not* narrowed
+/// to a fixed-width integer: the pinned regex is unbounded, so a rule
+/// number too large for any integer type is admissible input and must
+/// remain representable.
+///
+/// The field is private and the only construction path is
+/// [`RuleId::from_digits`], which rejects an empty or non-digit run with
+/// [`RuleIdError`]. An empty, unprefixed, or non-numeric rule identifier
+/// therefore has no constructor and cannot exist.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct RuleId {
+    rendered: String,
+}
+
+/// Error returned by [`RuleId::from_digits`]. Implements `Display` +
+/// `Debug` + `std::error::Error` per the AFM-0028:R1 trait floor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RuleIdError {
+    /// The digit run was empty.
+    EmptyDigits,
+    /// The digit run contained a byte outside `b'0'..=b'9'`.
+    NonDigit {
+        /// The rejected digit run.
+        digits: String,
+    },
+}
+
+impl fmt::Display for RuleIdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyDigits => f.write_str("RuleId digit run must not be empty"),
+            Self::NonDigit { digits } => {
+                write!(f, "RuleId digit run {digits:?} must be ASCII digits")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RuleIdError {}
+
+impl RuleId {
+    /// Build a `RuleId` from the digit run captured by the tagged-rule
+    /// regex, i.e. the `NN` of `RNN`.
+    ///
+    /// # Errors
+    /// Returns [`RuleIdError::EmptyDigits`] when `digits` is empty, or
+    /// [`RuleIdError::NonDigit`] when it contains a non-ASCII-digit byte.
+    pub fn from_digits(digits: &str) -> Result<Self, RuleIdError> {
+        if digits.is_empty() {
+            return Err(RuleIdError::EmptyDigits);
+        }
+        if !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(RuleIdError::NonDigit {
+                digits: digits.to_owned(),
+            });
+        }
+        Ok(Self {
+            rendered: format!("R{digits}"),
+        })
+    }
+
+    /// The rule's ordinal, or `None` when the digit run does not fit a
+    /// `u32`. `None` carries the same meaning as the pre-newtype
+    /// `parse::<u32>()` failure: the rule takes no part in the
+    /// sequential-numbering check.
+    #[must_use]
+    pub fn ordinal(&self) -> Option<u32> {
+        self.rendered.get(1..)?.parse().ok()
+    }
+}
+
+impl fmt::Display for RuleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.rendered)
+    }
+}
+
 /// A tagged rule extracted from the Decision section.
 ///
 /// Format in ADR: `R1 [5]: Rule text here`
 /// Global identifier: `CHE-0042:R1:L5`
 #[derive(Debug, Clone)]
 pub struct TaggedRule {
-    pub id: String,
+    pub id: RuleId,
     pub text: String,
     /// Meadows leverage layer (1-12). 0 indicates unparsed/invalid.
     pub layer: u8,
@@ -559,6 +643,21 @@ impl AdrRecord {
             malformed_decision_rules,
             parent_cross_domain,
         }
+    }
+}
+
+#[cfg(test)]
+impl RuleId {
+    /// Test-only ergonomic constructor taking the rendered form `RNN`.
+    /// Unlike [`AdrId::test_new`] this does **not** bypass validation:
+    /// it delegates to [`RuleId::from_digits`] and panics on a run that
+    /// the parser could never produce, so no test fixture can smuggle an
+    /// invariant-violating rule identifier into the model.
+    pub(crate) fn test_new(rendered: &str) -> Self {
+        let digits = rendered
+            .strip_prefix('R')
+            .expect("test rule id starts with R");
+        Self::from_digits(digits).expect("test rule id has a valid digit run")
     }
 }
 
@@ -1308,6 +1407,53 @@ pub fn parse_adr_id_from_filename_stem(stem: &str) -> Option<AdrId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rule_id_rejects_empty_digit_run() {
+        assert_eq!(RuleId::from_digits(""), Err(RuleIdError::EmptyDigits));
+    }
+
+    #[test]
+    fn rule_id_rejects_non_digit_run() {
+        for run in ["abc", "R1", "1a", " 1", "1.0", "-1", "١٢"] {
+            assert_eq!(
+                RuleId::from_digits(run),
+                Err(RuleIdError::NonDigit {
+                    digits: run.to_owned()
+                }),
+                "digit run {run:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn rule_id_renders_the_parser_image_byte_for_byte() {
+        for digits in ["1", "7", "12", "0", "007"] {
+            let id = RuleId::from_digits(digits).expect("valid digit run");
+            assert_eq!(id.to_string(), format!("R{digits}"));
+        }
+    }
+
+    #[test]
+    fn rule_id_does_not_narrow_the_unbounded_pinned_regex() {
+        let huge = "99999999999999999999";
+        let id = RuleId::from_digits(huge).expect("AFM-0012:R2 admits an unbounded digit run");
+        assert_eq!(id.to_string(), format!("R{huge}"));
+        assert_eq!(
+            id.ordinal(),
+            None,
+            "an ordinal beyond u32 takes no part in the sequential check, as before the newtype"
+        );
+    }
+
+    #[test]
+    fn rule_id_ordinal_matches_the_pre_newtype_parse() {
+        assert_eq!(RuleId::from_digits("1").expect("valid").ordinal(), Some(1));
+        assert_eq!(
+            RuleId::from_digits("0042").expect("valid").ordinal(),
+            Some(42)
+        );
+    }
 
     const ID_GRAMMAR_CORPUS: &[&str] = &[
         "CHE-0042",
