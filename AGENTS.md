@@ -26,7 +26,7 @@ cargo fmt --all -- --check
   warnings.
 - `rustfmt` runs on **stable defaults only** — do not add a
   `rustfmt.toml` or `clippy.toml`.
-- `rust-toolchain.toml` pins channel 1.97 (clippy + rustfmt). Use it,
+- `rust-toolchain.toml` pins channel 1.98 (clippy + rustfmt). Use it,
   don't bump without cause.
 - `cargo deny check` and `cargo audit` are supply-chain gates; run
   before publishing or bumping dependencies.
