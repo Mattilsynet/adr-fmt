@@ -683,11 +683,7 @@ fn t016_tagged_rules_present_no_warning() {
         .stdout(predicate::str::contains("T016").not());
 }
 
-/// A rule identifier whose digit run is Arabic-Indic. The pinned
-/// `^R(\d+)\s*\[(\d+)\]:` regex of AFM-0012:R2 is Unicode-aware, so this
-/// line is an accepted tagged rule; the rule text is deliberately short so
-/// the identifier is rendered verbatim by the T016 min-words diagnostic.
-const UNICODE_DIGIT_RULE_ADR: &str = "\
+const ARABIC_INDIC_DIGIT_RULE_ID_SHORT_TEXT_ADR: &str = "\
 # TST-0021. Unicode Digit Rule Id
 
 Date: 2026-09-02
@@ -716,7 +712,10 @@ The parser accepts this line as a tagged rule and renders the identifier verbati
 fn tagged_rule_with_unicode_digit_run_does_not_panic() {
     let dir = setup_corpus(
         MINIMAL_CONFIG,
-        &[("TST-0021-unicode-digit-rule-id.md", UNICODE_DIGIT_RULE_ADR)],
+        &[(
+            "TST-0021-unicode-digit-rule-id.md",
+            ARABIC_INDIC_DIGIT_RULE_ID_SHORT_TEXT_ADR,
+        )],
     );
 
     adr_fmt_in(&dir)
