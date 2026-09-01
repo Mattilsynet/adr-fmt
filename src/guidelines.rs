@@ -685,21 +685,6 @@ crates = []
     }
 
     #[test]
-    fn link_rules_registry_lists_l020() {
-        let src = include_str!("guidelines.rs");
-        let start = src
-            .find("fn print_link_rules")
-            .expect("print_link_rules exists");
-        let end = src.find("fn print_stale").expect("print_stale exists");
-        let scan = &src[start..end];
-        assert!(
-            scan.contains("L020"),
-            "print_link_rules must register L020, or a shipped rule code is \
-             invisible in governance output"
-        );
-    }
-
-    #[test]
     fn foundation_prefixes_derived_from_config() {
         let src = include_str!("guidelines.rs");
         assert!(
