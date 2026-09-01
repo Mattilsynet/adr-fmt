@@ -257,6 +257,12 @@ fn print_template() {
     println!("    T020  Reference load — tier-scaled limit on References:");
     println!("          count. Root and Supersedes are structural and don't");
     println!("          count. High reference count signals broad scope.");
+    println!("    T022  MADR residue section — headings such as `## Context and");
+    println!("          Problem Statement`, `## Decision Drivers`, `## Considered");
+    println!("          Options`, `## Decision Outcome` and `## Pros and Cons of");
+    println!("          the Options` are not part of this template. Fold their");
+    println!("          content into `## Context` or `## Decision` and remove the");
+    println!("          heading. Skipped on stale ADRs.");
     println!();
     println!("  Parser-stage rules:");
     println!("    P001  ADR file unreadable (filesystem error during read)");
@@ -422,9 +428,14 @@ fn print_naming() {
     println!("──────");
     println!();
     println!("  Rules:");
-    println!("    N001  Filename matches `PREFIX-NNNN-slug.md` pattern");
-    println!("    N002  Prefix matches a configured domain");
-    println!("    N003  Title ID matches filename ID");
+    println!("    N001  Filename matches `PREFIX-NNNN-kebab-slug.md` pattern");
+    println!("    N002  Filename ID matches the H1 title ID — the filename and the");
+    println!("          `# PREFIX-NNNN. Title` heading MUST name the same ADR");
+    println!("    N003  Slug is lowercase kebab-case — letters, digits and hyphens");
+    println!("          only, with at least one letter segment, rejecting leading,");
+    println!("          trailing and consecutive hyphens (AFM-0008:R4)");
+    println!("    N004  Prefix matches a domain registered in `adr-fmt.toml` under");
+    println!("          `[[domains]]`; any unregistered prefix warns (AFM-0008:R2)");
     println!();
 }
 
@@ -435,6 +446,8 @@ fn print_link_rules() {
     println!("  Rules:");
     println!("    L001  Dangling link — target ADR file not found");
     println!("    L003  Supersedes-status consistency");
+    println!("    L006  Legacy relationship verb — migrate to its replacement verb");
+    println!("          (see Legacy verbs above; per AFM-0009)");
     println!("    L007  Stale reference — link to stale archive ADR");
     println!("    L008  Root self-reference mismatch");
     println!("    L009  Root + References coexistence");
@@ -476,9 +489,16 @@ fn print_stale(config: &Config) {
     println!("  `References:` lines in the same commit; git history");
     println!("  preserves the prior content.");
     println!();
-    println!("  Lint coverage on stale stubs:");
+    println!("  Lint coverage on the stale lifecycle and on stale stubs:");
     println!("    S004  enforces presence of `## Retirement`");
+    println!("    S005  active ADR carries `## Retirement` — the section is for");
+    println!("          stale ADRs only; delete it or retire the ADR");
+    println!("    S006  terminal-status ADR is not in the stale directory — move");
+    println!("          the file here and add a `## Retirement` section");
     println!("    S007  enforces stub structure (sections + verbs)");
+    println!("    S008  stale ADR carries a non-terminal status — either set a");
+    println!("          terminal status (Rejected, Deprecated, Superseded by");
+    println!("          PREFIX-NNNN) or move the file back out of this directory");
     println!("    T007/T008/T009/T010/T016 are skipped on stale");
     println!();
 }
