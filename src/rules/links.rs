@@ -447,10 +447,9 @@ fn emit_parent_status(
                 record.file_path(),
                 parent_rel_line(record, parent_id),
                 format!(
-                    "{} → {parent_id}: parent edge target is `{}`, not `Accepted` — \
+                    "{} → {parent_id}: parent edge target is `{other}`, not `Accepted` — \
                      advisory only; chain still flows through",
                     record.id(),
-                    other.short_display(),
                 ),
             ));
         }

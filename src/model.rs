@@ -940,16 +940,25 @@ impl Status {
     }
 
     /// Short display string for output formatting.
+    ///
+    /// Equivalent to the [`fmt::Display`] impl; prefer that where a
+    /// `String` is not required, since it formats without allocating.
     #[must_use]
     pub fn short_display(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl fmt::Display for Status {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Draft => "Draft".into(),
-            Self::Proposed => "Proposed".into(),
-            Self::Accepted => "Accepted".into(),
-            Self::Rejected => "Rejected".into(),
-            Self::Deprecated => "Deprecated".into(),
-            Self::SupersededBy(id) => format!("Superseded by {id}"),
-            Self::Invalid(s) => s.clone(),
+            Self::Draft => f.write_str("Draft"),
+            Self::Proposed => f.write_str("Proposed"),
+            Self::Accepted => f.write_str("Accepted"),
+            Self::Rejected => f.write_str("Rejected"),
+            Self::Deprecated => f.write_str("Deprecated"),
+            Self::SupersededBy(id) => write!(f, "Superseded by {id}"),
+            Self::Invalid(s) => f.write_str(s),
         }
     }
 }
@@ -1621,6 +1630,11 @@ mod tests {
                 status.short_display(),
                 expected,
                 "short_display({status:?})"
+            );
+            assert_eq!(
+                status.to_string(),
+                expected,
+                "Display must agree with short_display for {status:?}"
             );
         }
     }
