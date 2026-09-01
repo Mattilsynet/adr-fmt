@@ -581,7 +581,24 @@ params = { min_words = 7, max_words = 50 }
     #[test]
     fn overrides_section_shown_when_params_exist() {
         let config = make_config();
-        print_overrides(&config);
+        let section =
+            overrides_section(&config).expect("T015 carries params, so the section renders");
+        assert!(
+            section.starts_with("PARAMETER OVERRIDES\n───────────────────\n\n"),
+            "the overrides section must carry its heading: {section}"
+        );
+        assert!(
+            section.contains("  T015  "),
+            "the rule carrying params must be listed: {section}"
+        );
+        assert!(
+            section.contains("min_words=7"),
+            "each overridden parameter must be rendered as key=value: {section}"
+        );
+        assert!(
+            section.contains("max_words=50"),
+            "each overridden parameter must be rendered as key=value: {section}"
+        );
     }
 
     #[test]
@@ -603,7 +620,11 @@ crates = []
 "#,
         )
         .unwrap();
-        print_overrides(&config);
+        assert!(
+            overrides_section(&config).is_none(),
+            "no rule carries params, so the overrides section must be omitted \
+             entirely rather than rendered empty"
+        );
     }
 
     #[test]
