@@ -1197,7 +1197,7 @@ params = { min_words = 20, max_words = 200 }
     #[test]
     fn code_block_at_limit_no_t011() {
         let mut record = make_record();
-        *record.max_code_block_lines_mut() = 20;
+        record.set_code_block(20, 7);
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
@@ -1210,8 +1210,7 @@ params = { min_words = 20, max_words = 200 }
     #[test]
     fn code_block_over_limit_produces_t011() {
         let mut record = make_record();
-        *record.max_code_block_lines_mut() = 21;
-        *record.max_code_block_line_mut() = 42;
+        record.set_code_block(21, 42);
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);

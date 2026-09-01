@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
 /// A domain directory (e.g., `docs/adr/cherry/` with prefix `CHE`).
@@ -198,6 +199,28 @@ pub(crate) enum LegacyStatusSection {
     Present { heading_line: usize },
 }
 
+/// Extent of the largest fenced code block: a line count paired with
+/// the 1-indexed line number of its opening fence. Both components are
+/// `NonZeroUsize`, so a block with lines but no opening fence — or an
+/// opening fence spanning no lines — has no representation. Absence of
+/// any code block is carried by `Option`, not by a zero component.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CodeBlockExtent {
+    lines: NonZeroUsize,
+    opening_line: NonZeroUsize,
+}
+
+impl CodeBlockExtent {
+    fn new(lines: usize, opening_line: usize) -> Option<Self> {
+        let lines = NonZeroUsize::new(lines)?;
+        let opening_line = NonZeroUsize::new(opening_line)?;
+        Some(Self {
+            lines,
+            opening_line,
+        })
+    }
+}
+
 /// Parsed ADR record with all metadata and line numbers.
 ///
 /// Bool fields represent independent parser-detected facts about the
@@ -236,10 +259,9 @@ pub struct AdrRecord {
     /// The legacy `## Status` section heading, recorded independently of
     /// whether a `Status:` metadata field is present.
     legacy_status_section: LegacyStatusSection,
-    max_code_block_lines: usize,
-    /// 1-indexed line number of the opening fence of the largest code
-    /// block. 0 if no code blocks exist.
-    max_code_block_line: usize,
+    /// Extent of the largest fenced code block, or `None` when the file
+    /// has no code blocks.
+    code_block: Option<CodeBlockExtent>,
     /// Ordered list of H2 section names as they appear in the file.
     section_order: Vec<String>,
     /// Word count per H2 section (section name → count). Code blocks
@@ -417,14 +439,15 @@ impl AdrRecord {
     /// Line count of the largest fenced code block. 0 if none.
     #[must_use]
     pub fn max_code_block_lines(&self) -> usize {
-        self.max_code_block_lines
+        self.code_block.map_or(0, |extent| extent.lines.get())
     }
 
     /// 1-indexed line number of the opening fence of the largest code
     /// block. 0 if no code blocks exist.
     #[must_use]
     pub fn max_code_block_line(&self) -> usize {
-        self.max_code_block_line
+        self.code_block
+            .map_or(0, |extent| extent.opening_line.get())
     }
 
     /// Ordered list of H2 section names as they appear in the file.
@@ -528,8 +551,7 @@ impl AdrRecord {
             is_stale,
             status_from_section,
             legacy_status_section,
-            max_code_block_lines,
-            max_code_block_line,
+            code_block: CodeBlockExtent::new(max_code_block_lines, max_code_block_line),
             section_order,
             section_word_counts,
             crates,
@@ -645,12 +667,8 @@ impl AdrRecord {
         };
     }
 
-    pub(crate) fn max_code_block_lines_mut(&mut self) -> &mut usize {
-        &mut self.max_code_block_lines
-    }
-
-    pub(crate) fn max_code_block_line_mut(&mut self) -> &mut usize {
-        &mut self.max_code_block_line
+    pub(crate) fn set_code_block(&mut self, lines: usize, opening_line: usize) {
+        self.code_block = CodeBlockExtent::new(lines, opening_line);
     }
 
     pub(crate) fn section_order_mut(&mut self) -> &mut Vec<String> {
@@ -707,8 +725,7 @@ impl AdrRecord {
             is_stale: false,
             status_from_section: false,
             legacy_status_section: LegacyStatusSection::Absent,
-            max_code_block_lines: 0,
-            max_code_block_line: 0,
+            code_block: None,
             section_order: Vec::new(),
             section_word_counts: HashMap::new(),
             crates: Vec::new(),
