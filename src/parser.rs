@@ -8,8 +8,8 @@ use regex::Regex;
 use crate::config::Config;
 use crate::model::{
     AdrId, AdrRecord, CrossDomainDefect, CrossDomainParent, DomainDir, LegacyStatusSection,
-    MalformedReason, MalformedRule, RelVerb, Related, Relationship, Status, TaggedRule, Tier,
-    TierField, parse_adr_id, parse_adr_id_from_filename_stem,
+    MalformedReason, MalformedRule, RelVerb, Related, Relationship, RuleId, Status, TaggedRule,
+    Tier, TierField, parse_adr_id, parse_adr_id_from_filename_stem,
 };
 use crate::report::Diagnostic;
 use crate::rules::naming;
@@ -1037,8 +1037,11 @@ fn extract_tagged_rules(scan: &RuleScanLines<'_>) -> RuleExtraction {
                     }
                 }
 
+                let id = RuleId::from_digits(num)
+                    .expect("TAGGED_RULE_RE group 1 is a non-empty ASCII digit run");
+
                 rules.push(TaggedRule {
-                    id: format!("R{num}"),
+                    id,
                     text,
                     layer,
                     line: rule_line,
@@ -1682,10 +1685,10 @@ mod tests {
         ];
         let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 2);
-        assert_eq!(rules[0].id, "R1");
+        assert_eq!(rules[0].id.to_string(), "R1");
         assert_eq!(rules[0].text, "All events must be versioned");
         assert_eq!(rules[0].layer, 5);
-        assert_eq!(rules[1].id, "R2");
+        assert_eq!(rules[1].id.to_string(), "R2");
         assert_eq!(rules[1].text, "Snapshots at 100-event intervals");
         assert_eq!(rules[1].layer, 5);
     }
@@ -1718,8 +1721,8 @@ mod tests {
         ];
         let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 2);
-        assert_eq!(rules[0].id, "R1");
-        assert_eq!(rules[1].id, "R2");
+        assert_eq!(rules[0].id.to_string(), "R1");
+        assert_eq!(rules[1].id.to_string(), "R2");
     }
 
     #[test]
@@ -1734,7 +1737,7 @@ mod tests {
         ];
         let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].id, "R1");
+        assert_eq!(rules[0].id.to_string(), "R1");
     }
 
     #[test]
@@ -1751,14 +1754,14 @@ mod tests {
         ];
         let rules = extract_tagged_rules(&rule_scan_of(&lines)).rules;
         assert_eq!(rules.len(), 2);
-        assert_eq!(rules[0].id, "R1");
+        assert_eq!(rules[0].id.to_string(), "R1");
         assert_eq!(
             rules[0].text,
             "Construct EventEnvelope exclusively through \
              EventEnvelope::new(), which validates non-nil event_id \
              and returns Result<Self, EnvelopeError>"
         );
-        assert_eq!(rules[1].id, "R2");
+        assert_eq!(rules[1].id.to_string(), "R2");
         assert_eq!(rules[1].text, "Use NonZeroU64 for the sequence field");
     }
 
@@ -1817,7 +1820,7 @@ mod tests {
             "a non-numeric or empty layer fails the tag regex, so the line is \
              not recognised as a tagged rule at all: {rules:?}"
         );
-        assert_eq!(rules[0].id, "R3");
+        assert_eq!(rules[0].id.to_string(), "R3");
     }
 
     #[test]
@@ -2532,7 +2535,7 @@ crates = []
             1,
             "only the unfenced rule is normative, got: {rules:?}"
         );
-        assert_eq!(rules[0].id, "R1");
+        assert_eq!(rules[0].id.to_string(), "R1");
         assert_eq!(
             rules[0].line, 5,
             "rule line number must survive fence gating"

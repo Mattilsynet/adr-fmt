@@ -289,7 +289,7 @@ fn push_record_rules(
         for rule in record.decision_rules() {
             rules.push(EmittedRule {
                 adr_id: id.clone(),
-                rule_id: rule.id.clone(),
+                rule_id: rule.id.to_string(),
                 text: rule.text.clone(),
                 layer: rule.layer,
                 depth,
@@ -333,7 +333,7 @@ fn append_unclaimed_group(
 mod tests {
     use super::*;
     use crate::model::{
-        AdrId, AdrRecord, RelVerb, Related, Relationship, Status, TaggedRule, Tier,
+        AdrId, AdrRecord, RelVerb, Related, Relationship, RuleId, Status, TaggedRule, Tier,
     };
     use std::path::PathBuf;
 
@@ -413,7 +413,7 @@ description = "test"
         *record.decision_rules_mut() = rules
             .into_iter()
             .map(|(rule_id, layer, text)| TaggedRule {
-                id: rule_id.into(),
+                id: RuleId::test_new(rule_id),
                 text: text.into(),
                 line: 0,
                 layer,
