@@ -64,6 +64,19 @@ pub struct CorpusIndex<'a> {
 }
 
 impl<'a> CorpusIndex<'a> {
+    /// Builds the index, rejecting a corpus that assigns one `AdrId` to more
+    /// than one file.
+    ///
+    /// Records are considered in `(prefix, number, file_path)` order, so the
+    /// reported duplicate is deterministic and independent of the order in
+    /// which files were scanned: when several distinct ids are duplicated,
+    /// the lowest such id in that ordering is the one reported.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DuplicateId`] for the first duplicated id in the ordering
+    /// above, carrying that id and the two colliding paths sorted
+    /// lexicographically. Later duplicates are not reported.
     pub fn build(scan: &'a ScannedCorpus) -> Result<Self, DuplicateId> {
         let records: &'a [AdrRecord] = &scan.records;
         let mut ordered: Vec<&'a AdrRecord> = records.iter().collect();

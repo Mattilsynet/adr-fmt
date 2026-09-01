@@ -21,7 +21,7 @@ pub enum Severity {
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Warning => write!(f, "warning"),
+            Self::Warning => f.write_str("warning"),
         }
     }
 }
