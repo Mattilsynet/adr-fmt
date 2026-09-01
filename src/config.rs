@@ -6,7 +6,7 @@
 //! in the binary. Rationale and judgment guidance live in dedicated ADRs
 //! under `docs/adr/adr-fmt/` (see AFM-0001, AFM-0020).
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -72,7 +72,7 @@ pub struct RuleConfig {
     pub description: String,
     /// Optional rule parameters (e.g., `min_words = 7`).
     #[serde(default)]
-    pub params: HashMap<String, toml::Value>,
+    pub params: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
