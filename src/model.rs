@@ -6,10 +6,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-/// The digit-run grammar of [`RuleId`], written with the same crate and
-/// the same `\d` as the pinned tagged-rule regex in `parser.rs`
-/// (AFM-0012:R2), so the two accept the identical set of runs.
-static DIGIT_RUN_RE: LazyLock<Regex> =
+static SAME_DIGIT_RUN_AS_PINNED_PARSER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\A\d+\z").expect("valid regex"));
 
 /// A domain directory (e.g., `docs/adr/cherry/` with prefix `CHE`).
@@ -87,7 +84,7 @@ impl RuleId {
         if digits.is_empty() {
             return Err(RuleIdError::EmptyDigits);
         }
-        if !DIGIT_RUN_RE.is_match(digits) {
+        if !SAME_DIGIT_RUN_AS_PINNED_PARSER_RE.is_match(digits) {
             return Err(RuleIdError::NonDigit {
                 digits: digits.to_owned(),
             });
