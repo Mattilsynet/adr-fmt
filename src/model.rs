@@ -1790,4 +1790,188 @@ mod tests {
         let _: &dyn std::error::Error = &err;
         assert!(!err.to_string().is_empty());
     }
+
+    struct CharacterisationFields {
+        title: Option<String>,
+        title_line: usize,
+        date: Option<String>,
+        last_reviewed: Option<String>,
+        max_code_block_lines: usize,
+        max_code_block_line: usize,
+    }
+
+    impl CharacterisationFields {
+        fn empty() -> Self {
+            Self {
+                title: None,
+                title_line: 0,
+                date: None,
+                last_reviewed: None,
+                max_code_block_lines: 0,
+                max_code_block_line: 0,
+            }
+        }
+
+        fn build(self) -> AdrRecord {
+            AdrRecord::from_parser_fields(
+                AdrId::test_new("CHE", 1),
+                PathBuf::from("CHE-0001-test.md"),
+                self.title,
+                self.title_line,
+                self.date,
+                self.last_reviewed,
+                TierField::Absent,
+                None,
+                0,
+                None,
+                Related::Absent,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                LegacyStatusSection::Absent,
+                self.max_code_block_lines,
+                self.max_code_block_line,
+                Vec::new(),
+                HashMap::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                CrossDomainParent::Absent,
+            )
+        }
+    }
+
+    #[test]
+    fn characterise_title_and_title_line_present() {
+        let record = CharacterisationFields {
+            title: Some("Test title".into()),
+            title_line: 3,
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(record.title(), Some("Test title"));
+        assert_eq!(record.title_line(), 3);
+    }
+
+    #[test]
+    fn characterise_title_absent_yields_none_and_zero_line() {
+        let record = CharacterisationFields::empty().build();
+        assert_eq!(record.title(), None);
+        assert_eq!(record.title_line(), 0);
+    }
+
+    #[test]
+    fn characterise_title_present_with_zero_line() {
+        let record = CharacterisationFields {
+            title: Some("Zero-line title".into()),
+            title_line: 0,
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(record.title(), Some("Zero-line title"));
+        assert_eq!(record.title_line(), 0);
+    }
+
+    #[test]
+    fn characterise_title_absent_with_nonzero_line_reports_that_line() {
+        let record = CharacterisationFields {
+            title: None,
+            title_line: 7,
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(record.title(), None);
+        assert_eq!(record.title_line(), 7);
+    }
+
+    #[test]
+    fn characterise_date_present_and_absent() {
+        let present = CharacterisationFields {
+            date: Some("2026-04-25".into()),
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(present.date(), Some("2026-04-25"));
+        assert_eq!(CharacterisationFields::empty().build().date(), None);
+    }
+
+    #[test]
+    fn characterise_date_empty_string_is_some_not_none() {
+        let record = CharacterisationFields {
+            date: Some(String::new()),
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(record.date(), Some(""));
+    }
+
+    #[test]
+    fn characterise_last_reviewed_present_and_absent() {
+        let present = CharacterisationFields {
+            last_reviewed: Some("2026-04-25".into()),
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(present.last_reviewed(), Some("2026-04-25"));
+        assert_eq!(
+            CharacterisationFields::empty().build().last_reviewed(),
+            None
+        );
+    }
+
+    #[test]
+    fn characterise_last_reviewed_empty_string_is_some_not_none() {
+        let record = CharacterisationFields {
+            last_reviewed: Some(String::new()),
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(record.last_reviewed(), Some(""));
+    }
+
+    #[test]
+    fn characterise_code_block_extent_absent() {
+        let record = CharacterisationFields::empty().build();
+        assert_eq!(record.max_code_block_lines(), 0);
+        assert_eq!(record.max_code_block_line(), 0);
+    }
+
+    #[test]
+    fn characterise_code_block_extent_present() {
+        let record = CharacterisationFields {
+            max_code_block_lines: 21,
+            max_code_block_line: 42,
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(record.max_code_block_lines(), 21);
+        assert_eq!(record.max_code_block_line(), 42);
+    }
+
+    #[test]
+    fn characterise_code_block_lines_without_opening_line() {
+        let record = CharacterisationFields {
+            max_code_block_lines: 20,
+            max_code_block_line: 0,
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(record.max_code_block_lines(), 20);
+        assert_eq!(record.max_code_block_line(), 0);
+    }
+
+    #[test]
+    fn characterise_code_block_opening_line_without_lines() {
+        let record = CharacterisationFields {
+            max_code_block_lines: 0,
+            max_code_block_line: 42,
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(record.max_code_block_lines(), 0);
+        assert_eq!(record.max_code_block_line(), 42);
+    }
 }
