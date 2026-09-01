@@ -1244,27 +1244,13 @@ impl fmt::Display for RelVerb {
 /// Use [`parse_adr_id_from_filename_stem`] when the input is an
 /// ADR filename stem like `CHE-0042-slug-words`.
 ///
-/// Implemented with byte-level checks rather than regex per
-/// AFM-0006 R1 (regex is reserved for markdown structural
-/// extraction; lexical token validation may use byte checks).
+/// Grammar and construction are delegated to [`AdrId::try_from`],
+/// which validates byte-level rather than by regex per AFM-0006 R1
+/// (regex is reserved for markdown structural extraction; lexical
+/// token validation may use byte checks).
 #[must_use]
 pub fn parse_adr_id(s: &str) -> Option<AdrId> {
-    let (prefix, num_str) = s.split_once('-')?;
-
-    let prefix_len = prefix.len();
-    if !(2..=4).contains(&prefix_len) || !prefix.bytes().all(|b| b.is_ascii_uppercase()) {
-        return None;
-    }
-
-    if num_str.len() != 4 || !num_str.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let number: u16 = num_str.parse().ok()?;
-
-    Some(AdrId {
-        prefix: prefix.to_owned(),
-        number,
-    })
+    AdrId::try_from(s).ok()
 }
 
 /// Parse an ADR ID from a filename stem like `CHE-0042-some-slug`.
@@ -1281,15 +1267,12 @@ pub fn parse_adr_id(s: &str) -> Option<AdrId> {
 /// The stem is the filename with `.md` already stripped by the
 /// caller. Whitespace is not trimmed.
 ///
-/// See AFM-0006 R1 for the byte-level validation rationale.
+/// See AFM-0006 R1 for the byte-level validation rationale. Only the
+/// slug boundary is matched here; the prefix and number are validated
+/// by [`AdrId::try_new`].
 #[must_use]
 pub fn parse_adr_id_from_filename_stem(stem: &str) -> Option<AdrId> {
     let (prefix, rest) = stem.split_once('-')?;
-
-    let prefix_len = prefix.len();
-    if !(2..=4).contains(&prefix_len) || !prefix.bytes().all(|b| b.is_ascii_uppercase()) {
-        return None;
-    }
 
     let rest_bytes = rest.as_bytes();
     if rest_bytes.len() < 4 || !rest_bytes[..4].iter().all(u8::is_ascii_digit) {
@@ -1302,10 +1285,7 @@ pub fn parse_adr_id_from_filename_stem(stem: &str) -> Option<AdrId> {
 
     let number: u16 = rest[..4].parse().ok()?;
 
-    Some(AdrId {
-        prefix: prefix.to_owned(),
-        number,
-    })
+    AdrId::try_new(prefix, number).ok()
 }
 
 #[cfg(test)]
