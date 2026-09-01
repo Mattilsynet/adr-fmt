@@ -29,9 +29,13 @@ crates = []
 
 const DIAGNOSTIC_MARKERS: [&str; 2] = ["Diagnostic::warning(", "Diagnostic::error("];
 
-const FORWARDING_MARKERS: [&str; 1] = ["resolve_param("];
+const FORWARDING_MARKER: &str = "resolve_param(";
 
-const FORWARDED_PARAM_NAMES: [&str; 1] = ["rule"];
+const FORWARDING_DEFINITION: &str = "fn resolve_param(";
+
+const FORWARDING_DEFINITION_FILE: &str = "rules/template.rs";
+
+const FORWARDED_PARAM_NAME: &str = "rule";
 
 fn is_rule_id(token: &str) -> bool {
     match token.as_bytes() {
@@ -63,17 +67,57 @@ fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn production_prefix(src: &str) -> &str {
+struct ProductionSegment<'a> {
+    offset: usize,
+    text: &'a str,
+}
+
+fn inline_test_module_end(src: &str, body: usize) -> usize {
+    src[body..]
+        .find("\n}\n")
+        .map_or(src.len(), |at| body + at + 3)
+}
+
+fn production_segments(src: &str) -> Vec<ProductionSegment<'_>> {
+    let mut segments = Vec::new();
+    let mut start = 0;
     let mut cursor = 0;
     while let Some(offset) = src[cursor..].find("\n#[cfg(test)]\n") {
         let attribute = cursor + offset + 1;
         let body = attribute + "#[cfg(test)]\n".len();
         if src[body..].starts_with("mod ") {
-            return &src[..attribute];
+            segments.push(ProductionSegment {
+                offset: start,
+                text: &src[start..attribute],
+            });
+            let end = inline_test_module_end(src, body);
+            start = end;
+            cursor = end;
+        } else {
+            cursor = attribute + 1;
         }
-        cursor = attribute + 1;
     }
-    src
+    segments.push(ProductionSegment {
+        offset: start,
+        text: &src[start..],
+    });
+    segments
+}
+
+fn forwarding_definition_span(production: &str, file: &Path) -> Option<(usize, usize)> {
+    let matches = production.match_indices(FORWARDING_DEFINITION).count();
+    assert!(
+        matches <= 1,
+        "{}: found {matches} definitions of `{FORWARDING_DEFINITION}`; the parity guard \
+         exempts exactly one forwarding definition, so a second one must not be added \
+         without re-proving the exemption",
+        file.display()
+    );
+    let start = production.find(FORWARDING_DEFINITION)?;
+    let end = production[start..]
+        .find("\n}\n")
+        .map_or(production.len(), |at| start + at + 2);
+    Some((start, end))
 }
 
 fn leading_identifier(production: &str, site: usize) -> &str {
@@ -84,26 +128,33 @@ fn leading_identifier(production: &str, site: usize) -> &str {
     &rest[..end]
 }
 
-fn literal_rule_id<'a>(production: &'a str, file: &Path, site: usize) -> &'a str {
+fn opens_with_literal(production: &str, site: usize) -> bool {
+    production[site..].trim_start().starts_with('"')
+}
+
+fn literal_rule_id<'a>(production: &'a str, file: &Path, base: usize, site: usize) -> &'a str {
     let Some(open) = production[site..].find('"').map(|at| site + at + 1) else {
         panic!(
-            "{}: diagnostic construction at byte {site} carries no literal rule id, so the \
+            "{}: diagnostic construction at byte {} carries no literal rule id, so the \
              parity guard cannot see this site",
-            file.display()
+            file.display(),
+            base + site
         );
     };
     let Some(close) = production[open..].find('"').map(|at| open + at) else {
         panic!(
-            "{}: unterminated rule id literal at byte {open}",
-            file.display()
+            "{}: unterminated rule id literal at byte {}",
+            file.display(),
+            base + open
         );
     };
     let id = &production[open..close];
     assert!(
         is_rule_id(id),
-        "{}: diagnostic construction at byte {site} does not open with a literal rule id \
+        "{}: diagnostic construction at byte {} does not open with a literal rule id \
          (found `{id}`), so the parity guard cannot see this site",
-        file.display()
+        file.display(),
+        base + site
     );
     id
 }
@@ -115,34 +166,85 @@ fn implemented_rule_ids() -> BTreeSet<String> {
     files.sort();
 
     let mut ids = BTreeSet::new();
+    let mut definitions = 0usize;
+    let mut exempted_sites = 0usize;
+    let mut forwarding_calls = 0usize;
     for file in &files {
         let text = fs::read_to_string(file).expect("source file is readable");
-        let production = production_prefix(&text);
-        for marker in DIAGNOSTIC_MARKERS {
-            let mut cursor = 0;
-            while let Some(offset) = production[cursor..].find(marker) {
-                let site = cursor + offset + marker.len();
-                cursor = site;
-                if FORWARDED_PARAM_NAMES.contains(&leading_identifier(production, site)) {
-                    continue;
-                }
-                ids.insert(literal_rule_id(production, file, site).to_string());
+        let is_definition_file = file.ends_with(FORWARDING_DEFINITION_FILE);
+        for segment in production_segments(&text) {
+            let production = segment.text;
+            let definition = forwarding_definition_span(production, file);
+            if definition.is_some() {
+                assert!(
+                    is_definition_file,
+                    "{}: `{FORWARDING_DEFINITION}` is defined outside the one canonical \
+                     forwarding file `{FORWARDING_DEFINITION_FILE}`; the parity guard's \
+                     exemption is bound to that definition and must not silently follow it \
+                     elsewhere",
+                    file.display()
+                );
+                definitions += 1;
             }
-        }
-        for marker in FORWARDING_MARKERS {
+            for marker in DIAGNOSTIC_MARKERS {
+                let mut cursor = 0;
+                while let Some(offset) = production[cursor..].find(marker) {
+                    let site = cursor + offset + marker.len();
+                    cursor = site;
+                    if opens_with_literal(production, site) {
+                        ids.insert(
+                            literal_rule_id(production, file, segment.offset, site).to_string(),
+                        );
+                        continue;
+                    }
+                    let identifier = leading_identifier(production, site);
+                    let inside_definition =
+                        definition.is_some_and(|(start, end)| site >= start && site < end);
+                    assert!(
+                        inside_definition && identifier == FORWARDED_PARAM_NAME,
+                        "{}: diagnostic construction at byte {} opens with `{identifier}` \
+                         rather than a literal rule id, and is not the one exempted \
+                         forwarding site inside `{FORWARDING_DEFINITION}` in \
+                         `{FORWARDING_DEFINITION_FILE}`; the parity guard cannot see this \
+                         site, so it must either take a literal rule id or route through \
+                         that forwarding definition",
+                        file.display(),
+                        segment.offset + site
+                    );
+                    exempted_sites += 1;
+                }
+            }
             let mut cursor = 0;
-            while let Some(offset) = production[cursor..].find(marker) {
+            while let Some(offset) = production[cursor..].find(FORWARDING_MARKER) {
                 let start = cursor + offset;
-                let site = start + marker.len();
+                let site = start + FORWARDING_MARKER.len();
                 cursor = site;
                 if production[..start].ends_with("fn ") {
                     continue;
                 }
-                ids.insert(literal_rule_id(production, file, site).to_string());
+                forwarding_calls += 1;
+                ids.insert(literal_rule_id(production, file, segment.offset, site).to_string());
             }
         }
     }
 
+    assert_eq!(
+        definitions, 1,
+        "expected exactly one `{FORWARDING_DEFINITION}` definition in src/; found \
+         {definitions}. The parity guard's only non-literal exemption is bound to that \
+         single definition"
+    );
+    assert_eq!(
+        exempted_sites, 1,
+        "expected exactly one exempted non-literal diagnostic construction (the forwarding \
+         site inside `{FORWARDING_DEFINITION}`); found {exempted_sites}. A changed count \
+         means the exemption has generalised and must be re-proven"
+    );
+    assert!(
+        forwarding_calls > 0,
+        "no `{FORWARDING_MARKER}` call sites found; the forwarded rule ids would be invisible \
+         to the parity guard"
+    );
     assert!(
         ids.len() >= 40,
         "the construction-site scan found only {} rule ids; the scanner is broken and the \
