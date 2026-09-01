@@ -556,6 +556,14 @@ params = { min_words = 7, max_words = 50 }
         .unwrap()
     }
 
+    fn relationships_source(src: &str) -> &str {
+        let start = src
+            .find("fn print_relationships")
+            .expect("print_relationships exists");
+        let end = src.find("fn print_naming").expect("print_naming exists");
+        &src[start..end]
+    }
+
     #[test]
     fn setup_guide_does_not_panic() {
         print_setup_guide();
@@ -597,15 +605,22 @@ crates = []
 
     #[test]
     fn relationships_contains_reference_ordering_guidance() {
-        let config = make_config();
-        print_governance(&config);
-
         let src = include_str!("guidelines.rs");
-        assert!(src.contains("first References target = structural parent"));
-        assert!(src.contains("walking the parent edge upward"));
-        assert!(src.contains("advisory waypoints"));
-        assert!(src.contains("Parent-cross-domain"));
-        assert!(src.contains("Foundation roots"));
+        let scan = relationships_source(src);
+        for needle in [
+            "first References target = structural parent",
+            "walking the parent edge upward",
+            "advisory waypoints",
+            "Parent-cross-domain",
+            "Foundation roots",
+        ] {
+            assert!(
+                scan.contains(needle),
+                "print_relationships must document `{needle}`, or the \
+                 parent-edge tree model (AFM-0020) is undocumented in \
+                 governance output"
+            );
+        }
     }
 
     #[test]
@@ -644,7 +659,7 @@ crates = []
     fn foundation_prefixes_derived_from_config() {
         let src = include_str!("guidelines.rs");
         assert!(
-            src.contains("foundation_list"),
+            relationships_source(src).contains("foundation_list"),
             "print_relationships must derive foundation prefixes from config"
         );
         assert!(
