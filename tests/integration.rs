@@ -683,6 +683,51 @@ fn t016_tagged_rules_present_no_warning() {
         .stdout(predicate::str::contains("T016").not());
 }
 
+/// A rule identifier whose digit run is Arabic-Indic. The pinned
+/// `^R(\d+)\s*\[(\d+)\]:` regex of AFM-0012:R2 is Unicode-aware, so this
+/// line is an accepted tagged rule; the rule text is deliberately short so
+/// the identifier is rendered verbatim by the T016 min-words diagnostic.
+const UNICODE_DIGIT_RULE_ADR: &str = "\
+# TST-0021. Unicode Digit Rule Id
+
+Date: 2026-09-02
+Last-reviewed: 2026-09-02
+Tier: B
+Status: Accepted
+
+## Related
+
+Root: TST-0021
+
+## Context
+
+This ADR plants a rule identifier whose digit run is Arabic-Indic, admitted by the pinned regex.
+
+## Decision
+
+R\u{661}\u{662} [5]: Too short here.
+
+## Consequences
+
+The parser accepts this line as a tagged rule and renders the identifier verbatim.
+";
+
+#[test]
+fn tagged_rule_with_unicode_digit_run_does_not_panic() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[("TST-0021-unicode-digit-rule-id.md", UNICODE_DIGIT_RULE_ADR)],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--lint"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Rule R\u{661}\u{662} has 3 word(s) (minimum 7)",
+        ));
+}
+
 #[test]
 fn t005c_legacy_status_section() {
     let dir = setup_corpus(

@@ -957,7 +957,7 @@ struct RuleExtraction {
 
 enum RuleCandidate<'a> {
     Tagged {
-        num: &'a str,
+        id: RuleId,
         layer: &'a str,
         text: &'a str,
     },
@@ -968,7 +968,10 @@ enum RuleCandidate<'a> {
 fn classify_rule_line(line: &str) -> RuleCandidate<'_> {
     if let Some((_, [num, layer, text])) = TAGGED_RULE_RE.captures(line).map(|caps| caps.extract())
     {
-        RuleCandidate::Tagged { num, layer, text }
+        match RuleId::from_digits(num) {
+            Ok(id) => RuleCandidate::Tagged { id, layer, text },
+            Err(_) => RuleCandidate::Malformed,
+        }
     } else if RULE_SHAPED_RE.is_match(line) {
         RuleCandidate::Malformed
     } else {
@@ -1006,7 +1009,7 @@ fn extract_tagged_rules(scan: &RuleScanLines<'_>) -> RuleExtraction {
         }
         match classify_rule_line(line) {
             RuleCandidate::Tagged {
-                num,
+                id,
                 layer: layer_str,
                 text: rule_text,
             } => {
@@ -1036,9 +1039,6 @@ fn extract_tagged_rules(scan: &RuleScanLines<'_>) -> RuleExtraction {
                         break;
                     }
                 }
-
-                let id = RuleId::from_digits(num)
-                    .expect("TAGGED_RULE_RE group 1 is a non-empty ASCII digit run");
 
                 rules.push(TaggedRule {
                     id,
