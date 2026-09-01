@@ -483,31 +483,34 @@ fn print_stale(config: &Config) {
     println!();
 }
 
+pub(crate) fn overrides_section(config: &Config) -> Option<String> {
+    let rows: Vec<String> = config
+        .rules
+        .iter()
+        .filter(|rule| !rule.params.is_empty())
+        .map(|rule| {
+            let pairs: Vec<String> = rule
+                .params
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect();
+            format!("  {}  {}", rule.id, pairs.join(", "))
+        })
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "PARAMETER OVERRIDES\n───────────────────\n\n{}",
+        rows.join("\n")
+    ))
+}
+
 fn print_overrides(config: &Config) {
-    if config.rules.is_empty() {
-        return;
+    if let Some(section) = overrides_section(config) {
+        println!("{section}");
+        println!();
     }
-
-    let has_params = config.rules.iter().any(|r| !r.params.is_empty());
-    if !has_params {
-        return;
-    }
-
-    println!("PARAMETER OVERRIDES");
-    println!("───────────────────");
-    println!();
-    for rule in &config.rules {
-        if rule.params.is_empty() {
-            continue;
-        }
-        let pairs: Vec<String> = rule
-            .params
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect();
-        println!("  {}  {}", rule.id, pairs.join(", "));
-    }
-    println!();
 }
 
 #[cfg(test)]
