@@ -2934,4 +2934,62 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
             "T016 must still fire on active ADR missing tagged rules, got: {diags:?}"
         );
     }
+
+    const PLANTED_FENCE_LINE: usize = 9;
+
+    fn parse_planted_code_block(block_lines: usize) -> AdrRecord {
+        let mut body = String::new();
+        body.push_str("# CHE-0001. Planted Code Block\n");
+        body.push_str("\nStatus: Accepted\n");
+        body.push_str("\n## Context\n\n");
+        body.push_str("This ADR plants a real fenced code block for reachability.\n");
+        body.push_str("\n```text\n");
+        assert_eq!(
+            body.lines().count(),
+            PLANTED_FENCE_LINE,
+            "the opening fence must sit on the line the assertions cite"
+        );
+        for _ in 0..block_lines {
+            body.push_str("planted content line\n");
+        }
+        body.push_str("```\n");
+        body.push_str("\n## Decision\n\nR1 [5]: planted rules keep the record parseable here.\n");
+        body.push_str("\n## Consequences\n\nThe planted block is measured by the parser itself.\n");
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("CHE-0001-planted.md");
+        std::fs::write(&path, &body).expect("write file");
+        let outcome = crate::parser::parse_adr_file(&path, "CHE", false).expect("read succeeds");
+        let crate::parser::ParseFileOutcome::Parsed { record, .. } = outcome else {
+            panic!("planted ADR should parse")
+        };
+        *record
+    }
+
+    #[test]
+    fn t011_reachable_from_a_planted_over_limit_code_block() {
+        let record = parse_planted_code_block(21);
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(&record, &config, &mut diags);
+        let t011 = diags.iter().find(|d| d.rule == "T011");
+        assert!(t011.is_some(), "expected T011, got: {diags:?}");
+        assert_eq!(
+            t011.unwrap().line,
+            PLANTED_FENCE_LINE,
+            "T011 must point at the planted opening fence"
+        );
+    }
+
+    #[test]
+    fn t011_silent_on_a_planted_at_limit_code_block() {
+        let record = parse_planted_code_block(20);
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(&record, &config, &mut diags);
+        assert!(
+            !diags.iter().any(|d| d.rule == "T011"),
+            "a 20-line planted block must not trigger T011, got: {diags:?}"
+        );
+    }
 }

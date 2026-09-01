@@ -1967,4 +1967,38 @@ mod tests {
         assert_eq!(record.max_code_block_lines(), 21);
         assert_eq!(record.max_code_block_line(), 42);
     }
+
+    #[test]
+    fn code_block_lines_without_opening_line_normalises_to_absent() {
+        let record = CharacterisationFields {
+            max_code_block_lines: 20,
+            max_code_block_line: 0,
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(record.max_code_block_lines(), 0);
+        assert_eq!(record.max_code_block_line(), 0);
+    }
+
+    #[test]
+    fn code_block_opening_line_without_lines_normalises_to_absent() {
+        let record = CharacterisationFields {
+            max_code_block_lines: 0,
+            max_code_block_line: 42,
+            ..CharacterisationFields::empty()
+        }
+        .build();
+        assert_eq!(record.max_code_block_lines(), 0);
+        assert_eq!(record.max_code_block_line(), 0);
+    }
+
+    #[test]
+    fn code_block_extent_has_no_contradictory_constructor() {
+        assert!(CodeBlockExtent::new(20, 0).is_none());
+        assert!(CodeBlockExtent::new(0, 42).is_none());
+        assert!(CodeBlockExtent::new(0, 0).is_none());
+        let extent = CodeBlockExtent::new(21, 42).expect("both components nonzero");
+        assert_eq!(extent.lines.get(), 21);
+        assert_eq!(extent.opening_line.get(), 42);
+    }
 }
