@@ -2,6 +2,15 @@ use std::collections::HashMap;
 use std::fmt;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::sync::LazyLock;
+
+use regex::Regex;
+
+/// The digit-run grammar of [`RuleId`], written with the same crate and
+/// the same `\d` as the pinned tagged-rule regex in `parser.rs`
+/// (AFM-0012:R2), so the two accept the identical set of runs.
+static DIGIT_RUN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\A\d+\z").expect("valid regex"));
 
 /// A domain directory (e.g., `docs/adr/cherry/` with prefix `CHE`).
 #[derive(Debug, Clone)]
@@ -15,12 +24,19 @@ pub struct DomainDir {
 ///
 /// # Invariants (enforced by construction)
 ///
-/// Every `RuleId` renders as `R` followed by one or more ASCII digits —
-/// exactly the image of the pinned `^R(\d+)\s*\[(\d+)\]:` parser regex
-/// (AFM-0012:R2). The digit run is stored as text and is *not* narrowed
-/// to a fixed-width integer: the pinned regex is unbounded, so a rule
-/// number too large for any integer type is admissible input and must
-/// remain representable.
+/// Every `RuleId` renders as `R` followed by a non-empty run of decimal
+/// digits — exactly the image of the pinned `^R(\d+)\s*\[(\d+)\]:`
+/// parser regex (AFM-0012:R2). "Decimal digit" means whatever that
+/// pinned regex means by `\d`: the `regex` crate's default Unicode
+/// semantics, i.e. any character in general category `Nd`, not just
+/// `0`–`9`. [`RuleId::from_digits`] therefore validates with the same
+/// crate and the same `\d`, so the accept language of the constructor
+/// and the capture language of the parser cannot drift apart.
+///
+/// The digit run is stored as text and is *not* narrowed to a
+/// fixed-width integer: the pinned regex is unbounded, so a rule number
+/// too large for any integer type is admissible input and must remain
+/// representable, as is one whose digits are not ASCII.
 ///
 /// The field is private and the only construction path is
 /// [`RuleId::from_digits`], which rejects an empty or non-digit run with
@@ -38,7 +54,8 @@ pub struct RuleId {
 pub enum RuleIdError {
     /// The digit run was empty.
     EmptyDigits,
-    /// The digit run contained a byte outside `b'0'..=b'9'`.
+    /// The digit run contained a character the pinned regex's `\d` does
+    /// not match, i.e. one outside Unicode general category `Nd`.
     NonDigit {
         /// The rejected digit run.
         digits: String,
@@ -50,7 +67,7 @@ impl fmt::Display for RuleIdError {
         match self {
             Self::EmptyDigits => f.write_str("RuleId digit run must not be empty"),
             Self::NonDigit { digits } => {
-                write!(f, "RuleId digit run {digits:?} must be ASCII digits")
+                write!(f, "RuleId digit run {digits:?} must be decimal digits")
             }
         }
     }
@@ -64,12 +81,13 @@ impl RuleId {
     ///
     /// # Errors
     /// Returns [`RuleIdError::EmptyDigits`] when `digits` is empty, or
-    /// [`RuleIdError::NonDigit`] when it contains a non-ASCII-digit byte.
+    /// [`RuleIdError::NonDigit`] when it contains a character the pinned
+    /// regex's `\d` does not match.
     pub fn from_digits(digits: &str) -> Result<Self, RuleIdError> {
         if digits.is_empty() {
             return Err(RuleIdError::EmptyDigits);
         }
-        if !digits.bytes().all(|b| b.is_ascii_digit()) {
+        if !DIGIT_RUN_RE.is_match(digits) {
             return Err(RuleIdError::NonDigit {
                 digits: digits.to_owned(),
             });
@@ -79,8 +97,9 @@ impl RuleId {
         })
     }
 
-    /// The rule's ordinal, or `None` when the digit run does not fit a
-    /// `u32`. `None` carries the same meaning as the pre-newtype
+    /// The rule's ordinal, or `None` when the digit run does not parse as
+    /// a `u32` — because it overflows, or because its digits are outside
+    /// ASCII. `None` carries the same meaning as the pre-newtype
     /// `parse::<u32>()` failure: the rule takes no part in the
     /// sequential-numbering check.
     #[must_use]
@@ -1415,7 +1434,7 @@ mod tests {
 
     #[test]
     fn rule_id_rejects_non_digit_run() {
-        for run in ["abc", "R1", "1a", " 1", "1.0", "-1", "١٢"] {
+        for run in ["abc", "R1", "1a", " 1", "1.0", "-1"] {
             assert_eq!(
                 RuleId::from_digits(run),
                 Err(RuleIdError::NonDigit {
@@ -1424,6 +1443,40 @@ mod tests {
                 "digit run {run:?} must be rejected"
             );
         }
+    }
+
+    #[test]
+    fn rule_id_accepts_every_run_the_pinned_regex_captures() {
+        let tagged_rule_re = Regex::new(r"^R(\d+)\s*\[(\d+)\]:\s*(.+)").expect("valid regex");
+
+        for digits in [
+            "1",
+            "007",
+            "99999999999999999999",
+            "\u{661}\u{662}",
+            "\u{966}",
+        ] {
+            let line = format!("R{digits} [5]: Some rule text goes here for the check.");
+            let captured = tagged_rule_re
+                .captures(&line)
+                .map(|caps| caps[1].to_owned())
+                .expect("pinned regex captures the planted digit run");
+            assert_eq!(captured, digits);
+            assert!(line.starts_with(&format!("R{digits}")));
+            assert_eq!(
+                RuleId::from_digits(&captured)
+                    .expect("constructor accepts every run the pinned regex captures")
+                    .to_string(),
+                format!("R{digits}")
+            );
+        }
+    }
+
+    #[test]
+    fn rule_id_ordinal_is_none_for_a_non_ascii_digit_run() {
+        let id = RuleId::from_digits("\u{661}\u{662}").expect("Nd run is accepted");
+        assert_eq!(id.to_string(), "R\u{661}\u{662}");
+        assert_eq!(id.ordinal(), None);
     }
 
     #[test]
