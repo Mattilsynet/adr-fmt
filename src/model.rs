@@ -1312,6 +1312,83 @@ pub fn parse_adr_id_from_filename_stem(stem: &str) -> Option<AdrId> {
 mod tests {
     use super::*;
 
+    const ID_GRAMMAR_CORPUS: &[&str] = &[
+        "CHE-0042",
+        "AI-0001",
+        "AFRM-0001",
+        "CHE-0000",
+        "CHE-9999",
+        "AB-0000",
+        "C-0001",
+        "ABCDE-0001",
+        "che-0001",
+        "Che-0001",
+        "CHE-001",
+        "CHE-00001",
+        "CHE-00012",
+        "CHE-",
+        "CHE-abcd",
+        "CHE-00a1",
+        "CHE-+001",
+        "CHE-0042-foo",
+        "CHE-0042 ",
+        " CHE-0042",
+        "CHE-0042\n",
+        "\tCHE-0042",
+        "CHE-0001x",
+        "CHE-0001_slug",
+        "CHE_0001",
+        "CHE.0001",
+        "CHE 0001",
+        "CHE0001",
+        "ÄDR-0001",
+        "CHÉ-0001",
+        "CH\u{00C9}-0042",
+        "-0001",
+        "-",
+        "",
+        "0001",
+        "AB-CD-0001",
+        "CHE--0001",
+        "CHE-0042-",
+        "12-0001",
+        "A1-0001",
+    ];
+
+    #[test]
+    fn parse_adr_id_agrees_with_try_from_over_corpus() {
+        for input in ID_GRAMMAR_CORPUS {
+            let via_parse = parse_adr_id(input);
+            let via_try_from = AdrId::try_from(*input).ok();
+            assert_eq!(
+                via_parse, via_try_from,
+                "grammar divergence on input {input:?}: parse_adr_id={via_parse:?}, AdrId::try_from={via_try_from:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_adr_id_from_filename_stem_agrees_with_try_from_over_corpus() {
+        for input in ID_GRAMMAR_CORPUS {
+            let via_stem = parse_adr_id_from_filename_stem(input);
+            if let Some(id) = &via_stem {
+                let round_trip = AdrId::try_from(id.to_string().as_str()).ok();
+                assert_eq!(
+                    round_trip,
+                    Some(id.clone()),
+                    "stem parse produced an id the validating constructor rejects on input {input:?}"
+                );
+            }
+            if !input.ends_with('-') && input.matches('-').count() <= 1 {
+                assert_eq!(
+                    via_stem,
+                    parse_adr_id(input),
+                    "slug-free stem diverged from strict parse on input {input:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn parse_adr_id_strict() {
         let id = parse_adr_id("CHE-0042").unwrap();
