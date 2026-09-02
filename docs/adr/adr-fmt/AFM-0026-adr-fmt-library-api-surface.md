@@ -1,7 +1,7 @@
 # AFM-0026. adr-fmt Library API Surface
 
 Date: 2026-05-18
-Last-reviewed: 2026-08-13
+Last-reviewed: 2026-09-02
 Tier: S
 Status: Accepted
 
@@ -49,6 +49,20 @@ inheritance). `index` is a private module of the binary's `run()`
 entry point, matching the R2 enumeration's existing members. Current
 consumer: `adr-srv`, via the three functions above.
 
+Amendment 2026-09-02 (cluster-6 finding #8): R6 added to state the
+v0.1 stability of error-variant field shape explicitly — previously
+only implied by AFM-0028:R3's back-reference to R3 — and to record one
+break. `containment::ContainmentError::CanonicalizeFailed
+{ segment, reason }` erased which operand failed and flattened
+`std::io::ErrorKind` into arbitrary text, so a consumer could not
+distinguish `NotFound` from an indeterminate failure. Commit `8a34c4e`
+replaces it with `RootCanonicalizeFailed { segment, kind }` and
+`TargetCanonicalizeFailed { segment, kind }`, both carrying a typed
+`std::io::ErrorKind` (additive half landed in `e77ee78`). The removed
+variant had no consumer outside this crate. Recorded in place per
+AFM-0029:R2 — no Supersedes edge, no successor ADR, since this amends
+one rule rather than replacing the ADR.
+
 ## Decision
 
 Pin the `adr-fmt` library API to a flat re-export set at the crate
@@ -93,6 +107,13 @@ R5 [7]: The library MUST NOT widen what the binary's CLI promises per
   R1 set require their own ADR with current-consumer justification
   per COM-0013:R1. AFM-0006 (regex parsing) and AFM-0017 (P0xx
   namespace) further pin the shape of items already exposed.
+
+R6 [5]: Variant field shape of public error types in the R1 set is
+  v0.1-stable, the reading AFM-0028:R3 already assumes. New variants
+  may be added in minor versions; removing or reshaping one requires
+  an in-place amendment naming the break per AFM-0029:R2. Recorded
+  break: `ContainmentError::CanonicalizeFailed`, removed in commit
+  `8a34c4e`.
 
 ## Consequences
 
