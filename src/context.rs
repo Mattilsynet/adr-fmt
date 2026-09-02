@@ -458,7 +458,6 @@ description = "test"
         record
     }
 
-    /// Collect all unique ADR IDs that emitted rules across all groups.
     fn all_emitted_adr_ids(groups: &[RootGroup]) -> Vec<AdrId> {
         let mut seen = HashSet::new();
         let mut ids = Vec::new();
@@ -472,7 +471,6 @@ description = "test"
         ids
     }
 
-    /// Count total rules across all groups.
     fn total_rule_count(groups: &[RootGroup]) -> usize {
         groups.iter().map(|g| g.rules.len()).sum()
     }
@@ -1141,7 +1139,7 @@ description = "test"
     }
 
     #[test]
-    fn empty_root_group_still_created() {
+    fn root_with_no_rules_and_no_children_creates_no_group() {
         let records = vec![make_record(
             "CHE",
             1,
