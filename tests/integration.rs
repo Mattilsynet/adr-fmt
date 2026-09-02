@@ -1740,6 +1740,81 @@ fn tree_excludes_stale_record_that_retains_a_parent_edge() {
     );
 }
 
+const ACTIVE_CHILD_OF_STALE_ADR: &str = "\
+# TST-0013. Active Child Of Stale
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Related
+
+References: TST-0012
+
+## Context
+
+This ADR is active but its first reference targets a stale ADR, so its
+parent chain cannot terminate at an active root.
+
+## Decision
+
+R1 [5]: We reference a stale ADR to pin the orphan classification of a
+chain whose first hop leaves the active projection.
+
+## Consequences
+
+The record is reported under orphans with a chain-ends-at-non-root reason.
+";
+
+#[test]
+fn active_record_referencing_stale_parent_is_orphaned_with_non_root_chain() {
+    let dir = setup_multi_corpus(
+        MINIMAL_CONFIG,
+        &[(
+            "test",
+            &[
+                ("TST-0001-valid-test-adr.md", VALID_ADR),
+                (
+                    "TST-0013-active-child-of-stale.md",
+                    ACTIVE_CHILD_OF_STALE_ADR,
+                ),
+            ],
+        )],
+        &[(
+            "TST-0012-stale-with-parent-edge.md",
+            STALE_WITH_PARENT_EDGE_ADR,
+        )],
+    );
+
+    let out = adr_fmt_in(&dir)
+        .args(["--tree", "TST"])
+        .output()
+        .expect("binary runs");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    let orphans_section = stdout.split("orphans").nth(1).unwrap_or("");
+
+    assert_eq!(
+        orphans_section.matches("TST-0013").count(),
+        1,
+        "active child of a stale parent must appear exactly once in orphans, got:\n{stdout}",
+    );
+    assert!(
+        orphans_section
+            .contains("TST-0013 Active Child Of Stale [B] Accepted (chain ends at non-root)"),
+        "orphan reason must be (chain ends at non-root), got:\n{stdout}",
+    );
+    assert!(
+        !stdout.contains("TST-0012"),
+        "stale parent must not render anywhere in --tree, got:\n{stdout}",
+    );
+    assert!(
+        stdout.contains("(1 stale)"),
+        "stale parent must still be counted for its prefix, got:\n{stdout}",
+    );
+}
+
 #[test]
 fn refs_and_context_mutually_exclusive() {
     adr_fmt()
