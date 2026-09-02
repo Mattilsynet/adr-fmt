@@ -10,13 +10,13 @@ use std::fmt::Write as _;
 use crate::config::Config;
 use crate::index::CorpusIndex;
 use crate::model::{AdrId, AdrRecord, DomainDir, RelVerb, Status};
-use crate::nav::{compute_parent_children, compute_parent_edges};
+use crate::nav::ActiveTree;
 use crate::refs::RefsReport;
 use crate::report::Diagnostic;
 
 /// Read-only context shared across recursive tree-rendering calls.
 struct TreeContext<'a> {
-    parent_children: &'a HashMap<AdrId, Vec<AdrId>>,
+    tree: &'a ActiveTree,
     record_by_id: &'a CorpusIndex<'a>,
     domain_prefix: &'a str,
 }
@@ -25,8 +25,7 @@ struct TreeRenderState<'a> {
     records: &'a [AdrRecord],
     config: &'a Config,
     by_prefix: HashMap<&'a str, Vec<&'a AdrRecord>>,
-    parent_edges: HashMap<AdrId, AdrId>,
-    parent_children: HashMap<AdrId, Vec<AdrId>>,
+    tree: ActiveTree,
     record_by_id: &'a CorpusIndex<'a>,
 }
 
@@ -251,8 +250,7 @@ pub fn render_tree(
         records,
         config,
         by_prefix: active_records_by_prefix(records),
-        parent_edges: compute_parent_edges(records),
-        parent_children: compute_parent_children(records),
+        tree: ActiveTree::from_records(records),
         record_by_id: index,
     };
 
@@ -306,14 +304,14 @@ fn render_domain_tree(out: &mut String, dir: &DomainDir, state: &TreeRenderState
         .cloned()
         .unwrap_or_default();
     let ctx = TreeContext {
-        parent_children: &state.parent_children,
+        tree: &state.tree,
         record_by_id: state.record_by_id,
         domain_prefix: &dir.prefix,
     };
     let mut reached = render_rooted_records(out, &domain_records, &ctx);
 
     render_cross_domain_roots(out, &domain_records, &ctx, &mut reached);
-    render_orphans(out, &domain_records, &reached, &state.parent_edges);
+    render_orphans(out, &domain_records, &reached, state.tree.parent_edges());
     render_stale_count(out, dir, state.records);
     out.push('\n');
 }
@@ -470,12 +468,11 @@ fn render_tree_node(
     .unwrap();
 
     let children: Vec<AdrId> = ctx
-        .parent_children
-        .get(id)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
+        .tree
+        .children_of(id)
+        .iter()
         .filter(|c| c.prefix() == ctx.domain_prefix)
+        .cloned()
         .collect();
 
     let n = children.len();
@@ -522,12 +519,11 @@ fn render_cross_domain_tree_node(
     .unwrap();
 
     let children: Vec<AdrId> = ctx
-        .parent_children
-        .get(id)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
+        .tree
+        .children_of(id)
+        .iter()
         .filter(|c| c.prefix() == ctx.domain_prefix)
+        .cloned()
         .collect();
 
     let n = children.len();

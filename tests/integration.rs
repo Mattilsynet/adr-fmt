@@ -1694,6 +1694,55 @@ fn assert_cross_domain_tree_not_orphaned(stdout: &str) {
     );
 }
 
+/// Stale ADR that malformedly retains a `References:` edge to an active
+/// root. AFM-0022 makes stale bodies non-authoritative, so this edge must
+/// not put the record into the active `--tree`.
+const STALE_WITH_PARENT_EDGE_ADR: &str = "\
+# TST-0012. Stale With Parent Edge
+
+Date: 2026-01-01
+Last-reviewed: 2026-01-01
+Tier: B
+Status: Superseded by TST-0001
+
+## Related
+
+References: TST-0001
+
+## Retirement
+
+Superseded by TST-0001 on 2026-04-27. The newer ADR provides better
+guidance, replacing every rule and constraint of this retired
+decision with an updated normative statement.
+";
+
+#[test]
+fn tree_excludes_stale_record_that_retains_a_parent_edge() {
+    let dir = setup_multi_corpus(
+        MINIMAL_CONFIG,
+        &[("test", &[("TST-0001-valid-test-adr.md", VALID_ADR)])],
+        &[(
+            "TST-0012-stale-with-parent-edge.md",
+            STALE_WITH_PARENT_EDGE_ADR,
+        )],
+    );
+
+    let out = adr_fmt_in(&dir)
+        .args(["--tree", "TST"])
+        .output()
+        .expect("binary runs");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    assert!(
+        !stdout.contains("TST-0012"),
+        "stale ADR must not render in --tree even when it retains a References: edge, got:\n{stdout}",
+    );
+    assert!(
+        stdout.contains("(1 stale)"),
+        "stale ADR must still be counted for its prefix, got:\n{stdout}",
+    );
+}
+
 #[test]
 fn refs_and_context_mutually_exclusive() {
     adr_fmt()

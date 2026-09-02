@@ -132,6 +132,46 @@ fn parent_children_from(edges: HashMap<AdrId, AdrId>) -> HashMap<AdrId, Vec<AdrI
     children
 }
 
+/// The structural tree projection restricted to non-stale records.
+///
+/// AFM-0022 makes a stale ADR's body non-authoritative, so a stale
+/// record that still carries a `References:` line must not contribute a
+/// parent edge to the rendered tree. The only constructor
+/// ([`ActiveTree::from_records`]) drops stale records before the edges
+/// are built, so an edge originating at a stale record has no
+/// construction path.
+#[derive(Debug)]
+pub struct ActiveTree {
+    parent_edges: HashMap<AdrId, AdrId>,
+    parent_children: HashMap<AdrId, Vec<AdrId>>,
+}
+
+impl ActiveTree {
+    /// Build the projection from a corpus, keeping only non-stale records.
+    #[must_use]
+    pub fn from_records(records: &[AdrRecord]) -> Self {
+        let parent_edges = parent_edges_of(records.iter().filter(|r| !r.is_stale()));
+        let parent_children = parent_children_from(parent_edges.clone());
+
+        Self {
+            parent_edges,
+            parent_children,
+        }
+    }
+
+    /// The `child_id → parent_id` map over non-stale records.
+    #[must_use]
+    pub fn parent_edges(&self) -> &HashMap<AdrId, AdrId> {
+        &self.parent_edges
+    }
+
+    /// The non-stale children of `id`, sorted by `(prefix, number)`.
+    #[must_use]
+    pub fn children_of(&self, id: &AdrId) -> &[AdrId] {
+        self.parent_children.get(id).map_or(&[], Vec::as_slice)
+    }
+}
+
 /// Walk the parent chain upward from `start`, collecting visited IDs.
 ///
 /// Returns `Ok(root_id)` if the chain reaches an ADR with no parent
