@@ -63,6 +63,19 @@ variant had no consumer outside this crate. Recorded in place per
 AFM-0029:R2 — no Supersedes edge, no successor ADR, since this amends
 one rule rather than replacing the ADR.
 
+Amendment 2026-09-02 (SM-05 review finding N2): R7 added to state that
+R1's "exactly these items" pins the reachable field shape
+transitively, not only the named items — a consumer cannot use pinned
+`Config` without naming `DomainConfig`, reached through the public
+`Config::domains: Vec<DomainConfig>` — and to record one break.
+`config::DomainConfig::multi_root_rationale` was public, parsed, and
+inert: the warning it promised was never wired and no code read it.
+Commit `0642ad1` removes it. The TOML schema is unaffected (no
+`deny_unknown_fields`; no corpus `adr-fmt.toml` sets the key), but
+removing a public field of a reachable type is a Rust source break for
+struct literals and field access, so it is recorded here. Recorded in
+place per AFM-0029:R2 — no Supersedes edge, no successor ADR.
+
 ## Decision
 
 Pin the `adr-fmt` library API to a flat re-export set at the crate
@@ -114,6 +127,12 @@ R6 [5]: Variant field shape of public error types in the R1 set is
   an in-place amendment naming the break per AFM-0029:R2. Recorded
   break: `ContainmentError::CanonicalizeFailed`, removed in commit
   `8a34c4e`.
+
+R7 [5]: R1 pins field shape transitively: a type reachable through a
+  pinned item's public signature is v0.1-stable on R3's terms, since a
+  consumer cannot use the pinned item without naming it. Recorded
+  break: `config::DomainConfig`, reachable via `Config::domains`, lost
+  inert field `multi_root_rationale` in commit `0642ad1`.
 
 ## Consequences
 
