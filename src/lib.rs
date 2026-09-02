@@ -112,33 +112,37 @@ impl Cli {
 ///
 /// Dispatch failures are reported by writing to stderr and returning a
 /// non-zero exit code, preserving AFM-0001 CLI behaviour bit-for-bit.
-/// This function never terminates the calling process: per AFM-0026:R4
-/// `src/main.rs` is the only authorised exit site.
-///
-/// # Errors
-///
-/// Returns [`clap::Error`] when `args` does not parse as the CLI, and for
-/// clap's own `--help` and `--version` display paths. Those two are
-/// successes, not failures: their [`clap::Error::exit_code`] is `0`, and
-/// a caller that maps the exit code faithfully preserves AFM-0003:R1.
-pub fn run<I, T>(args: I) -> Result<i32, clap::Error>
+/// A CLI parse failure is rendered the same way clap would render it —
+/// usage errors to stderr, `--help` and `--version` to stdout — and its
+/// clap-assigned code is returned rather than applied: this function
+/// never terminates the calling process, because per AFM-0026:R4
+/// `src/main.rs` is the only authorised exit site. `--help` and
+/// `--version` return `0` as AFM-0003:R1 successes.
+#[must_use]
+pub fn run<I, T>(args: I) -> i32
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = Cli::try_parse_from(args)?;
+    let cli = match Cli::try_parse_from(args) {
+        Ok(cli) => cli,
+        Err(err) => {
+            let _ = err.print();
+            return err.exit_code();
+        }
+    };
     let mode = cli.mode();
 
     let discovery = match discover_marker() {
         Ok(d) => d,
         Err(msg) => {
             eprintln!("error: {msg}");
-            return Ok(1);
+            return 1;
         }
     };
 
     if matches!(mode, Mode::Guidelines) {
-        return Ok(run_default_mode(discovery));
+        return run_default_mode(discovery);
     }
 
     let (marker_dir, config) = match discovery {
@@ -152,14 +156,14 @@ where
                 "       refusing to fall back to a parent corpus — that would lint a \
                  different corpus and report success"
             );
-            return Ok(1);
+            return 1;
         }
         ConfigDiscovery::Absent => {
             eprintln!(
                 "error: no adr-fmt.toml with a valid [corpus] table found in any parent directory"
             );
             eprintln!("       run from the workspace root, or create adr-fmt.toml there");
-            return Ok(1);
+            return 1;
         }
     };
 
@@ -169,7 +173,7 @@ where
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: {e}");
-            return Ok(1);
+            return 1;
         }
     };
 
@@ -177,7 +181,7 @@ where
         Ok(dirs) => dirs,
         Err(e) => {
             eprintln!("error: {e}");
-            return Ok(1);
+            return 1;
         }
     };
 
@@ -186,14 +190,14 @@ where
             "error: no domain directories found in {}",
             adr_root.display()
         );
-        return Ok(1);
+        return 1;
     }
 
     let mut scan = match scan_corpus(&adr_root, &config, &domain_dirs) {
         Ok(scan) => scan,
         Err(e) => {
             eprintln!("error: {e}");
-            return Ok(1);
+            return 1;
         }
     };
     let parse_diagnostics = scan.take_diagnostics();
@@ -202,23 +206,23 @@ where
     let index = match index::CorpusIndex::build(&scan) {
         Ok(idx) => idx,
         Err(dup) => {
-            return Ok(report_duplicate_id(
+            return report_duplicate_id(
                 matches!(mode, Mode::Lint),
                 parse_diagnostics,
                 all_records.len(),
                 &dup,
-            ));
+            );
         }
     };
 
-    Ok(dispatch_mode(
+    dispatch_mode(
         &mode,
         all_records,
         &config,
         &domain_dirs,
         &index,
         parse_diagnostics,
-    ))
+    )
 }
 
 fn dispatch_mode(

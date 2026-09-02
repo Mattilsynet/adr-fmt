@@ -17,32 +17,22 @@ use std::path::{Path, PathBuf};
 #[test]
 fn run_default_mode_via_lib_api_returns_zero() {
     let argv: Vec<OsString> = vec![OsString::from("adr-fmt")];
-    let exit = adr_fmt::run(argv).expect("default-mode run should not be a CLI parse failure");
+    let exit: i32 = adr_fmt::run(argv);
     assert_eq!(exit, 0, "default-mode run should exit 0");
 }
 
 #[test]
 fn help_returns_to_caller_instead_of_terminating_the_process() {
     let argv: Vec<OsString> = vec![OsString::from("adr-fmt"), OsString::from("--help")];
-    let err = adr_fmt::run(argv).expect_err("--help must return to the caller, never exit");
-    assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
-    assert_eq!(
-        err.exit_code(),
-        0,
-        "--help is an exit-0 success (AFM-0003:R1)"
-    );
+    let exit: i32 = adr_fmt::run(argv);
+    assert_eq!(exit, 0, "--help is an exit-0 success (AFM-0003:R1)");
 }
 
 #[test]
 fn version_returns_to_caller_instead_of_terminating_the_process() {
     let argv: Vec<OsString> = vec![OsString::from("adr-fmt"), OsString::from("--version")];
-    let err = adr_fmt::run(argv).expect_err("--version must return to the caller, never exit");
-    assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
-    assert_eq!(
-        err.exit_code(),
-        0,
-        "--version is an exit-0 success (AFM-0003:R1)"
-    );
+    let exit: i32 = adr_fmt::run(argv);
+    assert_eq!(exit, 0, "--version is an exit-0 success (AFM-0003:R1)");
 }
 
 #[test]
@@ -51,9 +41,8 @@ fn parse_error_returns_to_caller_instead_of_terminating_the_process() {
         OsString::from("adr-fmt"),
         OsString::from("--no-such-flag-exists"),
     ];
-    let err = adr_fmt::run(argv).expect_err("a parse error must return, never exit");
-    assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
-    assert_ne!(err.exit_code(), 0, "a parse error is not a success");
+    let exit: i32 = adr_fmt::run(argv);
+    assert_eq!(exit, 2, "an unknown flag is a clap usage error (exit 2)");
 }
 
 #[test]
@@ -63,8 +52,8 @@ fn mutually_exclusive_modes_return_a_conflict_error() {
         OsString::from("--lint"),
         OsString::from("--tree"),
     ];
-    let err = adr_fmt::run(argv).expect_err("clap-declared exclusivity must still reject");
-    assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    let exit: i32 = adr_fmt::run(argv);
+    assert_eq!(exit, 2, "clap-declared exclusivity must still reject");
 }
 
 #[test]
