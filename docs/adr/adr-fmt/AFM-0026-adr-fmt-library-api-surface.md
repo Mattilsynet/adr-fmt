@@ -76,6 +76,18 @@ removing a public field of a reachable type is a Rust source break for
 struct literals and field access, so it is recorded here. Recorded in
 place per AFM-0029:R2 — no Supersedes edge, no successor ADR.
 
+Amendment 2026-09-02 (SM-06, opportunistic): R8 added to record a
+second break under R6, which already governs it — R6 cannot absorb the
+record without exceeding T016's 60-word limit.
+`containment::ContainmentError::MetadataFailed` carried a stringly
+`reason`, so a caller could not distinguish permission failure from a
+transient I/O error at the type level — the same defect R6's first
+recorded break named on the canonicalize path. Commit `b139537`
+removes it in favour of `MetadataProbeFailed`, which carries
+`std::io::ErrorKind`; the additive half landed in `01aaa7a`. Display
+still names only the relative segment, per AFM-0028:R2. Recorded in
+place per AFM-0029:R2 — no Supersedes edge, no successor ADR.
+
 ## Decision
 
 Pin the `adr-fmt` library API to a flat re-export set at the crate
@@ -133,6 +145,12 @@ R7 [5]: R1 pins field shape transitively: a type reachable through a
   consumer cannot use the pinned item without naming it. Recorded
   break: `config::DomainConfig`, reachable via `Config::domains`, lost
   inert field `multi_root_rationale` in commit `0642ad1`.
+
+R8 [5]: Second break recorded under R6: `ContainmentError::MetadataFailed`
+  carried a stringly `reason`, leaving permission failure
+  indistinguishable from transient I/O error. Commit `b139537` removes
+  it in favour of the typed `MetadataProbeFailed { segment, kind }`;
+  additive half in `01aaa7a`.
 
 ## Consequences
 
