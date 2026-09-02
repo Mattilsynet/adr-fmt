@@ -84,6 +84,10 @@ pub fn compute_children(records: &[AdrRecord]) -> HashMap<AdrId, Vec<ChildEntry>
 /// must guard traversal with a visited set (see L013 / context).
 #[must_use]
 pub fn compute_parent_edges(records: &[AdrRecord]) -> HashMap<AdrId, AdrId> {
+    parent_edges_of(records.iter())
+}
+
+fn parent_edges_of<'a>(records: impl Iterator<Item = &'a AdrRecord>) -> HashMap<AdrId, AdrId> {
     let mut edges: HashMap<AdrId, AdrId> = HashMap::new();
 
     for record in records {
@@ -111,7 +115,10 @@ pub fn compute_parent_edges(records: &[AdrRecord]) -> HashMap<AdrId, AdrId> {
 /// parent edge counts toward tree structure.
 #[must_use]
 pub fn compute_parent_children(records: &[AdrRecord]) -> HashMap<AdrId, Vec<AdrId>> {
-    let edges = compute_parent_edges(records);
+    parent_children_from(compute_parent_edges(records))
+}
+
+fn parent_children_from(edges: HashMap<AdrId, AdrId>) -> HashMap<AdrId, Vec<AdrId>> {
     let mut children: HashMap<AdrId, Vec<AdrId>> = HashMap::new();
 
     for (child, parent) in edges {
