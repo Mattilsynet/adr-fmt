@@ -117,7 +117,9 @@ impl Cli {
 /// clap-assigned code is returned rather than applied: this function
 /// never terminates the calling process, because per AFM-0026:R4
 /// `src/main.rs` is the only authorised exit site. `--help` and
-/// `--version` return `0` as AFM-0003:R1 successes.
+/// `--version` return `0` as AFM-0003:R1 successes when their output is
+/// rendered; if rendering itself fails, that is an infrastructure
+/// failure and `1` is returned rather than a false success.
 #[must_use]
 pub fn run<I, T>(args: I) -> i32
 where
@@ -127,8 +129,13 @@ where
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(err) => {
-            let _ = err.print();
-            return err.exit_code();
+            return match err.print() {
+                Ok(()) => err.exit_code(),
+                Err(io_err) => {
+                    eprintln!("error: failed to render the CLI message: {io_err}");
+                    1
+                }
+            };
         }
     };
     let mode = cli.mode();
