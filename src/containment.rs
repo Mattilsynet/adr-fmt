@@ -33,6 +33,14 @@ pub enum ContainmentError {
     /// other than absence (permission denied, IO error): whether the
     /// path exists is indeterminate.
     MetadataFailed { segment: String, reason: String },
+    /// Probing the joined path for existence failed for a reason
+    /// other than absence; `kind` distinguishes permission failure
+    /// from transient I/O error. Whether the path exists is
+    /// indeterminate.
+    MetadataProbeFailed {
+        segment: String,
+        kind: std::io::ErrorKind,
+    },
     /// Canonical target escapes the canonical root via symlink or
     /// otherwise resolves outside the ADR corpus.
     EscapesRoot {
@@ -70,6 +78,13 @@ impl fmt::Display for ContainmentError {
                 write!(
                     f,
                     "cannot determine whether {} exists: {reason}",
+                    segment.escape_debug()
+                )
+            }
+            Self::MetadataProbeFailed { segment, kind } => {
+                write!(
+                    f,
+                    "cannot determine whether {} exists: {kind}",
                     segment.escape_debug()
                 )
             }
@@ -158,9 +173,9 @@ pub fn contained_join_optional(
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => {
-            return Err(ContainmentError::MetadataFailed {
+            return Err(ContainmentError::MetadataProbeFailed {
                 segment: segment.to_owned(),
-                reason: e.to_string(),
+                kind: e.kind(),
             });
         }
     }
@@ -281,28 +296,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn optional_join_propagates_permission_error_as_indeterminate() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = tmp();
-        let locked = dir.path().join("locked");
-        fs::create_dir(&locked).unwrap();
-        fs::create_dir(locked.join("inner")).unwrap();
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
-
-        let result = contained_join_optional(dir.path(), "locked/inner");
-
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
-
-        let err = result.expect_err("permission failure must not be reported as absent");
-        assert!(
-            matches!(err, ContainmentError::MetadataFailed { .. }),
-            "got: {err:?}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn optional_join_dangling_symlink_is_not_absent() {
         use std::os::unix::fs::symlink;
 
@@ -417,6 +410,52 @@ mod tests {
 
         assert!(!root_text.contains(&leaked), "leaked: {root_text}");
         assert!(!target_text.contains(&leaked), "leaked: {target_text}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_probe_permission_denied_is_distinguishable_from_not_found() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tmp();
+        let locked = dir.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::create_dir(locked.join("inner")).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = contained_join_optional(dir.path(), "locked/inner");
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let err = result.expect_err("permission failure must not be reported as absent");
+        let ContainmentError::MetadataProbeFailed { kind, .. } = err else {
+            panic!("got: {err:?}");
+        };
+        assert_eq!(kind, std::io::ErrorKind::PermissionDenied);
+        assert_ne!(kind, std::io::ErrorKind::NotFound);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_probe_failure_display_does_not_leak_absolute_paths() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tmp();
+        let locked = dir.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::create_dir(locked.join("inner")).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = contained_join_optional(dir.path(), "locked/inner");
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let text = result
+            .expect_err("permission failure must not be reported as absent")
+            .to_string();
+        let leaked = dir.path().to_string_lossy().into_owned();
+
+        assert!(!text.contains(&leaked), "leaked: {text}");
     }
 
     #[test]

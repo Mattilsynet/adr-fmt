@@ -461,6 +461,14 @@ fn try_marker(marker_dir: &Path) -> Result<MarkerVerdict, String> {
     let mut any_domain_intended = false;
     for d in &config.domains {
         match containment::contained_join_optional(&corpus_root, &d.directory) {
+            Err(containment::ContainmentError::MetadataProbeFailed { segment, kind }) => {
+                return Ok(MarkerVerdict::Invalid(format!(
+                    "domain '{}' directory {}: {kind} — whether this marker \
+                     describes the corpus here cannot be determined",
+                    d.prefix,
+                    segment.escape_debug()
+                )));
+            }
             Err(containment::ContainmentError::MetadataFailed { segment, reason }) => {
                 return Ok(MarkerVerdict::Invalid(format!(
                     "domain '{}' directory {}: {reason} — whether this marker \
