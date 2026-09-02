@@ -1978,7 +1978,7 @@ fn containment_rejects_absolute_domain_directory() {
 /// Lexical absolute-path rejection must fire before any filesystem
 /// canonicalization is attempted. Pointing at a definitely-non-existent
 /// absolute path proves the lexical check runs first: if it didn't,
-/// the error would be `CanonicalizeFailed` ("No such file or directory")
+/// the error would be `TargetCanonicalizeFailed` ("No such file or directory")
 /// instead of `Absolute`.
 const NONEXISTENT_ABSOLUTE_CONFIG: &str = r#"
 [corpus]

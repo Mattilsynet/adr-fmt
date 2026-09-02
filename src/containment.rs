@@ -18,8 +18,6 @@ pub enum ContainmentError {
     ParentTraversal(String),
     /// Segment is empty.
     Empty,
-    /// Canonicalization of the joined path failed.
-    CanonicalizeFailed { segment: String, reason: String },
     /// Canonicalization of the ADR root failed while resolving
     /// `segment`; the root itself is unusable.
     RootCanonicalizeFailed {
@@ -58,13 +56,6 @@ impl fmt::Display for ContainmentError {
                 s.escape_debug()
             ),
             Self::Empty => write!(f, "path segment is empty"),
-            Self::CanonicalizeFailed { segment, reason } => {
-                write!(
-                    f,
-                    "cannot canonicalize {}: {reason}",
-                    segment.escape_debug()
-                )
-            }
             Self::RootCanonicalizeFailed { segment, kind } => {
                 write!(
                     f,
