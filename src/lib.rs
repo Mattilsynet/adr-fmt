@@ -75,6 +75,34 @@ struct Cli {
     tree: Option<String>,
 }
 
+enum Mode {
+    Guidelines,
+    Lint,
+    Refs(String),
+    Context(String),
+    Tree(Option<String>),
+}
+
+impl Cli {
+    fn mode(self) -> Mode {
+        if let Some(adr_id) = self.refs {
+            Mode::Refs(adr_id)
+        } else if let Some(crate_name) = self.context {
+            Mode::Context(crate_name)
+        } else if let Some(domain_filter) = self.tree {
+            Mode::Tree(if domain_filter.is_empty() {
+                None
+            } else {
+                Some(domain_filter)
+            })
+        } else if self.lint {
+            Mode::Lint
+        } else {
+            Mode::Guidelines
+        }
+    }
+}
+
 /// Library entry-point: parse `args` as the CLI, dispatch, return exit code.
 ///
 /// The binary [`main`] is a thin wrapper around this function. Future
@@ -98,6 +126,7 @@ where
     T: Into<OsString> + Clone,
 {
     let cli = Cli::parse_from(args);
+    let mode = cli.mode();
 
     let discovery = match discover_marker() {
         Ok(d) => d,
@@ -107,10 +136,7 @@ where
         }
     };
 
-    let is_non_default_mode =
-        cli.lint || cli.refs.is_some() || cli.context.is_some() || cli.tree.is_some();
-
-    if !is_non_default_mode {
+    if matches!(mode, Mode::Guidelines) {
         return run_default_mode(discovery);
     }
 
@@ -175,12 +201,17 @@ where
     let index = match index::CorpusIndex::build(&scan) {
         Ok(idx) => idx,
         Err(dup) => {
-            return report_duplicate_id(cli.lint, parse_diagnostics, all_records.len(), &dup);
+            return report_duplicate_id(
+                matches!(mode, Mode::Lint),
+                parse_diagnostics,
+                all_records.len(),
+                &dup,
+            );
         }
     };
 
     dispatch_mode(
-        &cli,
+        &mode,
         all_records,
         &config,
         &domain_dirs,
@@ -190,58 +221,67 @@ where
 }
 
 fn dispatch_mode(
-    cli: &Cli,
+    mode: &Mode,
     all_records: &[model::AdrRecord],
     config: &Config,
     domain_dirs: &[DomainDir],
     index: &index::CorpusIndex<'_>,
     parse_diagnostics: Vec<report::Diagnostic>,
 ) -> i32 {
-    if let Some(ref adr_id_str) = cli.refs {
-        let Some(target_id) = parse_adr_id(adr_id_str) else {
-            eprintln!(
-                "error: {} is not a valid ADR ID (expected PREFIX-NNNN)",
-                adr_id_str.escape_debug()
+    match mode {
+        Mode::Guidelines => 0,
+        Mode::Refs(adr_id_str) => {
+            let Some(target_id) = parse_adr_id(adr_id_str) else {
+                eprintln!(
+                    "error: {} is not a valid ADR ID (expected PREFIX-NNNN)",
+                    adr_id_str.escape_debug()
+                );
+                return 1;
+            };
+            let report = match refs::find_refs(&target_id, index) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return 1;
+                }
+            };
+            print!("{}", output::render_refs(&report));
+            0
+        }
+        Mode::Context(crate_name) => {
+            let groups = match context::context_grouped(crate_name, all_records, config, index) {
+                Ok(g) => g,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return 1;
+                }
+            };
+            print!("{}", output::render_root_groups(crate_name, &groups));
+            0
+        }
+        Mode::Tree(domain_filter) => {
+            print!(
+                "{}",
+                output::render_tree(
+                    all_records,
+                    domain_dirs,
+                    config,
+                    domain_filter.as_deref(),
+                    index
+                )
             );
-            return 1;
-        };
-        let report = match refs::find_refs(&target_id, index) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("error: {e}");
-                return 1;
-            }
-        };
-        print!("{}", output::render_refs(&report));
-    } else if let Some(ref crate_name) = cli.context {
-        let groups = match context::context_grouped(crate_name, all_records, config, index) {
-            Ok(g) => g,
-            Err(e) => {
-                eprintln!("error: {e}");
-                return 1;
-            }
-        };
-        print!("{}", output::render_root_groups(crate_name, &groups));
-    } else if let Some(ref domain_filter) = cli.tree {
-        let filter = if domain_filter.is_empty() {
-            None
-        } else {
-            Some(domain_filter.as_str())
-        };
-        print!(
-            "{}",
-            output::render_tree(all_records, domain_dirs, config, filter, index)
-        );
-    } else if cli.lint {
-        let mut diagnostics = parse_diagnostics;
-        diagnostics.extend(rules::run_all(all_records, config, index));
-        print!(
-            "{}",
-            output::render_diagnostics(&diagnostics, all_records.len())
-        );
+            0
+        }
+        Mode::Lint => {
+            let mut diagnostics = parse_diagnostics;
+            diagnostics.extend(rules::run_all(all_records, config, index));
+            print!(
+                "{}",
+                output::render_diagnostics(&diagnostics, all_records.len())
+            );
+            0
+        }
     }
-
-    0
 }
 
 fn report_duplicate_id(
@@ -452,6 +492,52 @@ fn discover_domains(root: &Path, config: &Config) -> Result<Vec<DomainDir>, Stri
         }
     }
     Ok(dirs)
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::{Cli, Mode};
+    use clap::Parser;
+
+    fn mode_of(args: &[&str]) -> Mode {
+        Cli::parse_from(args).mode()
+    }
+
+    #[test]
+    fn no_flag_maps_to_guidelines() {
+        assert!(matches!(mode_of(&["adr-fmt"]), Mode::Guidelines));
+    }
+
+    #[test]
+    fn lint_flag_maps_to_lint() {
+        assert!(matches!(mode_of(&["adr-fmt", "--lint"]), Mode::Lint));
+    }
+
+    #[test]
+    fn refs_flag_maps_to_refs_with_payload() {
+        assert!(
+            matches!(mode_of(&["adr-fmt", "--refs", "AFM-0013"]), Mode::Refs(id) if id == "AFM-0013")
+        );
+    }
+
+    #[test]
+    fn context_flag_maps_to_context_with_payload() {
+        assert!(
+            matches!(mode_of(&["adr-fmt", "--context", "adr-fmt"]), Mode::Context(c) if c == "adr-fmt")
+        );
+    }
+
+    #[test]
+    fn bare_tree_flag_maps_to_unfiltered_tree() {
+        assert!(matches!(mode_of(&["adr-fmt", "--tree"]), Mode::Tree(None)));
+    }
+
+    #[test]
+    fn tree_flag_with_domain_maps_to_filtered_tree() {
+        assert!(
+            matches!(mode_of(&["adr-fmt", "--tree", "AFM"]), Mode::Tree(Some(d)) if d == "AFM")
+        );
+    }
 }
 
 #[cfg(test)]
