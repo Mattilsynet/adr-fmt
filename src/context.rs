@@ -146,7 +146,7 @@ fn build_context_groups(
         .copied()
         .collect();
 
-    let context_roots = sorted_context_roots(&assignment, &foundation_set, record_by_id);
+    let context_roots = sorted_context_roots(&assignment, &foundation_set, eligible_context);
 
     let mut claimed: HashSet<AdrId> = HashSet::new();
     let mut groups: Vec<RootGroup> = Vec::new();
@@ -210,8 +210,10 @@ fn assign_roots(
 fn sorted_context_roots(
     assignment: &HashMap<AdrId, AdrId>,
     foundation_set: &HashSet<&str>,
-    record_by_id: &CorpusIndex<'_>,
+    eligible_context: &EligibleContext<'_>,
 ) -> Vec<AdrId> {
+    let min_layer = min_assigned_rule_layers(assignment, eligible_context);
+
     let mut context_roots: Vec<AdrId> = assignment
         .values()
         .collect::<HashSet<_>>()
@@ -225,7 +227,12 @@ fn sorted_context_roots(
 
         b_foundation
             .cmp(&a_foundation)
-            .then_with(|| min_rule_layer(a, record_by_id).cmp(&min_rule_layer(b, record_by_id)))
+            .then_with(|| {
+                min_layer
+                    .get(a)
+                    .unwrap_or(&u8::MAX)
+                    .cmp(min_layer.get(b).unwrap_or(&u8::MAX))
+            })
             .then_with(|| a.prefix().cmp(b.prefix()))
             .then_with(|| a.number().cmp(&b.number()))
     });
@@ -233,14 +240,25 @@ fn sorted_context_roots(
     context_roots
 }
 
-fn min_rule_layer(id: &AdrId, record_by_id: &CorpusIndex<'_>) -> u8 {
-    record_by_id.get(id).map_or(u8::MAX, |r| {
-        r.decision_rules()
-            .iter()
-            .map(|rule| rule.layer)
-            .min()
-            .unwrap_or(u8::MAX)
-    })
+fn min_assigned_rule_layers(
+    assignment: &HashMap<AdrId, AdrId>,
+    eligible_context: &EligibleContext<'_>,
+) -> HashMap<AdrId, u8> {
+    let mut min_layer: HashMap<AdrId, u8> = HashMap::new();
+
+    for (id, root_id) in assignment {
+        let Some(record) = eligible_context.records.get(id) else {
+            continue;
+        };
+        for rule in record.decision_rules() {
+            min_layer
+                .entry(root_id.clone())
+                .and_modify(|current| *current = (*current).min(rule.layer))
+                .or_insert(rule.layer);
+        }
+    }
+
+    min_layer
 }
 
 fn collect_root_rules(
@@ -876,6 +894,49 @@ description = "test"
         let com_pos = root_ids.iter().position(|id| id.prefix() == "COM").unwrap();
         let che_pos = root_ids.iter().position(|id| id.prefix() == "CHE").unwrap();
         assert!(com_pos < che_pos, "COM should appear before CHE");
+    }
+
+    #[test]
+    fn root_order_uses_subtree_minimum_layer_not_root_own_rules() {
+        let records = vec![
+            make_record(
+                "CHE",
+                9,
+                vec![],
+                vec![("R1", 9, "D-tier root rule")],
+                vec![(RelVerb::Root, "CHE", 9)],
+            ),
+            make_record("CHE", 10, vec![], vec![], vec![(RelVerb::Root, "CHE", 10)]),
+            make_record(
+                "CHE",
+                11,
+                vec![],
+                vec![("R1", 2, "S-tier child rule")],
+                vec![(RelVerb::References, "CHE", 10)],
+            ),
+        ];
+        let config = make_config();
+        let groups = context_grouped("example-core", &records, &config).unwrap();
+
+        let root_ids: Vec<&AdrId> = groups
+            .iter()
+            .filter_map(|g| match &g.root {
+                GroupRoot::Adr(id) => Some(id),
+                GroupRoot::Unclaimed => None,
+            })
+            .collect();
+        let ruleless_root = root_ids
+            .iter()
+            .position(|id| **id == make_id("CHE", 10))
+            .unwrap();
+        let l9_root = root_ids
+            .iter()
+            .position(|id| **id == make_id("CHE", 9))
+            .unwrap();
+        assert!(
+            ruleless_root < l9_root,
+            "CHE-0010 emits an L2 descendant rule and must precede CHE-0009, whose minimum is L9"
+        );
     }
 
     #[test]
