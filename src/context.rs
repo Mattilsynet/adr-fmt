@@ -12,9 +12,22 @@ use crate::nav::{compute_parent_children, compute_parent_edges, walk_parent_chai
 use crate::output::{EmittedRule, GroupRoot, RootGroup};
 
 struct EligibleContext<'a> {
-    eligible: HashSet<AdrId>,
     records: HashMap<&'a AdrId, &'a AdrRecord>,
     foundation_prefixes: Vec<&'a str>,
+}
+
+impl<'a> EligibleContext<'a> {
+    fn eligible_ids(&self) -> impl Iterator<Item = &'a AdrId> + '_ {
+        self.records.keys().copied()
+    }
+
+    fn is_eligible(&self, id: &AdrId) -> bool {
+        self.records.contains_key(id)
+    }
+
+    fn record(&self, id: &AdrId) -> Option<&'a AdrRecord> {
+        self.records.get(id).copied()
+    }
 }
 
 /// Resolve decision rules applicable to a crate, grouped by root ADR subtree.
@@ -76,7 +89,6 @@ fn collect_eligible_context<'a>(
         .map(|d| d.prefix.as_str())
         .collect();
 
-    let mut eligible: HashSet<AdrId> = HashSet::new();
     let mut eligible_records: HashMap<&AdrId, &AdrRecord> = HashMap::new();
 
     for record in records {
@@ -87,7 +99,6 @@ fn collect_eligible_context<'a>(
             if record.decision_rules().is_empty() {
                 continue;
             }
-            eligible.insert(record.id().clone());
             eligible_records.insert(record.id(), record);
         }
     }
@@ -112,13 +123,11 @@ fn collect_eligible_context<'a>(
             if record.decision_rules().is_empty() {
                 continue;
             }
-            eligible.insert(record.id().clone());
             eligible_records.insert(record.id(), record);
         }
     }
 
     EligibleContext {
-        eligible,
         records: eligible_records,
         foundation_prefixes,
     }
@@ -138,7 +147,7 @@ fn build_context_groups(
         .map(|r| r.id().clone())
         .collect();
 
-    let assignment = assign_roots(&eligible_context.eligible, &root_index, &parent_edges);
+    let assignment = assign_roots(eligible_context, &root_index, &parent_edges);
 
     let foundation_set: HashSet<&str> = eligible_context
         .foundation_prefixes
@@ -188,12 +197,12 @@ fn build_context_groups(
 }
 
 fn assign_roots(
-    eligible: &HashSet<AdrId>,
+    eligible_context: &EligibleContext<'_>,
     root_index: &HashSet<AdrId>,
     parent_edges: &HashMap<AdrId, AdrId>,
 ) -> HashMap<AdrId, AdrId> {
     let mut assignment: HashMap<AdrId, AdrId> = HashMap::new();
-    for id in eligible {
+    for id in eligible_context.eligible_ids() {
         if root_index.contains(id) {
             assignment.insert(id.clone(), id.clone());
             continue;
@@ -247,7 +256,7 @@ fn min_assigned_rule_layers(
     let mut min_layer: HashMap<AdrId, u8> = HashMap::new();
 
     for (id, root_id) in assignment {
-        let Some(record) = eligible_context.records.get(id) else {
+        let Some(record) = eligible_context.record(id) else {
             continue;
         };
         for rule in record.decision_rules() {
@@ -276,7 +285,7 @@ fn collect_root_rules(
     visited.insert(root_id.clone());
 
     while let Some((current_id, depth)) = queue.pop_front() {
-        if eligible_context.eligible.contains(&current_id)
+        if eligible_context.is_eligible(&current_id)
             && assignment.get(&current_id) == Some(root_id)
             && !claimed.contains(&current_id)
         {
@@ -303,7 +312,7 @@ fn push_record_rules(
     depth: usize,
     eligible_context: &EligibleContext<'_>,
 ) {
-    if let Some(record) = eligible_context.records.get(id) {
+    if let Some(record) = eligible_context.record(id) {
         for rule in record.decision_rules() {
             rules.push(EmittedRule {
                 adr_id: id.clone(),
@@ -322,8 +331,7 @@ fn append_unclaimed_group(
     claimed: &HashSet<AdrId>,
 ) {
     let unclaimed: Vec<&AdrId> = eligible_context
-        .eligible
-        .iter()
+        .eligible_ids()
         .filter(|id| !claimed.contains(*id))
         .collect();
 
