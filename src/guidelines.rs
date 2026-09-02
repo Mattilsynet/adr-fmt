@@ -336,9 +336,10 @@ fn print_tagged_rules(config: &Config) {
     println!("    • IDs must be sequential (R1, R2, R3 — no gaps)");
     println!("    • Each rule: 7–60 words");
     println!("    • Layer must be 1–12 (Meadows leverage points)");
-    println!("    • Rule-tier tension: layer-derived tier should be within");
-    println!("      1 rank of the ADR's tier — 2 ranks for foundation");
-    println!("      S-tier ADRs (T019)");
+    println!("    • Rule-tier tension: fires when the rule's layer-derived");
+    println!("      tier has higher leverage than the ADR's tier; equal or");
+    println!("      lower leverage passes silently. No distance tolerance");
+    println!("      and no domain carve-outs (T019)");
     println!();
 
     println!("  Tier scaling — factor multiplies the configured min_words,");
@@ -753,6 +754,30 @@ crates = []
             scan.contains("does not match the required"),
             "the generated T016 guidance must document the malformed \
              rule-shaped line check, or a shipped diagnostic is invisible"
+        );
+    }
+
+    #[test]
+    fn t019_constraint_text_states_the_asymmetric_bound() {
+        let src = include_str!("guidelines.rs");
+        let start = src
+            .find("• Rule-tier tension")
+            .expect("the constraints list carries a T019 bullet");
+        let end = src[start..]
+            .find("(T019)")
+            .expect("the T019 bullet is tagged with its rule id")
+            + start;
+        let scan = &src[start..end];
+        assert!(
+            !scan.contains("1 rank") && !scan.contains("2 ranks"),
+            "AFM-0011 accepted an ASYMMETRIC T019 bound with no distance \
+             carve-out; the obsolete symmetric-distance wording would tell \
+             authors a corpus shape passes when the linter warns"
+        );
+        assert!(
+            scan.contains("higher leverage than the ADR's tier"),
+            "the T019 bullet must state the asymmetric condition \
+             (rule_rank < adr_rank) that the implementation enforces"
         );
     }
 }

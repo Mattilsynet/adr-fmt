@@ -3,8 +3,10 @@
 //! Per AFM-0003, all rule findings are warnings; the tool exits 0 on
 //! lint completion regardless of warning count. Exit 1 is reserved for
 //! infrastructure failures (missing config, unreadable files, invalid
-//! configuration) which are signalled directly via stderr + `process::exit`
-//! in `main`, not through this diagnostic channel.
+//! configuration), which surface as errors returned from `run` and are
+//! mapped to an exit code at the `src/main.rs` boundary — the only
+//! authorised `process::exit` site per AFM-0026:R4 — not through this
+//! diagnostic channel.
 
 use std::fmt;
 use std::path::Path;

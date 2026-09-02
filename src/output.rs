@@ -30,8 +30,8 @@ struct TreeRenderState<'a> {
 }
 
 /// The root of a `RootGroup`: either a real parsed ADR, or the
-/// synthetic "Unclaimed Rules" fallback for eligible rules no root's
-/// BFS reached.
+/// synthetic "Unclaimed Rules" fallback for eligible rules not
+/// assigned to any root through the parent-edge tree (AFM-0020).
 ///
 /// Modelled as a distinct variant rather than a sentinel `AdrId` so the
 /// synthetic case is representable without forging an
@@ -176,8 +176,11 @@ pub fn render_diagnostics(diagnostics: &[Diagnostic], record_count: usize) -> St
 /// `### ROOT-ID. Title` heading. Rule lines use `- {text} [{ADR_ID}:{RULE_ID}:L{layer}]`
 /// format with the anchoring ID at the end.
 ///
-/// Groups with no rules after dedup are skipped. An optional "Unclaimed Rules"
-/// section appears if any eligible rules were not reached by any root's BFS.
+/// Groups with no rules after dedup are skipped. The renderer emits
+/// whichever non-empty groups the caller supplies, in the order given;
+/// it performs no root assignment of its own. An "Unclaimed Rules"
+/// section therefore appears only when the caller supplies a
+/// `GroupRoot::Unclaimed` group, which renders like any other.
 #[must_use]
 pub fn render_root_groups(crate_name: &str, groups: &[RootGroup]) -> String {
     let mut out = String::new();
