@@ -794,7 +794,7 @@ description = "test"
     }
 
     #[test]
-    fn cycle_does_not_loop() {
+    fn cycle_members_land_in_unclaimed() {
         let records = vec![
             make_record(
                 "CHE",
@@ -809,8 +809,8 @@ description = "test"
                 vec![],
                 vec![("R1", 5, "Cycle A")],
                 vec![
-                    (RelVerb::References, "CHE", 1),
                     (RelVerb::References, "CHE", 3),
+                    (RelVerb::References, "CHE", 1),
                 ],
             ),
             make_record(
@@ -819,14 +819,29 @@ description = "test"
                 vec![],
                 vec![("R1", 5, "Cycle B")],
                 vec![
-                    (RelVerb::References, "CHE", 1),
                     (RelVerb::References, "CHE", 2),
+                    (RelVerb::References, "CHE", 1),
                 ],
             ),
         ];
         let config = make_config();
         let groups = context_grouped("example-core", &records, &config).unwrap();
 
+        let unclaimed = groups
+            .iter()
+            .find(|g| g.root == GroupRoot::Unclaimed)
+            .expect("cycle members must fall back to the Unclaimed group");
+        for number in [2, 3] {
+            let occurrences = unclaimed
+                .rules
+                .iter()
+                .filter(|r| r.adr_id == make_id("CHE", number))
+                .count();
+            assert_eq!(
+                occurrences, 1,
+                "CHE-{number:04} is in a parent-edge cycle and must appear in Unclaimed exactly once"
+            );
+        }
         assert_eq!(total_rule_count(&groups), 3);
     }
 
