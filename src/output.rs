@@ -68,7 +68,7 @@ pub struct EmittedRule {
     pub rule_id: String,
     pub text: String,
     pub layer: u8,
-    pub depth: u16,
+    pub depth: usize,
 }
 
 /// Render a `--refs` report as a compact markdown bullet list.

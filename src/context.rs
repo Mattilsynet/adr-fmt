@@ -253,7 +253,7 @@ fn collect_root_rules(
     let mut rules: Vec<EmittedRule> = Vec::new();
 
     let mut visited: HashSet<AdrId> = HashSet::new();
-    let mut queue: VecDeque<(AdrId, u16)> = VecDeque::new();
+    let mut queue: VecDeque<(AdrId, usize)> = VecDeque::new();
     queue.push_back((root_id.clone(), 0));
     visited.insert(root_id.clone());
 
@@ -282,7 +282,7 @@ fn collect_root_rules(
 fn push_record_rules(
     rules: &mut Vec<EmittedRule>,
     id: &AdrId,
-    depth: u16,
+    depth: usize,
     eligible_context: &EligibleContext<'_>,
 ) {
     if let Some(record) = eligible_context.records.get(id) {
@@ -312,7 +312,7 @@ fn append_unclaimed_group(
     if !unclaimed.is_empty() {
         let mut rules: Vec<EmittedRule> = Vec::new();
         for id in &unclaimed {
-            push_record_rules(&mut rules, id, u16::MAX, eligible_context);
+            push_record_rules(&mut rules, id, usize::MAX, eligible_context);
         }
         rules.sort_by(|a, b| {
             a.layer
@@ -935,6 +935,53 @@ description = "test"
             adr_nums,
             vec![2, 3],
             "depth 1 (CHE-0002) before depth 2 (CHE-0003)"
+        );
+    }
+
+    #[test]
+    fn chain_deeper_than_u16_range_emits_without_overflow() {
+        let mut records = vec![make_record(
+            "CHE",
+            1,
+            vec![],
+            vec![("R1", 2, "Root rule")],
+            vec![(RelVerb::Root, "CHE", 1)],
+        )];
+        for number in 2..=u16::MAX {
+            records.push(make_record(
+                "CHE",
+                number,
+                vec![],
+                vec![],
+                vec![(RelVerb::References, "CHE", number - 1)],
+            ));
+        }
+        records.push(make_record(
+            "COM",
+            1,
+            vec![],
+            vec![],
+            vec![(RelVerb::References, "CHE", u16::MAX)],
+        ));
+        records.push(make_record(
+            "COM",
+            2,
+            vec![],
+            vec![("R1", 5, "Deepest rule")],
+            vec![(RelVerb::References, "COM", 1)],
+        ));
+
+        let config = make_config();
+        let groups = context_grouped("example-core", &records, &config).unwrap();
+
+        let deepest = groups
+            .iter()
+            .flat_map(|g| &g.rules)
+            .find(|r| r.adr_id == make_id("COM", 2))
+            .expect("the deepest rule must be emitted");
+        assert_eq!(
+            deepest.depth, 65_536,
+            "a chain of 65537 ADRs must traverse without an arithmetic overflow"
         );
     }
 
