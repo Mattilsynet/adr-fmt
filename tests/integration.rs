@@ -1694,9 +1694,6 @@ fn assert_cross_domain_tree_not_orphaned(stdout: &str) {
     );
 }
 
-/// Stale ADR that malformedly retains a `References:` edge to an active
-/// root. AFM-0022 makes stale bodies non-authoritative, so this edge must
-/// not put the record into the active `--tree`.
 const STALE_WITH_PARENT_EDGE_ADR: &str = "\
 # TST-0012. Stale With Parent Edge
 
