@@ -30,10 +30,6 @@ pub enum ContainmentError {
         kind: std::io::ErrorKind,
     },
     /// Probing the joined path for existence failed for a reason
-    /// other than absence (permission denied, IO error): whether the
-    /// path exists is indeterminate.
-    MetadataFailed { segment: String, reason: String },
-    /// Probing the joined path for existence failed for a reason
     /// other than absence; `kind` distinguishes permission failure
     /// from transient I/O error. Whether the path exists is
     /// indeterminate.
@@ -73,13 +69,6 @@ impl fmt::Display for ContainmentError {
             }
             Self::TargetCanonicalizeFailed { segment, kind } => {
                 write!(f, "cannot canonicalize {}: {kind}", segment.escape_debug())
-            }
-            Self::MetadataFailed { segment, reason } => {
-                write!(
-                    f,
-                    "cannot determine whether {} exists: {reason}",
-                    segment.escape_debug()
-                )
             }
             Self::MetadataProbeFailed { segment, kind } => {
                 write!(

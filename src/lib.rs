@@ -469,14 +469,6 @@ fn try_marker(marker_dir: &Path) -> Result<MarkerVerdict, String> {
                     segment.escape_debug()
                 )));
             }
-            Err(containment::ContainmentError::MetadataFailed { segment, reason }) => {
-                return Ok(MarkerVerdict::Invalid(format!(
-                    "domain '{}' directory {}: {reason} — whether this marker \
-                     describes the corpus here cannot be determined",
-                    d.prefix,
-                    segment.escape_debug()
-                )));
-            }
             Err(_) => any_domain_intended = true,
             Ok(Some(p)) => any_domain_intended |= p.is_dir(),
             Ok(None) => {}
