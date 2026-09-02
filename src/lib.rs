@@ -103,41 +103,42 @@ impl Cli {
     }
 }
 
-/// Library entry-point: parse `args` as the CLI, dispatch, return exit code.
+/// Library entry-point: parse `args` as the CLI, dispatch, return the exit code.
 ///
 /// The binary [`main`] is a thin wrapper around this function. Future
 /// library consumers (e.g. `adr-srv`) call lower-level modules directly
 /// (`parser`, `rules`, `nav`); `run` exists primarily to keep the binary
 /// surface a one-liner and to provide a top-level smoke-testable entry.
 ///
-/// Errors are reported by writing to stderr and returning a non-zero
-/// exit code; this preserves AFM-0001 CLI behaviour bit-for-bit.
-/// `--help` and `--version` are handled inside `Cli::parse_from`, which
-/// calls `process::exit` itself per clap's contract.
+/// Dispatch failures are reported by writing to stderr and returning a
+/// non-zero exit code, preserving AFM-0001 CLI behaviour bit-for-bit.
+/// This function never terminates the calling process: per AFM-0026:R4
+/// `src/main.rs` is the only authorised exit site.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics only through clap's built-in `--help`/`--version` termination
-/// path, which exits the process before returning to the caller.
-#[must_use]
-pub fn run<I, T>(args: I) -> i32
+/// Returns [`clap::Error`] when `args` does not parse as the CLI, and for
+/// clap's own `--help` and `--version` display paths. Those two are
+/// successes, not failures: their [`clap::Error::exit_code`] is `0`, and
+/// a caller that maps the exit code faithfully preserves AFM-0003:R1.
+pub fn run<I, T>(args: I) -> Result<i32, clap::Error>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = Cli::parse_from(args);
+    let cli = Cli::try_parse_from(args)?;
     let mode = cli.mode();
 
     let discovery = match discover_marker() {
         Ok(d) => d,
         Err(msg) => {
             eprintln!("error: {msg}");
-            return 1;
+            return Ok(1);
         }
     };
 
     if matches!(mode, Mode::Guidelines) {
-        return run_default_mode(discovery);
+        return Ok(run_default_mode(discovery));
     }
 
     let (marker_dir, config) = match discovery {
@@ -151,14 +152,14 @@ where
                 "       refusing to fall back to a parent corpus — that would lint a \
                  different corpus and report success"
             );
-            return 1;
+            return Ok(1);
         }
         ConfigDiscovery::Absent => {
             eprintln!(
                 "error: no adr-fmt.toml with a valid [corpus] table found in any parent directory"
             );
             eprintln!("       run from the workspace root, or create adr-fmt.toml there");
-            return 1;
+            return Ok(1);
         }
     };
 
@@ -168,7 +169,7 @@ where
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: {e}");
-            return 1;
+            return Ok(1);
         }
     };
 
@@ -176,7 +177,7 @@ where
         Ok(dirs) => dirs,
         Err(e) => {
             eprintln!("error: {e}");
-            return 1;
+            return Ok(1);
         }
     };
 
@@ -185,14 +186,14 @@ where
             "error: no domain directories found in {}",
             adr_root.display()
         );
-        return 1;
+        return Ok(1);
     }
 
     let mut scan = match scan_corpus(&adr_root, &config, &domain_dirs) {
         Ok(scan) => scan,
         Err(e) => {
             eprintln!("error: {e}");
-            return 1;
+            return Ok(1);
         }
     };
     let parse_diagnostics = scan.take_diagnostics();
@@ -201,23 +202,23 @@ where
     let index = match index::CorpusIndex::build(&scan) {
         Ok(idx) => idx,
         Err(dup) => {
-            return report_duplicate_id(
+            return Ok(report_duplicate_id(
                 matches!(mode, Mode::Lint),
                 parse_diagnostics,
                 all_records.len(),
                 &dup,
-            );
+            ));
         }
     };
 
-    dispatch_mode(
+    Ok(dispatch_mode(
         &mode,
         all_records,
         &config,
         &domain_dirs,
         &index,
         parse_diagnostics,
-    )
+    ))
 }
 
 fn dispatch_mode(
