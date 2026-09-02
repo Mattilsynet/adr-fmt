@@ -134,7 +134,7 @@ fn build_context_groups(
 
     let root_index: HashSet<AdrId> = records
         .iter()
-        .filter(|r| r.is_root())
+        .filter(|r| r.is_root() && !r.is_stale())
         .map(|r| r.id().clone())
         .collect();
 
@@ -663,6 +663,51 @@ description = "test"
         assert!(
             !ids.contains(&make_id("CHE", 2)),
             "stale should be excluded"
+        );
+    }
+
+    #[test]
+    fn stale_root_does_not_anchor_a_live_child() {
+        let mut stale_root = make_record(
+            "CHE",
+            1,
+            vec![],
+            vec![("R1", 2, "Stale root rule")],
+            vec![(RelVerb::Root, "CHE", 1)],
+        );
+        *stale_root.is_stale_mut() = true;
+
+        let records = vec![
+            stale_root,
+            make_record(
+                "CHE",
+                2,
+                vec![],
+                vec![("R1", 5, "Live child rule")],
+                vec![(RelVerb::References, "CHE", 1)],
+            ),
+        ];
+        let config = make_config();
+        let groups = context_grouped("example-core", &records, &config).unwrap();
+
+        assert!(
+            !groups
+                .iter()
+                .any(|g| g.root == GroupRoot::Adr(make_id("CHE", 1))),
+            "a stale ADR is non-authoritative per AFM-0022 and must not head a context group"
+        );
+        let unclaimed = groups
+            .iter()
+            .find(|g| g.root == GroupRoot::Unclaimed)
+            .expect("the live child must fall back to the Unclaimed group");
+        assert_eq!(
+            unclaimed
+                .rules
+                .iter()
+                .filter(|r| r.adr_id == make_id("CHE", 2))
+                .count(),
+            1,
+            "CHE-0002 must appear in Unclaimed exactly once"
         );
     }
 
