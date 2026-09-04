@@ -705,7 +705,11 @@ fn parse_related_segment(
     };
 
     for target_str in targets_str.split(", ") {
-        let clean = strip_annotation(target_str);
+        let annotated = strip_annotation(target_str);
+        let clean = match verb {
+            RelVerb::References => strip_clause_qualifier(annotated),
+            _ => annotated,
+        };
         if let Some(target_id) = parse_adr_id(clean) {
             rels.push(Relationship {
                 verb,
@@ -1072,6 +1076,13 @@ fn strip_annotation(s: &str) -> &str {
     }
 }
 
+fn strip_clause_qualifier(s: &str) -> &str {
+    match s.rsplit_once(":R") {
+        Some((head, digits)) if RuleId::from_digits(digits).is_ok() => head,
+        _ => s,
+    }
+}
+
 fn measure_code_blocks(source: &SourceLines<'_>) -> (usize, usize) {
     let mut current_lines = 0usize;
     let mut current_start = 0usize;
@@ -1197,6 +1208,65 @@ mod tests {
         assert_eq!(rels[0].verb, RelVerb::Root);
         assert_eq!(rels[0].target.prefix(), "CHE");
         assert_eq!(rels[0].target.number(), 1);
+    }
+
+    #[test]
+    fn references_accepts_clause_level_target() {
+        let lines = vec![
+            "## Related",
+            "",
+            "References: CHE-0005:R1",
+            "",
+            "## Context",
+        ];
+        let (related, diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
+        let rels = related.relationships();
+        assert_eq!(rels.len(), 1);
+        assert_eq!(rels[0].verb, RelVerb::References);
+        assert_eq!(rels[0].target, parse_adr_id("CHE-0005").unwrap());
+    }
+
+    #[test]
+    fn references_accepts_non_ascii_digit_clause_level_target() {
+        let lines = vec![
+            "## Related",
+            "",
+            "References: CHE-0005:R\u{661}",
+            "",
+            "## Context",
+        ];
+        let (related, diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
+        let rels = related.relationships();
+        assert_eq!(rels.len(), 1);
+        assert_eq!(rels[0].verb, RelVerb::References);
+        assert_eq!(rels[0].target, parse_adr_id("CHE-0005").unwrap());
+    }
+
+    #[test]
+    fn references_still_accepts_bare_target() {
+        let lines = vec!["## Related", "", "References: CHE-0005", "", "## Context"];
+        let (related, diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
+        let rels = related.relationships();
+        assert_eq!(rels.len(), 1);
+        assert_eq!(rels[0].target, parse_adr_id("CHE-0005").unwrap());
+    }
+
+    #[test]
+    fn supersedes_rejects_clause_level_target() {
+        let lines = vec![
+            "## Related",
+            "",
+            "Supersedes: CHE-0005:R1",
+            "",
+            "## Context",
+        ];
+        let (related, diags) = find_relationships(&outside_of(&lines), Path::new("test.md"));
+        assert_eq!(diags.len(), 1, "expected exactly one P003: {diags:?}");
+        assert!(diags[0].message.contains("CHE-0005:R1"));
+        assert!(related.relationships().is_empty());
     }
 
     #[test]

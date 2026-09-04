@@ -270,7 +270,9 @@ fn print_template() {
     println!("    P003  Malformed `## Related` segment: missing `Verb: ` separator,");
     println!("          unrecognized verb, or unparseable target. The malformed");
     println!("          segment is skipped; other valid segments on the same");
-    println!("          line still parse and link.");
+    println!("          line still parse and link. A clause-level target");
+    println!("          (`ID:Rn`) is accepted on `References:` only");
+    println!("          (AFM-0029:R4); elsewhere it is unparseable.");
     println!("    P004  Duplicate ADR id: two records claim the same PREFIX-NNNN.");
     println!("          Detected once, before any rule runs — no rule can consume");
     println!("          the corpus while this holds (AFM-0008:R3).");
