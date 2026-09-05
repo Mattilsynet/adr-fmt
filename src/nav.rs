@@ -237,7 +237,7 @@ mod tests {
         *record.file_path_mut() = PathBuf::from(format!("docs/adr/test/{prefix}-{num:04}-test.md"));
         *record.title_mut() = Some(format!("Test {prefix}-{num:04}"));
         *record.title_line_mut() = 1;
-        *record.date_mut() = Some("2026-04-25".into());
+        record.set_date(Some("2026-04-25".into()));
         record.set_tier(Some(Tier::B));
         *record.status_mut() = Some(Status::Accepted);
         *record.status_raw_mut() = Some("Accepted".into());
