@@ -263,6 +263,18 @@ pub(crate) const P004: RuleEntry = wrapped(
         RuleLine::Text("the corpus while this holds (AFM-0008:R3)."),
     ],
 );
+pub(crate) const P005: RuleEntry = wrapped(
+    "P005",
+    "Unreadable rule layer tag: a Decision line of the form",
+    &[
+        RuleLine::Text("`RN [L]: text` whose `L` is not a number. The pinned tag"),
+        RuleLine::Text("regex (AFM-0012:R2) does not match, so the line is not"),
+        RuleLine::Text("read as a tagged rule and the surrounding `R` sequence"),
+        RuleLine::Text("appears to have a gap. Reported here, against its own"),
+        RuleLine::Text("line, so the authoring error is named where it is"),
+        RuleLine::Text("(AFM-0034)."),
+    ],
+);
 
 pub(crate) const N001: RuleEntry = entry(
     "N001",
@@ -406,6 +418,7 @@ pub(crate) const PARSER_RULES: &[RuleRendering] = &[
     RuleRendering::Canonical(&P002),
     RuleRendering::Canonical(&P003),
     RuleRendering::Canonical(&P004),
+    RuleRendering::Canonical(&P005),
 ];
 
 pub(crate) const NAMING_RULES: &[RuleRendering] = &[
