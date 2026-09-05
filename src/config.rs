@@ -6,7 +6,7 @@
 //! in the binary. Rationale and judgment guidance live in dedicated ADRs
 //! under `docs/adr/adr-fmt/` (see AFM-0001, AFM-0020).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -104,6 +104,43 @@ impl Config {
     }
 }
 
+/// Raw deserialisation target for `adr-fmt.toml`. Private by design:
+/// it is the only shape TOML is decoded into, so every [`Config`]
+/// produced by [`load_quiet`] has passed validation. Field types match
+/// [`Config`] exactly; the nested types are shared, not duplicated.
+#[derive(Debug, Deserialize)]
+struct RawConfig {
+    corpus: CorpusConfig,
+    stale: StaleConfig,
+    domains: Vec<DomainConfig>,
+    #[serde(default)]
+    rules: Vec<RuleConfig>,
+}
+
+fn reject_duplicate_rule_ids(rules: &[RuleConfig]) -> Result<(), LoadError> {
+    let mut seen = BTreeSet::new();
+    for rule in rules {
+        if !seen.insert(rule.id.as_str()) {
+            return Err(LoadError::DuplicateRuleId(rule.id.clone()));
+        }
+    }
+    Ok(())
+}
+
+impl TryFrom<RawConfig> for Config {
+    type Error = LoadError;
+
+    fn try_from(raw: RawConfig) -> Result<Self, Self::Error> {
+        reject_duplicate_rule_ids(&raw.rules)?;
+        Ok(Self {
+            corpus: raw.corpus,
+            stale: raw.stale,
+            domains: raw.domains,
+            rules: raw.rules,
+        })
+    }
+}
+
 /// Load configuration from `adr-fmt.toml` in the marker directory,
 /// suppressing the legacy-rule deprecation warning.
 ///
@@ -117,6 +154,11 @@ impl Config {
 /// Returns [`LoadError::Parse`] when TOML parsing fails.
 /// Returns [`LoadError::NotAMarker`] when the file parses as TOML but
 /// declares no `[corpus]` table.
+/// Returns [`LoadError::DuplicateRuleId`] when the file declares the
+/// same `[[rules]] id` more than once. This applies to the quiet path
+/// too: a marker whose configuration is contradictory is broken, and
+/// discovery must stop at it rather than walk past it — the same
+/// treatment [`LoadError::Parse`] already gets.
 pub fn load_quiet(marker_dir: &Path) -> Result<Config, LoadError> {
     load_inner_typed(marker_dir)
 }
@@ -138,6 +180,11 @@ pub enum LoadError {
     /// [`LoadError::Parse`]: discovery may walk past a non-marker, but
     /// a broken marker must not be silently skipped.
     NotAMarker(String),
+    /// The file parsed as TOML and claims to be a marker, but declares
+    /// the same `[[rules]] id` more than once. Carries the offending
+    /// rule id. Distinct from [`LoadError::Parse`]: the TOML is
+    /// well-formed, the configuration it expresses is not.
+    DuplicateRuleId(String),
 }
 
 impl core::fmt::Display for LoadError {
@@ -146,6 +193,13 @@ impl core::fmt::Display for LoadError {
             LoadError::Io(msg) => write!(f, "adr-fmt config I/O error: {msg}"),
             LoadError::Parse(msg) => write!(f, "adr-fmt config parse error: {msg}"),
             LoadError::NotAMarker(msg) => write!(f, "not an adr-fmt marker: {msg}"),
+            LoadError::DuplicateRuleId(rule_id) => write!(
+                f,
+                "adr-fmt config validation error: adr-fmt.toml declares \
+                 [[rules]] id = \"{rule_id}\" more than once; each rule id \
+                 may be declared at most once, otherwise parameter lookups \
+                 silently use the first declaration"
+            ),
         }
     }
 }
@@ -162,7 +216,7 @@ fn load_inner_typed(marker_dir: &Path) -> Result<Config, LoadError> {
         ))
     })?;
 
-    let config: Config = toml::from_str(&content).map_err(|e| {
+    let config: RawConfig = toml::from_str(&content).map_err(|e| {
         let msg = e.to_string();
         if msg.contains("missing field `corpus`") {
             LoadError::NotAMarker(format!(
@@ -179,7 +233,7 @@ fn load_inner_typed(marker_dir: &Path) -> Result<Config, LoadError> {
         }
     })?;
 
-    Ok(config)
+    Config::try_from(config)
 }
 
 /// Resolve the corpus root path relative to the marker directory.
@@ -472,6 +526,68 @@ params = { min_words = 7, max_words = "seven", negative = -3 }
         );
     }
 
+    fn duplicate_config(second_id: &str) -> String {
+        format!(
+            r#"
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+[[domains]]
+prefix = "CHE"
+name = "Cherry"
+directory = "cherry"
+description = "Test"
+crates = []
+
+[[rules]]
+id = "T015"
+params = {{ min_words = 7 }}
+
+[[rules]]
+id = "{second_id}"
+params = {{ min_words = 99 }}
+"#
+        )
+    }
+
+    #[test]
+    fn duplicate_rule_id_is_a_load_error_not_a_diagnostic() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("adr-fmt.toml"), duplicate_config("T015")).expect("write");
+
+        let err = load_quiet(dir.path()).expect_err("a duplicate rule id must fail the load");
+        assert!(
+            matches!(&err, LoadError::DuplicateRuleId(id) if id == "T015"),
+            "got: {err:?}"
+        );
+
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("T015") && rendered.contains("adr-fmt.toml"),
+            "Display must name the rule id and the relative segment; got: {rendered}"
+        );
+        assert!(
+            !rendered.contains(dir.path().to_str().expect("utf-8 tempdir")),
+            "Display must not leak the absolute marker path (AFM-0028:R2); got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn distinct_rule_ids_still_load() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("adr-fmt.toml"), duplicate_config("T020")).expect("write");
+
+        let config = load_quiet(dir.path()).expect("distinct rule ids are valid");
+        assert_eq!(config.rules.len(), 2);
+        assert_eq!(
+            config.rule_param_u64("T020", "min_words"),
+            RuleParam::Value(99)
+        );
+    }
+
     #[test]
     fn missing_required_field_fails() {
         let toml_str = r#"
@@ -580,6 +696,9 @@ crates = []
             LoadError::NotAMarker(m) => m,
             LoadError::Parse(m) => panic!("expected NotAMarker, got Parse: {m}"),
             LoadError::Io(m) => panic!("expected NotAMarker, got Io: {m}"),
+            LoadError::DuplicateRuleId(id) => {
+                panic!("expected NotAMarker, got DuplicateRuleId: {id}")
+            }
         };
         assert!(
             err.contains("`[corpus]`"),
