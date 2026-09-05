@@ -43,6 +43,45 @@ pub(crate) enum RuleLine {
     },
 }
 
+/// How one entry appears in a rendered registry section.
+///
+/// A diagnostic occasionally needs a second wording in a second section.
+/// `Alternate` supplies that wording while BORROWING the canonical entry for
+/// identity and severity, so one diagnostic keeps one identity and one
+/// severity decision. Modelling the second wording as another `RuleEntry`
+/// would give a presentation-only copy the ability to construct diagnostics
+/// and to drift from the canonical entry if `Severity` grows.
+pub(crate) enum RuleRendering {
+    Canonical(&'static RuleEntry),
+    Alternate {
+        entry: &'static RuleEntry,
+        summary: &'static str,
+        continuation: &'static [RuleLine],
+    },
+}
+
+impl RuleRendering {
+    pub(crate) fn entry(&self) -> &'static RuleEntry {
+        match self {
+            Self::Canonical(entry) | Self::Alternate { entry, .. } => entry,
+        }
+    }
+
+    pub(crate) fn summary(&self) -> &'static str {
+        match self {
+            Self::Canonical(entry) => entry.summary,
+            Self::Alternate { summary, .. } => summary,
+        }
+    }
+
+    pub(crate) fn continuation(&self) -> &'static [RuleLine] {
+        match self {
+            Self::Canonical(entry) => entry.continuation,
+            Self::Alternate { continuation, .. } => continuation,
+        }
+    }
+}
+
 /// One diagnostic's identity, severity, and rendered governance description.
 ///
 /// `summary` is the first rendered line and is always present;
@@ -292,12 +331,16 @@ pub(crate) const L020: RuleEntry = entry(
 ///
 /// The same diagnostic is described twice in governance output, in
 /// different words: the template section stresses which verbs count, this
-/// one is a one-line restatement. Both renderings are pinned here rather
-/// than in the renderer so the divergence is visible in one place.
-pub(crate) const T020_LINK_SUMMARY: RuleEntry = entry(
-    "T020",
-    "Reference load — tier-scaled max on References: count",
-);
+/// one is a one-line restatement. Both wordings are pinned here rather than
+/// in the renderer so the divergence is visible in one place, and this one
+/// borrows canonical `T020` rather than declaring a second entry for it.
+/// Unifying the two wordings would change generated governance output and is
+/// not this crate's decision to take.
+pub(crate) const T020_LINK_SUMMARY: RuleRendering = RuleRendering::Alternate {
+    entry: &T020,
+    summary: "Reference load — tier-scaled max on References: count",
+    continuation: &[],
+};
 
 pub(crate) const S004: RuleEntry = entry("S004", "enforces presence of `## Retirement`");
 pub(crate) const S005: RuleEntry = wrapped(
@@ -324,35 +367,68 @@ pub(crate) const S008: RuleEntry = wrapped(
     ],
 );
 
-pub(crate) const TEMPLATE_RULES: &[&RuleEntry] = &[
-    &T002, &T003, &T004, &T005, &T005C, &T006, &T007, &T008, &T009, &T010, &T011, &T014, &T015,
+pub(crate) const TEMPLATE_RULES: &[RuleRendering] = &[
+    RuleRendering::Canonical(&T002),
+    RuleRendering::Canonical(&T003),
+    RuleRendering::Canonical(&T004),
+    RuleRendering::Canonical(&T005),
+    RuleRendering::Canonical(&T005C),
+    RuleRendering::Canonical(&T006),
+    RuleRendering::Canonical(&T007),
+    RuleRendering::Canonical(&T008),
+    RuleRendering::Canonical(&T009),
+    RuleRendering::Canonical(&T010),
+    RuleRendering::Canonical(&T011),
+    RuleRendering::Canonical(&T014),
+    RuleRendering::Canonical(&T015),
 ];
 
-pub(crate) const TEMPLATE_RULES_TAGGED: &[&RuleEntry] = &[&T016, &T019, &T020, &T022];
-
-pub(crate) const PARSER_RULES: &[&RuleEntry] = &[&P001, &P002, &P003, &P004];
-
-pub(crate) const NAMING_RULES: &[&RuleEntry] = &[&N001, &N002, &N003, &N004];
-
-pub(crate) const LINK_RULES: &[&RuleEntry] = &[
-    &L001,
-    &L003,
-    &L006,
-    &L007,
-    &L008,
-    &L009,
-    &L010,
-    &L011,
-    &L012,
-    &L013,
-    &L014,
-    &L015,
-    &L016,
-    &L017,
-    &L018,
-    &L019,
-    &L020,
-    &T020_LINK_SUMMARY,
+pub(crate) const TEMPLATE_RULES_TAGGED: &[RuleRendering] = &[
+    RuleRendering::Canonical(&T016),
+    RuleRendering::Canonical(&T019),
+    RuleRendering::Canonical(&T020),
+    RuleRendering::Canonical(&T022),
 ];
 
-pub(crate) const STALE_RULES: &[&RuleEntry] = &[&S004, &S005, &S006, &S007, &S008];
+pub(crate) const PARSER_RULES: &[RuleRendering] = &[
+    RuleRendering::Canonical(&P001),
+    RuleRendering::Canonical(&P002),
+    RuleRendering::Canonical(&P003),
+    RuleRendering::Canonical(&P004),
+];
+
+pub(crate) const NAMING_RULES: &[RuleRendering] = &[
+    RuleRendering::Canonical(&N001),
+    RuleRendering::Canonical(&N002),
+    RuleRendering::Canonical(&N003),
+    RuleRendering::Canonical(&N004),
+];
+
+pub(crate) const LINK_RULES: &[RuleRendering] = &[
+    RuleRendering::Canonical(&L001),
+    RuleRendering::Canonical(&L003),
+    RuleRendering::Canonical(&L006),
+    RuleRendering::Canonical(&L007),
+    RuleRendering::Canonical(&L008),
+    RuleRendering::Canonical(&L009),
+    RuleRendering::Canonical(&L010),
+    RuleRendering::Canonical(&L011),
+    RuleRendering::Canonical(&L012),
+    RuleRendering::Canonical(&L013),
+    RuleRendering::Canonical(&L014),
+    RuleRendering::Canonical(&L015),
+    RuleRendering::Canonical(&L016),
+    RuleRendering::Canonical(&L017),
+    RuleRendering::Canonical(&L018),
+    RuleRendering::Canonical(&L019),
+    RuleRendering::Canonical(&L020),
+    T020_LINK_SUMMARY,
+];
+
+pub(crate) const STALE_RULES: &[RuleRendering] = &[
+    RuleRendering::Canonical(&S004),
+    RuleRendering::Canonical(&S005),
+    RuleRendering::Canonical(&S006),
+    RuleRendering::Canonical(&S007),
+    RuleRendering::Canonical(&S008),
+];

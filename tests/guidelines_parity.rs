@@ -37,9 +37,22 @@ description = "Parity guard domain."
 crates = []
 "#;
 
-const DIAGNOSTIC_MARKERS: [&str; 2] = ["Diagnostic::warning(", "Diagnostic::error("];
-
 const CONSTRUCTION_MARKER: &str = ".diagnostic(";
+
+const DIAGNOSTIC_TYPE: &str = "Diagnostic";
+
+/// Every way to name a `Diagnostic` constructor, WITHOUT a trailing `(`.
+///
+/// Requiring the parenthesis would miss `let make = Diagnostic::warning;`,
+/// which binds the constructor as a value and calls it later.
+const DIAGNOSTIC_CONSTRUCTORS: [&str; 2] = ["Diagnostic::warning", "Diagnostic::error"];
+
+/// Tokens that put `Diagnostic` in type position, where a following `{`
+/// opens a body or a declaration rather than a struct literal.
+const TYPE_POSITION_TOKENS: [&str; 5] = ["->", "struct", "impl", "enum", "for"];
+
+/// The file that DEFINES `Diagnostic`, exempt from the construction ban.
+const DEFINITION_FILE: &str = "report.rs";
 
 const FORWARDING_MARKER: &str = "resolve_param(";
 
@@ -167,6 +180,14 @@ fn catalog_entries() -> BTreeMap<String, String> {
             .expect("a catalog constant declares a type");
         let name = text[name_start..name_end].trim().to_string();
         cursor = name_end;
+        let declared_type = text[name_end + 1..]
+            .trim_start()
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .next()
+            .unwrap_or_default();
+        if declared_type != "RuleEntry" {
+            continue;
+        }
         let Some(open) = text[cursor..].find('"').map(|at| cursor + at + 1) else {
             break;
         };
@@ -272,6 +293,60 @@ fn forwarded_rule_id<'a>(
     )
 }
 
+/// Reject every way of building a `Diagnostic` that bypasses the catalog.
+///
+/// `Diagnostic` and its fields are pinned public API (AFM-0026:R1, R7), so a
+/// struct literal `Diagnostic { .. }` and a constructor bound as a value are
+/// both legal Rust that would emit a rendered rule without consuming its
+/// catalog entry — leaving this guard and the golden green while the
+/// validating side silently stopped deriving anything. Scanning only for
+/// `Diagnostic::warning(` missed both.
+fn assert_no_direct_construction(production: &str, file: &Path, base: usize) {
+    for constructor in DIAGNOSTIC_CONSTRUCTORS {
+        if let Some(at) = production.find(constructor) {
+            panic!(
+                "{}: names the `{constructor}` constructor at byte {}. Diagnostics are built \
+                 through `RuleEntry::diagnostic` in `src/{CATALOG_FILE}` and nowhere else, so \
+                 that a rule's severity is decided by its catalog entry; naming the \
+                 constructor here bypasses that even when it is not called on the spot",
+                file.display(),
+                base + at
+            );
+        }
+    }
+    let mut cursor = 0;
+    while let Some(offset) = production[cursor..].find(DIAGNOSTIC_TYPE) {
+        let at = cursor + offset;
+        let after = at + DIAGNOSTIC_TYPE.len();
+        cursor = after;
+        let head = &production[..at];
+        let is_whole_word = !head
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !is_whole_word || !production[after..].trim_start().starts_with('{') {
+            continue;
+        }
+        let preceding = head
+            .trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == ':')
+            .trim_end();
+        if TYPE_POSITION_TOKENS
+            .iter()
+            .any(|token| preceding.ends_with(token))
+        {
+            continue;
+        }
+        panic!(
+            "{}: builds a `{DIAGNOSTIC_TYPE}` struct literal at byte {}. Its fields are \
+             public, so this compiles and emits a real diagnostic while consuming no catalog \
+             entry — the exact false-clean path this guard exists to close. Construct through \
+             `RuleEntry::diagnostic` in `src/{CATALOG_FILE}`",
+            file.display(),
+            base + at
+        );
+    }
+}
+
 fn implemented_rule_ids() -> BTreeSet<String> {
     let catalog = catalog_entries();
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -284,7 +359,9 @@ fn implemented_rule_ids() -> BTreeSet<String> {
     let mut forwarding_receivers = 0usize;
     let mut forwarding_calls = 0usize;
     for file in &files {
-        if file.ends_with(CATALOG_FILE) {
+        let is_canonical_construction = file.ends_with(CATALOG_FILE);
+        let is_definition = file.ends_with(DEFINITION_FILE);
+        if is_canonical_construction {
             continue;
         }
         let text = fs::read_to_string(file).expect("source file is readable");
@@ -301,15 +378,16 @@ fn implemented_rule_ids() -> BTreeSet<String> {
                 );
                 definitions += 1;
             }
-            for marker in DIAGNOSTIC_MARKERS {
+            if is_definition {
                 assert!(
-                    !production.contains(marker),
-                    "{}: constructs a `Diagnostic` directly via `{marker}`. Severity is \
-                     decided in exactly one place — `RuleEntry::diagnostic` in \
-                     `src/{CATALOG_FILE}` — so that governance guidance cannot claim a \
-                     severity the validators do not emit (adr-fmt-5qd)",
+                    production.contains("pub struct Diagnostic {"),
+                    "{}: is exempt from the direct-construction ban because it DEFINES \
+                     `Diagnostic`; it no longer does, so the exemption is unbound and must \
+                     be re-proven",
                     file.display()
                 );
+            } else {
+                assert_no_direct_construction(production, file, segment.offset);
             }
             let mut cursor = 0;
             while let Some(offset) = production[cursor..].find(CONSTRUCTION_MARKER) {

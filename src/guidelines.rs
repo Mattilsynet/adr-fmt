@@ -12,7 +12,7 @@ use std::io::{self, Write};
 
 use crate::config::Config;
 use crate::model::{RelVerb, Tier};
-use crate::rules::catalog::{self, RuleEntry, RuleLine};
+use crate::rules::catalog::{self, RuleLine, RuleRendering};
 use crate::rules::template::Budgets;
 
 /// Print the setup guide when no `adr-fmt.toml` exists.
@@ -143,10 +143,11 @@ pub fn print_governance(w: &mut impl Write, config: &Config) -> io::Result<()> {
     print_overrides(w, config)
 }
 
-fn print_rule_entries(w: &mut impl Write, entries: &[&RuleEntry]) -> io::Result<()> {
-    for entry in entries {
-        writeln!(w, "    {:<6}{}", entry.id, entry.summary)?;
-        for line in entry.continuation {
+fn print_rule_entries(w: &mut impl Write, entries: &[RuleRendering]) -> io::Result<()> {
+    for rendering in entries {
+        let entry = rendering.entry();
+        writeln!(w, "    {:<6}{}", entry.id, rendering.summary())?;
+        for line in rendering.continuation() {
             match line {
                 RuleLine::Text(text) => writeln!(w, "          {text}")?,
                 RuleLine::Severity { before, after } => {
