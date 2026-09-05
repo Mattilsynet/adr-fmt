@@ -5,6 +5,7 @@
 //! N003: Slug must be lowercase kebab-case (a-z0-9, hyphens)
 //! N004: Prefix must match a configured domain
 
+use crate::rules::catalog;
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -31,7 +32,7 @@ pub fn check_file_name(path: &Path, domain_prefixes: &[&str], diags: &mut Vec<Di
 
     let Some(id) = parsed.filter(|_| N001_PATTERN.is_match(&file_name)) else {
         diags.push(Diagnostic::warning(
-            "N001",
+            catalog::N001.id,
             path,
             0,
             format!(
@@ -46,7 +47,7 @@ pub fn check_file_name(path: &Path, domain_prefixes: &[&str], diags: &mut Vec<Di
 
     if !KEBAB_PATTERN.is_match(slug) || !has_letter_segment(slug) {
         diags.push(Diagnostic::warning(
-            "N003",
+            catalog::N003.id,
             path,
             0,
             format!(
@@ -58,7 +59,7 @@ pub fn check_file_name(path: &Path, domain_prefixes: &[&str], diags: &mut Vec<Di
 
     if !domain_prefixes.contains(&id.prefix()) {
         diags.push(Diagnostic::warning(
-            "N004",
+            catalog::N004.id,
             path,
             0,
             format!(
@@ -88,7 +89,7 @@ pub fn check(record: &AdrRecord, _domain_prefixes: &[&str], diags: &mut Vec<Diag
         && (file_id.prefix() != record.id().prefix() || file_id.number() != record.id().number())
     {
         diags.push(Diagnostic::warning(
-            "N002",
+            catalog::N002.id,
             record.file_path(),
             record.title_line(),
             format!(

@@ -15,6 +15,7 @@
 //! relationship verbs in stale stubs. S008: stale-directory ADR whose
 //! status is still live — the reverse direction of S006.
 
+use crate::rules::catalog;
 use std::path::Path;
 
 use crate::config::{Config, RuleParam};
@@ -70,19 +71,37 @@ pub(crate) struct Budgets {
 impl Budgets {
     pub(crate) fn resolve(config: &Config, diags: &mut Vec<Diagnostic>) -> Self {
         Self {
-            max_words: resolve_param(config, "T015", "max_words", DEFAULT_MAX_WORDS, diags),
-            min_words: resolve_param(config, "T015", "min_words", DEFAULT_MIN_WORDS, diags),
-            max_rules: resolve_param(config, "T016", "max_rules", DEFAULT_MAX_RULES, diags),
+            max_words: resolve_param(
+                config,
+                catalog::T015.id,
+                "max_words",
+                DEFAULT_MAX_WORDS,
+                diags,
+            ),
+            min_words: resolve_param(
+                config,
+                catalog::T015.id,
+                "min_words",
+                DEFAULT_MIN_WORDS,
+                diags,
+            ),
+            max_rules: resolve_param(
+                config,
+                catalog::T016.id,
+                "max_rules",
+                DEFAULT_MAX_RULES,
+                diags,
+            ),
             min_rule_words: resolve_param(
                 config,
-                "T016",
+                catalog::T016.id,
                 "min_rule_words",
                 DEFAULT_MIN_RULE_WORDS,
                 diags,
             ),
             max_rule_words: resolve_param(
                 config,
-                "T016",
+                catalog::T016.id,
                 "max_rule_words",
                 DEFAULT_MAX_RULE_WORDS,
                 diags,
@@ -214,7 +233,7 @@ pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut
 fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     if record.date().is_none() {
         diags.push(Diagnostic::warning(
-            "T002",
+            catalog::T002.id,
             record.file_path(),
             0,
             "missing `Date:` field".into(),
@@ -223,7 +242,7 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
 
     if record.last_reviewed().is_none() {
         diags.push(Diagnostic::warning(
-            "T003",
+            catalog::T003.id,
             record.file_path(),
             0,
             "missing `Last-reviewed:` field (required for all tiers)".into(),
@@ -234,7 +253,7 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
         TierField::Valid(_) => {}
         TierField::Absent => {
             diags.push(Diagnostic::warning(
-                "T004",
+                catalog::T004.id,
                 record.file_path(),
                 0,
                 format!("missing `Tier:` field — {TIER_SCALED_CHECKS}"),
@@ -242,7 +261,7 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
         }
         TierField::Invalid { raw } => {
             diags.push(Diagnostic::warning(
-                "T004",
+                catalog::T004.id,
                 record.file_path(),
                 0,
                 format!(
@@ -256,7 +275,7 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
 
     if record.status().is_none() {
         diags.push(Diagnostic::warning(
-            "T005",
+            catalog::T005.id,
             record.file_path(),
             0,
             "no status value — add a `Status:` preamble metadata field \
@@ -279,7 +298,7 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
                 .to_owned(),
         };
         diags.push(Diagnostic::warning(
-            "T005c",
+            catalog::T005C.id,
             record.file_path(),
             heading_line,
             message,
@@ -358,7 +377,7 @@ fn check_status_validity(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
         && let Some(invalid) = InvalidStatus::classify(raw, record.status())
     {
         diags.push(Diagnostic::warning(
-            "T006",
+            catalog::T006.id,
             record.file_path(),
             record.status_line(),
             invalid.message(),
@@ -370,7 +389,7 @@ fn check_status_validity(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     }
     if matches!(record.related(), Related::Absent) {
         diags.push(Diagnostic::warning(
-            "T007",
+            catalog::T007.id,
             record.file_path(),
             0,
             "missing `## Related` section".into(),
@@ -387,14 +406,19 @@ fn check_status_validity(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
              have at least one relation (use `Root: ID` for tree roots)"
                 .to_owned()
         };
-        diags.push(Diagnostic::warning("T007", record.file_path(), 0, message));
+        diags.push(Diagnostic::warning(
+            catalog::T007.id,
+            record.file_path(),
+            0,
+            message,
+        ));
     }
 }
 
 fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     if !record.is_stale() && !record.has_context() {
         diags.push(Diagnostic::warning(
-            "T008",
+            catalog::T008.id,
             record.file_path(),
             0,
             "missing `## Context` section".into(),
@@ -403,7 +427,7 @@ fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
 
     if !record.is_stale() && !record.has_decision() {
         diags.push(Diagnostic::warning(
-            "T009",
+            catalog::T009.id,
             record.file_path(),
             0,
             "missing `## Decision` section".into(),
@@ -412,7 +436,7 @@ fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
 
     if !record.is_stale() && !record.has_consequences() {
         diags.push(Diagnostic::warning(
-            "T010",
+            catalog::T010.id,
             record.file_path(),
             0,
             "missing `## Consequences` section".into(),
@@ -421,7 +445,7 @@ fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
 
     if record.max_code_block_lines() > MAX_CODE_BLOCK_LINES {
         diags.push(Diagnostic::warning(
-            "T011",
+            catalog::T011.id,
             record.file_path(),
             record.max_code_block_line(),
             format!(
@@ -443,7 +467,7 @@ fn check_stale_lifecycle(
 ) {
     if record.is_stale() && !record.has_retirement() {
         diags.push(Diagnostic::warning(
-            "S004",
+            catalog::S004.id,
             record.file_path(),
             0,
             "stale ADR missing `## Retirement` section — explain why \
@@ -454,7 +478,7 @@ fn check_stale_lifecycle(
 
     if !record.is_stale() && record.has_retirement() {
         diags.push(Diagnostic::warning(
-            "S005",
+            catalog::S005.id,
             record.file_path(),
             0,
             "active ADR has `## Retirement` section — Retirement is \
@@ -478,7 +502,7 @@ fn check_stale_lifecycle(
             None => String::new(),
         };
         diags.push(Diagnostic::warning(
-            "S006",
+            catalog::S006.id,
             record.file_path(),
             record.status_line(),
             format!(
@@ -497,7 +521,7 @@ fn check_stale_lifecycle(
     {
         match StatusLiveness::classify(status) {
             StatusLiveness::Live(live) => diags.push(Diagnostic::warning(
-                "S008",
+                catalog::S008.id,
                 record.file_path(),
                 record.status_line(),
                 format!(
@@ -550,7 +574,7 @@ fn check_stale_stub_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     for section in record.section_order() {
         if !STUB_ALLOWED_SECTIONS.contains(&section.as_str()) {
             diags.push(Diagnostic::warning(
-                "S007",
+                catalog::S007.id,
                 record.file_path(),
                 0,
                 format!(
@@ -567,7 +591,7 @@ fn check_stale_stub_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     for rel in record.relationships() {
         if !matches!(rel.verb, RelVerb::Supersedes) {
             diags.push(Diagnostic::warning(
-                "S007",
+                catalog::S007.id,
                 record.file_path(),
                 rel.line,
                 format!(
@@ -612,7 +636,7 @@ fn check_section_order(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
         }
         if !found {
             diags.push(Diagnostic::warning(
-                "T014",
+                catalog::T014.id,
                 record.file_path(),
                 0,
                 format!(
@@ -644,7 +668,7 @@ fn check_residue_sections(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     for section in record.section_order() {
         if MADR_RESIDUE_SECTIONS.contains(&section.to_lowercase().as_str()) {
             diags.push(Diagnostic::warning(
-                "T022",
+                catalog::T022.id,
                 record.file_path(),
                 0,
                 format!(
@@ -670,7 +694,7 @@ fn check_section_word_counts(
         if let Some(&count) = record.section_word_counts().get(*section) {
             if (count as u64) < min_words {
                 diags.push(Diagnostic::warning(
-                    "T015",
+                    catalog::T015.id,
                     record.file_path(),
                     0,
                     format!(
@@ -680,7 +704,7 @@ fn check_section_word_counts(
                 ));
             } else if (count as u64) > max_words {
                 diags.push(Diagnostic::warning(
-                    "T015",
+                    catalog::T015.id,
                     record.file_path(),
                     0,
                     format!(
@@ -697,7 +721,7 @@ fn check_section_word_counts(
     {
         if (count as u64) < min_words {
             diags.push(Diagnostic::warning(
-                "S004",
+                catalog::S004.id,
                 record.file_path(),
                 0,
                 format!(
@@ -707,7 +731,7 @@ fn check_section_word_counts(
             ));
         } else if (count as u64) > max_words {
             diags.push(Diagnostic::warning(
-                "T015",
+                catalog::T015.id,
                 record.file_path(),
                 0,
                 format!(
@@ -730,7 +754,7 @@ fn check_rule_count(
     }
     if record.decision_rules().len() as u64 > max_rules {
         diags.push(Diagnostic::warning(
-            "T016",
+            catalog::T016.id,
             record.file_path(),
             0,
             format!(
@@ -754,7 +778,7 @@ fn check_tagged_rules(
 
     for candidate in record.malformed_decision_rules() {
         diags.push(Diagnostic::warning(
-            "T016",
+            catalog::T016.id,
             record.file_path(),
             candidate.line,
             format!(
@@ -767,7 +791,7 @@ fn check_tagged_rules(
 
     if record.decision_rules().is_empty() {
         diags.push(Diagnostic::warning(
-            "T016",
+            catalog::T016.id,
             record.file_path(),
             0,
             "Decision section lacks tagged rules (RN [L]: pattern)".into(),
@@ -779,7 +803,7 @@ fn check_tagged_rules(
         let word_count = rule.text.split_whitespace().count() as u64;
         if word_count < min_rule_words {
             diags.push(Diagnostic::warning(
-                "T016",
+                catalog::T016.id,
                 record.file_path(),
                 rule.line,
                 format!(
@@ -789,7 +813,7 @@ fn check_tagged_rules(
             ));
         } else if word_count > max_rule_words {
             diags.push(Diagnostic::warning(
-                "T016",
+                catalog::T016.id,
                 record.file_path(),
                 rule.line,
                 format!(
@@ -801,7 +825,7 @@ fn check_tagged_rules(
 
         if rule.layer == 0 || rule.layer > 12 {
             diags.push(Diagnostic::warning(
-                "T016",
+                catalog::T016.id,
                 record.file_path(),
                 rule.line,
                 format!(
@@ -830,7 +854,7 @@ fn check_tagged_rules(
                 "start".into()
             };
             diags.push(Diagnostic::warning(
-                "T016",
+                catalog::T016.id,
                 record.file_path(),
                 0,
                 format!("Tagged rule IDs not sequential (gap after {prev})"),
@@ -851,7 +875,7 @@ fn check_rule_tier_tension(record: &AdrRecord, adr_tier: ValidTier, diags: &mut 
         if rule_rank < adr_rank {
             let distance = adr_rank - rule_rank;
             diags.push(Diagnostic::warning(
-                "T019",
+                catalog::T019.id,
                 record.file_path(),
                 rule.line,
                 format!(
@@ -878,7 +902,7 @@ fn check_reference_load(record: &AdrRecord, tier: ValidTier, diags: &mut Vec<Dia
     let max_refs = tier.get().max_refs();
     if ref_count > max_refs {
         diags.push(Diagnostic::warning(
-            "T020",
+            catalog::T020.id,
             record.file_path(),
             0,
             format!(

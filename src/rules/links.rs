@@ -19,6 +19,7 @@
 //! (inspects other References slots). Stale-archive ADRs (`is_stale`)
 //! are exempt from L010–L017.
 
+use crate::rules::catalog;
 use std::collections::HashMap;
 
 use crate::index::{CorpusIndex, Resolution};
@@ -68,7 +69,7 @@ fn check_single_link(
         Resolution::Resolved(target_record) => {
             if target_record.is_stale() && !source.is_stale() && rel.verb != RelVerb::Supersedes {
                 diags.push(Diagnostic::warning(
-                    "L007",
+                    catalog::L007.id,
                     source.file_path(),
                     rel.line,
                     format!("{} → {target_id}: reference to stale ADR", source.id()),
@@ -77,7 +78,7 @@ fn check_single_link(
         }
         Resolution::Absent => {
             diags.push(Diagnostic::warning(
-                "L001",
+                catalog::L001.id,
                 source.file_path(),
                 rel.line,
                 format!(
@@ -88,7 +89,7 @@ fn check_single_link(
         }
         Resolution::Indeterminate(unparsed) => {
             diags.push(Diagnostic::warning(
-                "L020",
+                catalog::L020.id,
                 source.file_path(),
                 rel.line,
                 format!(
@@ -124,7 +125,7 @@ fn check_supersedes_consistency(
 
                 if !status_matches {
                     diags.push(Diagnostic::warning(
-                        "L003",
+                        catalog::L003.id,
                         record.file_path(),
                         rel.line,
                         format!(
@@ -144,7 +145,7 @@ fn check_root_self_reference(source: &AdrRecord, rel: &Relationship, diags: &mut
     debug_assert_eq!(rel.verb, RelVerb::Root);
     if rel.target != *source.id() {
         diags.push(Diagnostic::warning(
-            "L008",
+            catalog::L008.id,
             source.file_path(),
             rel.line,
             format!(
@@ -161,7 +162,7 @@ fn check_root_self_reference(source: &AdrRecord, rel: &Relationship, diags: &mut
 fn check_legacy_verb(source: &AdrRecord, rel: &Relationship, diags: &mut Vec<Diagnostic>) {
     if let Some(migration) = rel.verb.migration() {
         diags.push(Diagnostic::warning(
-            "L006",
+            catalog::L006.id,
             source.file_path(),
             rel.line,
             format!(
@@ -184,7 +185,7 @@ fn check_parent_cross_domain_consistency(
         CrossDomainParent::Absent => return,
         CrossDomainParent::Malformed { raw, reason } => {
             diags.push(Diagnostic::warning(
-                "L018",
+                catalog::L018.id,
                 record.file_path(),
                 0,
                 format!(
@@ -203,7 +204,7 @@ fn check_parent_cross_domain_consistency(
         Resolution::Resolved(_) => {}
         Resolution::Absent => {
             diags.push(Diagnostic::warning(
-                "L019",
+                catalog::L019.id,
                 record.file_path(),
                 0,
                 format!(
@@ -215,7 +216,7 @@ fn check_parent_cross_domain_consistency(
         }
         Resolution::Indeterminate(unparsed) => {
             diags.push(Diagnostic::warning(
-                "L020",
+                catalog::L020.id,
                 record.file_path(),
                 0,
                 format!(
@@ -245,7 +246,7 @@ fn check_parent_cross_domain_consistency(
                 .find(|r| r.verb == RelVerb::References)
                 .map_or(0, |r| r.line);
             diags.push(Diagnostic::warning(
-                "L018",
+                catalog::L018.id,
                 record.file_path(),
                 line,
                 format!(
@@ -263,7 +264,7 @@ fn check_parent_cross_domain_consistency(
                 return;
             }
             diags.push(Diagnostic::warning(
-                "L018",
+                catalog::L018.id,
                 record.file_path(),
                 0,
                 format!(
@@ -294,7 +295,7 @@ fn check_root_references_coexistence(source: &AdrRecord, diags: &mut Vec<Diagnos
             .map_or(0, |r| r.line);
 
         diags.push(Diagnostic::warning(
-            "L009",
+            catalog::L009.id,
             source.file_path(),
             ref_line,
             format!(
@@ -356,7 +357,7 @@ fn emit_missing_parent(
         .first()
         .map_or(record.status_line(), |r| r.line);
     diags.push(Diagnostic::warning(
-        "L010",
+        catalog::L010.id,
         record.file_path(),
         line,
         format!(
@@ -393,7 +394,7 @@ fn emit_cross_domain_parent(
         return;
     }
     diags.push(Diagnostic::warning(
-        "L011",
+        catalog::L011.id,
         record.file_path(),
         parent_rel_line(record, parent_id),
         format!(
@@ -431,7 +432,7 @@ fn emit_parent_status(
         Some(Status::Accepted) => {}
         Some(Status::SupersededBy(succ)) => {
             diags.push(Diagnostic::warning(
-                "L017",
+                catalog::L017.id,
                 record.file_path(),
                 parent_rel_line(record, parent_id),
                 format!(
@@ -443,7 +444,7 @@ fn emit_parent_status(
         }
         Some(other) => {
             diags.push(Diagnostic::warning(
-                "L012",
+                catalog::L012.id,
                 record.file_path(),
                 parent_rel_line(record, parent_id),
                 format!(
@@ -455,7 +456,7 @@ fn emit_parent_status(
         }
         None => {
             diags.push(Diagnostic::warning(
-                "L012",
+                catalog::L012.id,
                 record.file_path(),
                 parent_rel_line(record, parent_id),
                 format!(
@@ -478,7 +479,7 @@ fn emit_parent_tier(
         && parent_tier.rank() > child_tier.rank()
     {
         diags.push(Diagnostic::warning(
-            "L016",
+            catalog::L016.id,
             record.file_path(),
             parent_rel_line(record, parent_id),
             format!(
@@ -505,7 +506,7 @@ fn emit_root_parent_candidate(
         return;
     }
     diags.push(Diagnostic::warning(
-        "L015",
+        catalog::L015.id,
         record.file_path(),
         parent_rel_line(record, parent_id),
         format!(
@@ -570,7 +571,7 @@ fn emit_unreachable_chain(
         .first()
         .map_or(record.status_line(), |r| r.line);
     diags.push(Diagnostic::warning(
-        "L014",
+        catalog::L014.id,
         record.file_path(),
         line,
         format!(
@@ -639,7 +640,7 @@ fn emit_cycle_diagnostics(
             .find(|r| r.verb == RelVerb::References)
             .map_or(record.status_line(), |r| r.line);
         diags.push(Diagnostic::warning(
-            "L013",
+            catalog::L013.id,
             record.file_path(),
             line,
             format!(

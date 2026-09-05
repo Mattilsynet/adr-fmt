@@ -4,8 +4,17 @@
 //! The rendered side is read from the real binary's stdout, never from
 //! source text: a source-scanning guard is satisfied by an id appearing in
 //! a comment or a test string and so fails open.
+//!
+//! The implemented side no longer scans for string literals. Every
+//! diagnostic construction site now takes its id from a `src/rules/catalog.rs`
+//! entry (`catalog::T002.id`), so this guard resolves those references
+//! through the catalog. That keeps the check honest in both directions: an
+//! entry a validator emits but no section renders is caught, and a rendered
+//! id no validator emits is caught. It also gives the guard a stronger
+//! invariant than before — a bare literal rule id at a construction site is
+//! now a failure, not merely invisible.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -36,6 +45,10 @@ const FORWARDING_DEFINITION: &str = "fn resolve_param(";
 const FORWARDING_DEFINITION_FILE: &str = "rules/template.rs";
 
 const FORWARDED_PARAM_NAME: &str = "rule";
+
+const CATALOG_FILE: &str = "rules/catalog.rs";
+
+const CATALOG_PATH_PREFIX: &str = "catalog::";
 
 fn is_rule_id(token: &str) -> bool {
     match token.as_bytes() {
@@ -128,38 +141,85 @@ fn leading_identifier(production: &str, site: usize) -> &str {
     &rest[..end]
 }
 
-fn opens_with_literal(production: &str, site: usize) -> bool {
-    production[site..].trim_start().starts_with('"')
+/// Map every catalog constant name to the rule id it carries.
+///
+/// Parsed from source rather than imported because `catalog` is crate-private
+/// (AFM-0026:R2) and an integration test cannot see it. The constant name and
+/// the id deliberately differ in case for `T005c`, so the mapping must be read
+/// rather than guessed.
+fn catalog_entries() -> BTreeMap<String, String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join(CATALOG_FILE);
+    let text = fs::read_to_string(&path).expect("catalog source is readable");
+    let mut entries = BTreeMap::new();
+    let mut cursor = 0;
+    while let Some(offset) = text[cursor..].find("pub(crate) const ") {
+        let name_start = cursor + offset + "pub(crate) const ".len();
+        let name_end = text[name_start..]
+            .find(':')
+            .map(|at| name_start + at)
+            .expect("a catalog constant declares a type");
+        let name = text[name_start..name_end].trim().to_string();
+        cursor = name_end;
+        let Some(open) = text[cursor..].find('"').map(|at| cursor + at + 1) else {
+            break;
+        };
+        let close = text[open..]
+            .find('"')
+            .map(|at| open + at)
+            .expect("unterminated catalog string literal");
+        let id = &text[open..close];
+        if is_rule_id(id) {
+            entries.insert(name, id.to_string());
+        }
+        cursor = close;
+    }
+    assert!(
+        entries.len() >= 40,
+        "the catalog scan found only {} entries; the scanner is broken and the parity guard \
+         would pass vacuously",
+        entries.len()
+    );
+    entries
 }
 
-fn literal_rule_id<'a>(production: &'a str, file: &Path, base: usize, site: usize) -> &'a str {
-    let Some(open) = production[site..].find('"').map(|at| site + at + 1) else {
-        panic!(
-            "{}: diagnostic construction at byte {} carries no literal rule id, so the \
-             parity guard cannot see this site",
-            file.display(),
-            base + site
-        );
-    };
-    let Some(close) = production[open..].find('"').map(|at| open + at) else {
-        panic!(
-            "{}: unterminated rule id literal at byte {}",
-            file.display(),
-            base + open
-        );
-    };
-    let id = &production[open..close];
+/// Resolve `catalog::NAME.id` at a construction site to the rule id it names.
+fn catalog_rule_id<'a>(
+    production: &str,
+    catalog: &'a BTreeMap<String, String>,
+    file: &Path,
+    base: usize,
+    site: usize,
+) -> &'a str {
+    let rest = production[site..].trim_start();
     assert!(
-        is_rule_id(id),
-        "{}: diagnostic construction at byte {} does not open with a literal rule id \
-         (found `{id}`), so the parity guard cannot see this site",
+        rest.starts_with(CATALOG_PATH_PREFIX),
+        "{}: diagnostic construction at byte {} does not take its id from the rule catalog \
+         (found `{}`). Rule ids are stated once, in `src/{CATALOG_FILE}`, so that the \
+         validating side and the rendered governance reference cannot drift; a literal here \
+         reintroduces exactly that drift",
         file.display(),
-        base + site
+        base + site,
+        leading_identifier(production, site)
     );
-    id
+    let name_start = site + production[site..].len() - rest.len() + CATALOG_PATH_PREFIX.len();
+    let name = leading_identifier(production, name_start);
+    catalog.get(name).map_or_else(
+        || {
+            panic!(
+                "{}: construction at byte {} references `catalog::{name}`, which is not a \
+                 catalog entry carrying a rule id",
+                file.display(),
+                base + site
+            )
+        },
+        String::as_str,
+    )
 }
 
 fn implemented_rule_ids() -> BTreeSet<String> {
+    let catalog = catalog_entries();
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     rust_sources(&src_root, &mut files);
@@ -170,6 +230,9 @@ fn implemented_rule_ids() -> BTreeSet<String> {
     let mut exempted_sites = 0usize;
     let mut forwarding_calls = 0usize;
     for file in &files {
+        if file.ends_with(CATALOG_FILE) {
+            continue;
+        }
         let text = fs::read_to_string(file).expect("source file is readable");
         let is_definition_file = file.ends_with(FORWARDING_DEFINITION_FILE);
         for segment in production_segments(&text) {
@@ -191,27 +254,17 @@ fn implemented_rule_ids() -> BTreeSet<String> {
                 while let Some(offset) = production[cursor..].find(marker) {
                     let site = cursor + offset + marker.len();
                     cursor = site;
-                    if opens_with_literal(production, site) {
-                        ids.insert(
-                            literal_rule_id(production, file, segment.offset, site).to_string(),
-                        );
-                        continue;
-                    }
                     let identifier = leading_identifier(production, site);
                     let inside_definition =
                         definition.is_some_and(|(start, end)| site >= start && site < end);
-                    assert!(
-                        inside_definition && identifier == FORWARDED_PARAM_NAME,
-                        "{}: diagnostic construction at byte {} opens with `{identifier}` \
-                         rather than a literal rule id, and is not the one exempted \
-                         forwarding site inside `{FORWARDING_DEFINITION}` in \
-                         `{FORWARDING_DEFINITION_FILE}`; the parity guard cannot see this \
-                         site, so it must either take a literal rule id or route through \
-                         that forwarding definition",
-                        file.display(),
-                        segment.offset + site
+                    if inside_definition && identifier == FORWARDED_PARAM_NAME {
+                        exempted_sites += 1;
+                        continue;
+                    }
+                    ids.insert(
+                        catalog_rule_id(production, &catalog, file, segment.offset, site)
+                            .to_string(),
                     );
-                    exempted_sites += 1;
                 }
             }
             let mut cursor = 0;
@@ -223,7 +276,13 @@ fn implemented_rule_ids() -> BTreeSet<String> {
                     continue;
                 }
                 forwarding_calls += 1;
-                ids.insert(literal_rule_id(production, file, segment.offset, site).to_string());
+                let comma = production[site..]
+                    .find(',')
+                    .map(|at| site + at + 1)
+                    .expect("a resolve_param call names its rule after the config argument");
+                ids.insert(
+                    catalog_rule_id(production, &catalog, file, segment.offset, comma).to_string(),
+                );
             }
         }
     }
@@ -231,12 +290,12 @@ fn implemented_rule_ids() -> BTreeSet<String> {
     assert_eq!(
         definitions, 1,
         "expected exactly one `{FORWARDING_DEFINITION}` definition in src/; found \
-         {definitions}. The parity guard's only non-literal exemption is bound to that \
+         {definitions}. The parity guard's only non-catalog exemption is bound to that \
          single definition"
     );
     assert_eq!(
         exempted_sites, 1,
-        "expected exactly one exempted non-literal diagnostic construction (the forwarding \
+        "expected exactly one exempted non-catalog diagnostic construction (the forwarding \
          site inside `{FORWARDING_DEFINITION}`); found {exempted_sites}. A changed count \
          means the exemption has generalised and must be re-proven"
     );

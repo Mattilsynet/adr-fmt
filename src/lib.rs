@@ -51,6 +51,7 @@ pub use model::{
 pub use parser::{ParseError, ParseOutcome, parse_domain, parse_stale};
 pub use report::{Diagnostic, Severity};
 
+use crate::rules::catalog;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -321,7 +322,7 @@ fn report_duplicate_id(
 
 fn duplicate_id_diagnostic(dup: &index::DuplicateId) -> report::Diagnostic {
     report::Diagnostic::warning(
-        "P004",
+        catalog::P004.id,
         &dup.paths[0],
         0,
         format!(
