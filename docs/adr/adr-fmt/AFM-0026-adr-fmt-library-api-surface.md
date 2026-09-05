@@ -1,7 +1,7 @@
 # AFM-0026. adr-fmt Library API Surface
 
 Date: 2026-05-18
-Last-reviewed: 2026-09-02
+Last-reviewed: 2026-09-05
 Tier: S
 Status: Accepted
 
@@ -88,6 +88,14 @@ removes it in favour of `MetadataProbeFailed`, which carries
 still names only the relative segment, per AFM-0028:R2. Recorded in
 place per AFM-0029:R2 — no Supersedes edge, no successor ADR.
 
+`model::AdrIdError` belongs to the R1 set because it is the `Err` of
+`AdrId::try_new` and of the `TryFrom<&str>` impl, both reachable
+through the R1-pinned `AdrId`: a consumer cannot use the pinned
+constructor without naming it (AFM-0028:R4 error-type inheritance).
+R1 and R7 pin which items and fields are stable but are silent on
+whose types they are, so R9 governs semver coupling to third-party
+crates — `clap`, `regex`, `serde`, `toml` — in that same surface.
+
 ## Decision
 
 Pin the `adr-fmt` library API to a flat re-export set at the crate
@@ -100,7 +108,7 @@ R1 [5]: The library exposes exactly these items at the crate root via
   internal reorganisation is non-breaking:
   `config::{Config, LoadError, load_quiet, resolve_corpus_root, ResolveCorpusError}`,
   `containment::{ContainmentError, contained_join, contained_join_optional}`,
-  `model::{AdrRecord, DomainDir, AdrId, Tier, Status, Relationship, RelVerb, parse_adr_id}`,
+  `model::{AdrRecord, DomainDir, AdrId, AdrIdError, Tier, Status, Relationship, RelVerb, parse_adr_id}`,
   `parser::{parse_domain, parse_stale, ParseOutcome, ParseError}`,
   `report::{Diagnostic, Severity}`.
   `config::load` is intentionally absent; adding it requires a
@@ -151,6 +159,13 @@ R8 [5]: Second break recorded under R6: `ContainmentError::MetadataFailed`
   indistinguishable from transient I/O error. Commit `b139537` removes
   it in favour of the typed `MetadataProbeFailed { segment, kind }`;
   additive half in `01aaa7a`.
+
+R9 [7]: Items in the R1 set MUST NOT name a third-party crate's type or
+  trait in a public signature, a trait bound, an `impl Trait` return, or
+  field shape reachable per R7, which couples this crate's semver to
+  theirs. Implementing such a trait for a local type is exempt. Sole
+  coupling, widenable only by ADR: `toml::Value` in
+  `config::RuleConfig::params`, reached via `Config::rules`.
 
 ## Consequences
 
