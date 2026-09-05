@@ -5,6 +5,14 @@
 //! compile-time probe that every item in the Q2 public-API set (see bd
 //! adr-fmt-d7ao) resolves under its re-exported crate-root path.
 //!
+//! The `--help` / `--version` termination guards run out-of-process: an
+//! in-process assertion cannot bite, because `process::exit(0)` inside
+//! `run` would terminate the test binary *successfully* before the
+//! assertion executes. Each parent test spawns an `#[ignore]`d child
+//! probe in this same executable and requires a sentinel printed *after*
+//! `run` returns; a terminating `run` yields a successful child with no
+//! sentinel, which fails the parent.
+//!
 //! Modules `context`, `nav`, `output`, `refs`, `rules`, `guidelines` are
 //! private per CHE-0030 (Flat Public API via Private Modules); external
 //! consumers MUST NOT name those paths, so no probes exist for them.
@@ -13,12 +21,94 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+const SENTINEL: &str = "ADR_FMT_RUN_RETURNED";
+
+fn spawn_child_probe(test_name: &str) -> String {
+    let exe = std::env::current_exe().expect("test executable path");
+    let output = Command::new(exe)
+        .args([
+            "--exact",
+            test_name,
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .output()
+        .expect("spawn child probe");
+    assert!(
+        output.status.success(),
+        "child probe {test_name} did not exit successfully: {:?}",
+        output.status
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+#[test]
+#[ignore = "spawned by the termination-guard parent test"]
+fn child_probe_help() {
+    let argv: Vec<OsString> = vec![OsString::from("adr-fmt"), OsString::from("--help")];
+    let exit: i32 = adr_fmt::run(argv);
+    println!("{SENTINEL} help {exit}");
+}
+
+#[test]
+#[ignore = "spawned by the termination-guard parent test"]
+fn child_probe_version() {
+    let argv: Vec<OsString> = vec![OsString::from("adr-fmt"), OsString::from("--version")];
+    let exit: i32 = adr_fmt::run(argv);
+    println!("{SENTINEL} version {exit}");
+}
 
 #[test]
 fn run_default_mode_via_lib_api_returns_zero() {
     let argv: Vec<OsString> = vec![OsString::from("adr-fmt")];
-    let exit = adr_fmt::run(argv);
+    let exit: i32 = adr_fmt::run(argv);
     assert_eq!(exit, 0, "default-mode run should exit 0");
+}
+
+#[test]
+fn help_returns_to_caller_instead_of_terminating_the_process() {
+    let stdout = spawn_child_probe("child_probe_help");
+    assert!(
+        stdout.contains(&format!("{SENTINEL} help 0")),
+        "`run` must return control to the caller with exit 0 for --help \
+         (AFM-0003:R1); the post-call sentinel was absent, which means the \
+         process terminated inside `run`. child stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn version_returns_to_caller_instead_of_terminating_the_process() {
+    let stdout = spawn_child_probe("child_probe_version");
+    assert!(
+        stdout.contains(&format!("{SENTINEL} version 0")),
+        "`run` must return control to the caller with exit 0 for --version \
+         (AFM-0003:R1); the post-call sentinel was absent, which means the \
+         process terminated inside `run`. child stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn parse_error_returns_to_caller_instead_of_terminating_the_process() {
+    let argv: Vec<OsString> = vec![
+        OsString::from("adr-fmt"),
+        OsString::from("--no-such-flag-exists"),
+    ];
+    let exit: i32 = adr_fmt::run(argv);
+    assert_eq!(exit, 2, "an unknown flag is a clap usage error (exit 2)");
+}
+
+#[test]
+fn mutually_exclusive_modes_return_a_conflict_error() {
+    let argv: Vec<OsString> = vec![
+        OsString::from("adr-fmt"),
+        OsString::from("--lint"),
+        OsString::from("--tree"),
+    ];
+    let exit: i32 = adr_fmt::run(argv);
+    assert_eq!(exit, 2, "clap-declared exclusivity must still reject");
 }
 
 #[test]

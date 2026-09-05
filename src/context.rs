@@ -12,9 +12,22 @@ use crate::nav::{compute_parent_children, compute_parent_edges, walk_parent_chai
 use crate::output::{EmittedRule, GroupRoot, RootGroup};
 
 struct EligibleContext<'a> {
-    eligible: HashSet<AdrId>,
     records: HashMap<&'a AdrId, &'a AdrRecord>,
     foundation_prefixes: Vec<&'a str>,
+}
+
+impl<'a> EligibleContext<'a> {
+    fn eligible_ids(&self) -> impl Iterator<Item = &'a AdrId> + '_ {
+        self.records.keys().copied()
+    }
+
+    fn is_eligible(&self, id: &AdrId) -> bool {
+        self.records.contains_key(id)
+    }
+
+    fn record(&self, id: &AdrId) -> Option<&'a AdrRecord> {
+        self.records.get(id).copied()
+    }
 }
 
 /// Resolve decision rules applicable to a crate, grouped by root ADR subtree.
@@ -76,7 +89,6 @@ fn collect_eligible_context<'a>(
         .map(|d| d.prefix.as_str())
         .collect();
 
-    let mut eligible: HashSet<AdrId> = HashSet::new();
     let mut eligible_records: HashMap<&AdrId, &AdrRecord> = HashMap::new();
 
     for record in records {
@@ -87,7 +99,6 @@ fn collect_eligible_context<'a>(
             if record.decision_rules().is_empty() {
                 continue;
             }
-            eligible.insert(record.id().clone());
             eligible_records.insert(record.id(), record);
         }
     }
@@ -112,13 +123,11 @@ fn collect_eligible_context<'a>(
             if record.decision_rules().is_empty() {
                 continue;
             }
-            eligible.insert(record.id().clone());
             eligible_records.insert(record.id(), record);
         }
     }
 
     EligibleContext {
-        eligible,
         records: eligible_records,
         foundation_prefixes,
     }
@@ -134,11 +143,11 @@ fn build_context_groups(
 
     let root_index: HashSet<AdrId> = records
         .iter()
-        .filter(|r| r.is_root())
+        .filter(|r| r.is_root() && !r.is_stale())
         .map(|r| r.id().clone())
         .collect();
 
-    let assignment = assign_roots(&eligible_context.eligible, &root_index, &parent_edges);
+    let assignment = assign_roots(eligible_context, &root_index, &parent_edges);
 
     let foundation_set: HashSet<&str> = eligible_context
         .foundation_prefixes
@@ -146,7 +155,7 @@ fn build_context_groups(
         .copied()
         .collect();
 
-    let context_roots = sorted_context_roots(&assignment, &foundation_set, record_by_id);
+    let context_roots = sorted_context_roots(&assignment, &foundation_set, eligible_context);
 
     let mut claimed: HashSet<AdrId> = HashSet::new();
     let mut groups: Vec<RootGroup> = Vec::new();
@@ -188,12 +197,12 @@ fn build_context_groups(
 }
 
 fn assign_roots(
-    eligible: &HashSet<AdrId>,
+    eligible_context: &EligibleContext<'_>,
     root_index: &HashSet<AdrId>,
     parent_edges: &HashMap<AdrId, AdrId>,
 ) -> HashMap<AdrId, AdrId> {
     let mut assignment: HashMap<AdrId, AdrId> = HashMap::new();
-    for id in eligible {
+    for id in eligible_context.eligible_ids() {
         if root_index.contains(id) {
             assignment.insert(id.clone(), id.clone());
             continue;
@@ -210,8 +219,10 @@ fn assign_roots(
 fn sorted_context_roots(
     assignment: &HashMap<AdrId, AdrId>,
     foundation_set: &HashSet<&str>,
-    record_by_id: &CorpusIndex<'_>,
+    eligible_context: &EligibleContext<'_>,
 ) -> Vec<AdrId> {
+    let min_layer = min_assigned_rule_layers(assignment, eligible_context);
+
     let mut context_roots: Vec<AdrId> = assignment
         .values()
         .collect::<HashSet<_>>()
@@ -225,7 +236,12 @@ fn sorted_context_roots(
 
         b_foundation
             .cmp(&a_foundation)
-            .then_with(|| min_rule_layer(a, record_by_id).cmp(&min_rule_layer(b, record_by_id)))
+            .then_with(|| {
+                min_layer
+                    .get(a)
+                    .unwrap_or(&u8::MAX)
+                    .cmp(min_layer.get(b).unwrap_or(&u8::MAX))
+            })
             .then_with(|| a.prefix().cmp(b.prefix()))
             .then_with(|| a.number().cmp(&b.number()))
     });
@@ -233,14 +249,25 @@ fn sorted_context_roots(
     context_roots
 }
 
-fn min_rule_layer(id: &AdrId, record_by_id: &CorpusIndex<'_>) -> u8 {
-    record_by_id.get(id).map_or(u8::MAX, |r| {
-        r.decision_rules()
-            .iter()
-            .map(|rule| rule.layer)
-            .min()
-            .unwrap_or(u8::MAX)
-    })
+fn min_assigned_rule_layers(
+    assignment: &HashMap<AdrId, AdrId>,
+    eligible_context: &EligibleContext<'_>,
+) -> HashMap<AdrId, u8> {
+    let mut min_layer: HashMap<AdrId, u8> = HashMap::new();
+
+    for (id, root_id) in assignment {
+        let Some(record) = eligible_context.record(id) else {
+            continue;
+        };
+        for rule in record.decision_rules() {
+            min_layer
+                .entry(root_id.clone())
+                .and_modify(|current| *current = (*current).min(rule.layer))
+                .or_insert(rule.layer);
+        }
+    }
+
+    min_layer
 }
 
 fn collect_root_rules(
@@ -253,12 +280,12 @@ fn collect_root_rules(
     let mut rules: Vec<EmittedRule> = Vec::new();
 
     let mut visited: HashSet<AdrId> = HashSet::new();
-    let mut queue: VecDeque<(AdrId, u16)> = VecDeque::new();
+    let mut queue: VecDeque<(AdrId, usize)> = VecDeque::new();
     queue.push_back((root_id.clone(), 0));
     visited.insert(root_id.clone());
 
     while let Some((current_id, depth)) = queue.pop_front() {
-        if eligible_context.eligible.contains(&current_id)
+        if eligible_context.is_eligible(&current_id)
             && assignment.get(&current_id) == Some(root_id)
             && !claimed.contains(&current_id)
         {
@@ -282,10 +309,10 @@ fn collect_root_rules(
 fn push_record_rules(
     rules: &mut Vec<EmittedRule>,
     id: &AdrId,
-    depth: u16,
+    depth: usize,
     eligible_context: &EligibleContext<'_>,
 ) {
-    if let Some(record) = eligible_context.records.get(id) {
+    if let Some(record) = eligible_context.record(id) {
         for rule in record.decision_rules() {
             rules.push(EmittedRule {
                 adr_id: id.clone(),
@@ -304,15 +331,14 @@ fn append_unclaimed_group(
     claimed: &HashSet<AdrId>,
 ) {
     let unclaimed: Vec<&AdrId> = eligible_context
-        .eligible
-        .iter()
+        .eligible_ids()
         .filter(|id| !claimed.contains(*id))
         .collect();
 
     if !unclaimed.is_empty() {
         let mut rules: Vec<EmittedRule> = Vec::new();
         for id in &unclaimed {
-            push_record_rules(&mut rules, id, u16::MAX, eligible_context);
+            push_record_rules(&mut rules, id, usize::MAX, eligible_context);
         }
         rules.sort_by(|a, b| {
             a.layer
@@ -432,7 +458,6 @@ description = "test"
         record
     }
 
-    /// Collect all unique ADR IDs that emitted rules across all groups.
     fn all_emitted_adr_ids(groups: &[RootGroup]) -> Vec<AdrId> {
         let mut seen = HashSet::new();
         let mut ids = Vec::new();
@@ -446,7 +471,6 @@ description = "test"
         ids
     }
 
-    /// Count total rules across all groups.
     fn total_rule_count(groups: &[RootGroup]) -> usize {
         groups.iter().map(|g| g.rules.len()).sum()
     }
@@ -649,6 +673,51 @@ description = "test"
     }
 
     #[test]
+    fn stale_root_does_not_anchor_a_live_child() {
+        let mut stale_root = make_record(
+            "CHE",
+            1,
+            vec![],
+            vec![("R1", 2, "Stale root rule")],
+            vec![(RelVerb::Root, "CHE", 1)],
+        );
+        *stale_root.is_stale_mut() = true;
+
+        let records = vec![
+            stale_root,
+            make_record(
+                "CHE",
+                2,
+                vec![],
+                vec![("R1", 5, "Live child rule")],
+                vec![(RelVerb::References, "CHE", 1)],
+            ),
+        ];
+        let config = make_config();
+        let groups = context_grouped("example-core", &records, &config).unwrap();
+
+        assert!(
+            !groups
+                .iter()
+                .any(|g| g.root == GroupRoot::Adr(make_id("CHE", 1))),
+            "a stale ADR is non-authoritative per AFM-0022 and must not head a context group"
+        );
+        let unclaimed = groups
+            .iter()
+            .find(|g| g.root == GroupRoot::Unclaimed)
+            .expect("the live child must fall back to the Unclaimed group");
+        assert_eq!(
+            unclaimed
+                .rules
+                .iter()
+                .filter(|r| r.adr_id == make_id("CHE", 2))
+                .count(),
+            1,
+            "CHE-0002 must appear in Unclaimed exactly once"
+        );
+    }
+
+    #[test]
     fn unknown_crate_returns_error() {
         let records = vec![make_record(
             "CHE",
@@ -794,7 +863,7 @@ description = "test"
     }
 
     #[test]
-    fn cycle_does_not_loop() {
+    fn cycle_members_land_in_unclaimed() {
         let records = vec![
             make_record(
                 "CHE",
@@ -809,8 +878,8 @@ description = "test"
                 vec![],
                 vec![("R1", 5, "Cycle A")],
                 vec![
-                    (RelVerb::References, "CHE", 1),
                     (RelVerb::References, "CHE", 3),
+                    (RelVerb::References, "CHE", 1),
                 ],
             ),
             make_record(
@@ -819,14 +888,29 @@ description = "test"
                 vec![],
                 vec![("R1", 5, "Cycle B")],
                 vec![
-                    (RelVerb::References, "CHE", 1),
                     (RelVerb::References, "CHE", 2),
+                    (RelVerb::References, "CHE", 1),
                 ],
             ),
         ];
         let config = make_config();
         let groups = context_grouped("example-core", &records, &config).unwrap();
 
+        let unclaimed = groups
+            .iter()
+            .find(|g| g.root == GroupRoot::Unclaimed)
+            .expect("cycle members must fall back to the Unclaimed group");
+        for number in [2, 3] {
+            let occurrences = unclaimed
+                .rules
+                .iter()
+                .filter(|r| r.adr_id == make_id("CHE", number))
+                .count();
+            assert_eq!(
+                occurrences, 1,
+                "CHE-{number:04} is in a parent-edge cycle and must appear in Unclaimed exactly once"
+            );
+        }
         assert_eq!(total_rule_count(&groups), 3);
     }
 
@@ -861,6 +945,49 @@ description = "test"
         let com_pos = root_ids.iter().position(|id| id.prefix() == "COM").unwrap();
         let che_pos = root_ids.iter().position(|id| id.prefix() == "CHE").unwrap();
         assert!(com_pos < che_pos, "COM should appear before CHE");
+    }
+
+    #[test]
+    fn root_order_uses_subtree_minimum_layer_not_root_own_rules() {
+        let records = vec![
+            make_record(
+                "CHE",
+                9,
+                vec![],
+                vec![("R1", 9, "D-tier root rule")],
+                vec![(RelVerb::Root, "CHE", 9)],
+            ),
+            make_record("CHE", 10, vec![], vec![], vec![(RelVerb::Root, "CHE", 10)]),
+            make_record(
+                "CHE",
+                11,
+                vec![],
+                vec![("R1", 2, "S-tier child rule")],
+                vec![(RelVerb::References, "CHE", 10)],
+            ),
+        ];
+        let config = make_config();
+        let groups = context_grouped("example-core", &records, &config).unwrap();
+
+        let root_ids: Vec<&AdrId> = groups
+            .iter()
+            .filter_map(|g| match &g.root {
+                GroupRoot::Adr(id) => Some(id),
+                GroupRoot::Unclaimed => None,
+            })
+            .collect();
+        let ruleless_root = root_ids
+            .iter()
+            .position(|id| **id == make_id("CHE", 10))
+            .unwrap();
+        let l9_root = root_ids
+            .iter()
+            .position(|id| **id == make_id("CHE", 9))
+            .unwrap();
+        assert!(
+            ruleless_root < l9_root,
+            "CHE-0010 emits an L2 descendant rule and must precede CHE-0009, whose minimum is L9"
+        );
     }
 
     #[test]
@@ -939,6 +1066,53 @@ description = "test"
     }
 
     #[test]
+    fn chain_deeper_than_u16_range_emits_without_overflow() {
+        let mut records = vec![make_record(
+            "CHE",
+            1,
+            vec![],
+            vec![("R1", 2, "Root rule")],
+            vec![(RelVerb::Root, "CHE", 1)],
+        )];
+        for number in 2..=u16::MAX {
+            records.push(make_record(
+                "CHE",
+                number,
+                vec![],
+                vec![],
+                vec![(RelVerb::References, "CHE", number - 1)],
+            ));
+        }
+        records.push(make_record(
+            "COM",
+            1,
+            vec![],
+            vec![],
+            vec![(RelVerb::References, "CHE", u16::MAX)],
+        ));
+        records.push(make_record(
+            "COM",
+            2,
+            vec![],
+            vec![("R1", 5, "Deepest rule")],
+            vec![(RelVerb::References, "COM", 1)],
+        ));
+
+        let config = make_config();
+        let groups = context_grouped("example-core", &records, &config).unwrap();
+
+        let deepest = groups
+            .iter()
+            .flat_map(|g| &g.rules)
+            .find(|r| r.adr_id == make_id("COM", 2))
+            .expect("the deepest rule must be emitted");
+        assert_eq!(
+            deepest.depth, 65_536,
+            "a chain of 65537 ADRs must traverse without an arithmetic overflow"
+        );
+    }
+
+    #[test]
     fn root_with_no_rules_but_has_children() {
         let records = vec![
             make_record("CHE", 1, vec![], vec![], vec![(RelVerb::Root, "CHE", 1)]),
@@ -965,7 +1139,7 @@ description = "test"
     }
 
     #[test]
-    fn empty_root_group_still_created() {
+    fn root_with_no_rules_and_no_children_creates_no_group() {
         let records = vec![make_record(
             "CHE",
             1,

@@ -18,12 +18,25 @@ pub enum ContainmentError {
     ParentTraversal(String),
     /// Segment is empty.
     Empty,
-    /// Canonicalization of the joined path failed.
-    CanonicalizeFailed { segment: String, reason: String },
+    /// Canonicalization of the ADR root failed while resolving
+    /// `segment`; the root itself is unusable.
+    RootCanonicalizeFailed {
+        segment: String,
+        kind: std::io::ErrorKind,
+    },
+    /// Canonicalization of the joined target failed.
+    TargetCanonicalizeFailed {
+        segment: String,
+        kind: std::io::ErrorKind,
+    },
     /// Probing the joined path for existence failed for a reason
-    /// other than absence (permission denied, IO error): whether the
-    /// path exists is indeterminate.
-    MetadataFailed { segment: String, reason: String },
+    /// other than absence; `kind` distinguishes permission failure
+    /// from transient I/O error. Whether the path exists is
+    /// indeterminate.
+    MetadataProbeFailed {
+        segment: String,
+        kind: std::io::ErrorKind,
+    },
     /// Canonical target escapes the canonical root via symlink or
     /// otherwise resolves outside the ADR corpus.
     EscapesRoot {
@@ -47,17 +60,20 @@ impl fmt::Display for ContainmentError {
                 s.escape_debug()
             ),
             Self::Empty => write!(f, "path segment is empty"),
-            Self::CanonicalizeFailed { segment, reason } => {
+            Self::RootCanonicalizeFailed { segment, kind } => {
                 write!(
                     f,
-                    "cannot canonicalize {}: {reason}",
+                    "cannot canonicalize the ADR root while resolving {}: {kind}",
                     segment.escape_debug()
                 )
             }
-            Self::MetadataFailed { segment, reason } => {
+            Self::TargetCanonicalizeFailed { segment, kind } => {
+                write!(f, "cannot canonicalize {}: {kind}", segment.escape_debug())
+            }
+            Self::MetadataProbeFailed { segment, kind } => {
                 write!(
                     f,
-                    "cannot determine whether {} exists: {reason}",
+                    "cannot determine whether {} exists: {kind}",
                     segment.escape_debug()
                 )
             }
@@ -96,15 +112,15 @@ pub fn contained_join(root: &Path, segment: &str) -> Result<PathBuf, Containment
     lexical_check(segment)?;
 
     let joined = root.join(segment);
-    let canonical_target =
-        std::fs::canonicalize(&joined).map_err(|e| ContainmentError::CanonicalizeFailed {
-            segment: segment.to_owned(),
-            reason: e.to_string(),
-        })?;
     let canonical_root =
-        std::fs::canonicalize(root).map_err(|e| ContainmentError::CanonicalizeFailed {
+        std::fs::canonicalize(root).map_err(|e| ContainmentError::RootCanonicalizeFailed {
             segment: segment.to_owned(),
-            reason: format!("ADR root {}: {e}", root.display()),
+            kind: e.kind(),
+        })?;
+    let canonical_target =
+        std::fs::canonicalize(&joined).map_err(|e| ContainmentError::TargetCanonicalizeFailed {
+            segment: segment.to_owned(),
+            kind: e.kind(),
         })?;
 
     if !canonical_target.starts_with(&canonical_root) {
@@ -124,7 +140,7 @@ pub fn contained_join(root: &Path, segment: &str) -> Result<PathBuf, Containment
 /// absence is never inferred from any other IO failure.
 ///
 /// The probe does not follow symlinks, so a dangling symlink is a
-/// present-but-unresolvable entry ([`ContainmentError::CanonicalizeFailed`]),
+/// present-but-unresolvable entry ([`ContainmentError::TargetCanonicalizeFailed`]),
 /// not an absent one.
 ///
 /// Used for paths that are optional at runtime (e.g., the stale
@@ -146,9 +162,9 @@ pub fn contained_join_optional(
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => {
-            return Err(ContainmentError::MetadataFailed {
+            return Err(ContainmentError::MetadataProbeFailed {
                 segment: segment.to_owned(),
-                reason: e.to_string(),
+                kind: e.kind(),
             });
         }
     }
@@ -248,7 +264,7 @@ mod tests {
         let dir = tmp();
         let err = contained_join(dir.path(), "does-not-exist").unwrap_err();
         assert!(
-            matches!(err, ContainmentError::CanonicalizeFailed { .. }),
+            matches!(err, ContainmentError::TargetCanonicalizeFailed { .. }),
             "got: {err:?}"
         );
     }
@@ -269,28 +285,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn optional_join_propagates_permission_error_as_indeterminate() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = tmp();
-        let locked = dir.path().join("locked");
-        fs::create_dir(&locked).unwrap();
-        fs::create_dir(locked.join("inner")).unwrap();
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
-
-        let result = contained_join_optional(dir.path(), "locked/inner");
-
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
-
-        let err = result.expect_err("permission failure must not be reported as absent");
-        assert!(
-            matches!(err, ContainmentError::MetadataFailed { .. }),
-            "got: {err:?}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn optional_join_dangling_symlink_is_not_absent() {
         use std::os::unix::fs::symlink;
 
@@ -300,7 +294,7 @@ mod tests {
         let err = contained_join_optional(dir.path(), "link")
             .expect_err("dangling symlink must not be reported as absent");
         assert!(
-            matches!(err, ContainmentError::CanonicalizeFailed { .. }),
+            matches!(err, ContainmentError::TargetCanonicalizeFailed { .. }),
             "got: {err:?}"
         );
     }
@@ -336,6 +330,121 @@ mod tests {
 
         let result = contained_join(root.path(), "link").unwrap();
         assert!(result.starts_with(fs::canonicalize(root.path()).unwrap()));
+    }
+
+    #[test]
+    fn root_and_target_canonicalize_failures_are_distinct_variants() {
+        let dir = tmp();
+        let missing_root = dir.path().join("no-such-root");
+
+        let target_err = contained_join(dir.path(), "does-not-exist").unwrap_err();
+        let root_err = contained_join(&missing_root, "anything").unwrap_err();
+
+        assert!(
+            matches!(
+                target_err,
+                ContainmentError::TargetCanonicalizeFailed {
+                    kind: std::io::ErrorKind::NotFound,
+                    ..
+                }
+            ),
+            "got: {target_err:?}"
+        );
+        assert!(
+            matches!(
+                root_err,
+                ContainmentError::RootCanonicalizeFailed {
+                    kind: std::io::ErrorKind::NotFound,
+                    ..
+                }
+            ),
+            "got: {root_err:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn permission_denied_is_distinguishable_from_not_found() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tmp();
+        let locked = dir.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::create_dir(locked.join("inner")).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = contained_join(dir.path(), "locked/inner");
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let err = result.expect_err("unreadable parent must not canonicalize");
+        let ContainmentError::TargetCanonicalizeFailed { kind, .. } = err else {
+            panic!("got: {err:?}");
+        };
+        assert_eq!(kind, std::io::ErrorKind::PermissionDenied);
+        assert_ne!(kind, std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn canonicalize_failure_display_does_not_leak_absolute_paths() {
+        let dir = tmp();
+        let missing_root = dir.path().join("no-such-root");
+
+        let root_err = contained_join(&missing_root, "anything").unwrap_err();
+        let target_err = contained_join(dir.path(), "does-not-exist").unwrap_err();
+
+        let root_text = root_err.to_string();
+        let target_text = target_err.to_string();
+        let leaked = dir.path().to_string_lossy().into_owned();
+
+        assert!(!root_text.contains(&leaked), "leaked: {root_text}");
+        assert!(!target_text.contains(&leaked), "leaked: {target_text}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_probe_permission_denied_is_distinguishable_from_not_found() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tmp();
+        let locked = dir.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::create_dir(locked.join("inner")).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = contained_join_optional(dir.path(), "locked/inner");
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let err = result.expect_err("permission failure must not be reported as absent");
+        let ContainmentError::MetadataProbeFailed { kind, .. } = err else {
+            panic!("got: {err:?}");
+        };
+        assert_eq!(kind, std::io::ErrorKind::PermissionDenied);
+        assert_ne!(kind, std::io::ErrorKind::NotFound);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_probe_failure_display_does_not_leak_absolute_paths() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tmp();
+        let locked = dir.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::create_dir(locked.join("inner")).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = contained_join_optional(dir.path(), "locked/inner");
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let text = result
+            .expect_err("permission failure must not be reported as absent")
+            .to_string();
+        let leaked = dir.path().to_string_lossy().into_owned();
+
+        assert!(!text.contains(&leaked), "leaked: {text}");
     }
 
     #[test]

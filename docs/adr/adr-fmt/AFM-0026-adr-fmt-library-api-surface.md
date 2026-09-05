@@ -1,7 +1,7 @@
 # AFM-0026. adr-fmt Library API Surface
 
 Date: 2026-05-18
-Last-reviewed: 2026-08-13
+Last-reviewed: 2026-09-02
 Tier: S
 Status: Accepted
 
@@ -49,6 +49,45 @@ inheritance). `index` is a private module of the binary's `run()`
 entry point, matching the R2 enumeration's existing members. Current
 consumer: `adr-srv`, via the three functions above.
 
+Amendment 2026-09-02 (cluster-6 finding #8): R6 added to state the
+v0.1 stability of error-variant field shape explicitly — previously
+only implied by AFM-0028:R3's back-reference to R3 — and to record one
+break. `containment::ContainmentError::CanonicalizeFailed
+{ segment, reason }` erased which operand failed and flattened
+`std::io::ErrorKind` into arbitrary text, so a consumer could not
+distinguish `NotFound` from an indeterminate failure. Commit `8a34c4e`
+replaces it with `RootCanonicalizeFailed { segment, kind }` and
+`TargetCanonicalizeFailed { segment, kind }`, both carrying a typed
+`std::io::ErrorKind` (additive half landed in `e77ee78`). The removed
+variant had no consumer outside this crate. Recorded in place per
+AFM-0029:R2 — no Supersedes edge, no successor ADR, since this amends
+one rule rather than replacing the ADR.
+
+Amendment 2026-09-02 (SM-05 review finding N2): R7 added to state that
+R1's "exactly these items" pins the reachable field shape
+transitively, not only the named items — a consumer cannot use pinned
+`Config` without naming `DomainConfig`, reached through the public
+`Config::domains: Vec<DomainConfig>` — and to record one break.
+`config::DomainConfig::multi_root_rationale` was public, parsed, and
+inert: the warning it promised was never wired and no code read it.
+Commit `0642ad1` removes it. The TOML schema is unaffected (no
+`deny_unknown_fields`; no corpus `adr-fmt.toml` sets the key), but
+removing a public field of a reachable type is a Rust source break for
+struct literals and field access, so it is recorded here. Recorded in
+place per AFM-0029:R2 — no Supersedes edge, no successor ADR.
+
+Amendment 2026-09-02 (SM-06, opportunistic): R8 added to record a
+second break under R6, which already governs it — R6 cannot absorb the
+record without exceeding T016's 60-word limit.
+`containment::ContainmentError::MetadataFailed` carried a stringly
+`reason`, so a caller could not distinguish permission failure from a
+transient I/O error at the type level — the same defect R6's first
+recorded break named on the canonicalize path. Commit `b139537`
+removes it in favour of `MetadataProbeFailed`, which carries
+`std::io::ErrorKind`; the additive half landed in `01aaa7a`. Display
+still names only the relative segment, per AFM-0028:R2. Recorded in
+place per AFM-0029:R2 — no Supersedes edge, no successor ADR.
+
 ## Decision
 
 Pin the `adr-fmt` library API to a flat re-export set at the crate
@@ -93,6 +132,25 @@ R5 [7]: The library MUST NOT widen what the binary's CLI promises per
   R1 set require their own ADR with current-consumer justification
   per COM-0013:R1. AFM-0006 (regex parsing) and AFM-0017 (P0xx
   namespace) further pin the shape of items already exposed.
+
+R6 [5]: Variant field shape of public error types in the R1 set is
+  v0.1-stable, the reading AFM-0028:R3 already assumes. New variants
+  may be added in minor versions; removing or reshaping one requires
+  an in-place amendment naming the break per AFM-0029:R2. Recorded
+  break: `ContainmentError::CanonicalizeFailed`, removed in commit
+  `8a34c4e`.
+
+R7 [5]: R1 pins field shape transitively: a type reachable through a
+  pinned item's public signature is v0.1-stable on R3's terms, since a
+  consumer cannot use the pinned item without naming it. Recorded
+  break: `config::DomainConfig`, reachable via `Config::domains`, lost
+  inert field `multi_root_rationale` in commit `0642ad1`.
+
+R8 [5]: Second break recorded under R6: `ContainmentError::MetadataFailed`
+  carried a stringly `reason`, leaving permission failure
+  indistinguishable from transient I/O error. Commit `b139537` removes
+  it in favour of the typed `MetadataProbeFailed { segment, kind }`;
+  additive half in `01aaa7a`.
 
 ## Consequences
 

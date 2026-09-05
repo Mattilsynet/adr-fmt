@@ -47,18 +47,6 @@ pub struct DomainConfig {
     /// Foundation domains are included with every domain query.
     #[serde(default)]
     pub foundation: bool,
-    /// Rationale for having more than one Root ADR in this domain.
-    ///
-    /// Per the parent-edge tree model (AFM-0020), every domain is
-    /// expected to have exactly one Root ADR. A multi-root domain is
-    /// permitted only when the domain genuinely splits into independent
-    /// concerns; in that case this field documents why.
-    ///
-    /// **Status: parsed but inert.** The accompanying warning ("emit
-    /// when domain has >1 root and rationale is empty") is not yet
-    /// wired. Tracked as a follow-up to the parent-edge migration.
-    #[serde(default)]
-    pub multi_root_rationale: String,
 }
 
 /// Rule override entry. Only `id` is required; other fields are optional

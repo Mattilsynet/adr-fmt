@@ -10,13 +10,13 @@ use std::fmt::Write as _;
 use crate::config::Config;
 use crate::index::CorpusIndex;
 use crate::model::{AdrId, AdrRecord, DomainDir, RelVerb, Status};
-use crate::nav::{compute_parent_children, compute_parent_edges};
+use crate::nav::ActiveTree;
 use crate::refs::RefsReport;
 use crate::report::Diagnostic;
 
 /// Read-only context shared across recursive tree-rendering calls.
 struct TreeContext<'a> {
-    parent_children: &'a HashMap<AdrId, Vec<AdrId>>,
+    tree: &'a ActiveTree,
     record_by_id: &'a CorpusIndex<'a>,
     domain_prefix: &'a str,
 }
@@ -25,14 +25,13 @@ struct TreeRenderState<'a> {
     records: &'a [AdrRecord],
     config: &'a Config,
     by_prefix: HashMap<&'a str, Vec<&'a AdrRecord>>,
-    parent_edges: HashMap<AdrId, AdrId>,
-    parent_children: HashMap<AdrId, Vec<AdrId>>,
+    tree: ActiveTree,
     record_by_id: &'a CorpusIndex<'a>,
 }
 
 /// The root of a `RootGroup`: either a real parsed ADR, or the
-/// synthetic "Unclaimed Rules" fallback for eligible rules no root's
-/// BFS reached.
+/// synthetic "Unclaimed Rules" fallback for eligible rules not
+/// assigned to any root through the parent-edge tree (AFM-0020).
 ///
 /// Modelled as a distinct variant rather than a sentinel `AdrId` so the
 /// synthetic case is representable without forging an
@@ -68,7 +67,7 @@ pub struct EmittedRule {
     pub rule_id: String,
     pub text: String,
     pub layer: u8,
-    pub depth: u16,
+    pub depth: usize,
 }
 
 /// Render a `--refs` report as a compact markdown bullet list.
@@ -177,8 +176,11 @@ pub fn render_diagnostics(diagnostics: &[Diagnostic], record_count: usize) -> St
 /// `### ROOT-ID. Title` heading. Rule lines use `- {text} [{ADR_ID}:{RULE_ID}:L{layer}]`
 /// format with the anchoring ID at the end.
 ///
-/// Groups with no rules after dedup are skipped. An optional "Unclaimed Rules"
-/// section appears if any eligible rules were not reached by any root's BFS.
+/// Groups with no rules after dedup are skipped. The renderer emits
+/// whichever non-empty groups the caller supplies, in the order given;
+/// it performs no root assignment of its own. An "Unclaimed Rules"
+/// section therefore appears only when the caller supplies a
+/// `GroupRoot::Unclaimed` group, which renders like any other.
 #[must_use]
 pub fn render_root_groups(crate_name: &str, groups: &[RootGroup]) -> String {
     let mut out = String::new();
@@ -251,8 +253,7 @@ pub fn render_tree(
         records,
         config,
         by_prefix: active_records_by_prefix(records),
-        parent_edges: compute_parent_edges(records),
-        parent_children: compute_parent_children(records),
+        tree: ActiveTree::from_records(records),
         record_by_id: index,
     };
 
@@ -306,14 +307,14 @@ fn render_domain_tree(out: &mut String, dir: &DomainDir, state: &TreeRenderState
         .cloned()
         .unwrap_or_default();
     let ctx = TreeContext {
-        parent_children: &state.parent_children,
+        tree: &state.tree,
         record_by_id: state.record_by_id,
         domain_prefix: &dir.prefix,
     };
     let mut reached = render_rooted_records(out, &domain_records, &ctx);
 
     render_cross_domain_roots(out, &domain_records, &ctx, &mut reached);
-    render_orphans(out, &domain_records, &reached, &state.parent_edges);
+    render_orphans(out, &domain_records, &reached, state.tree.parent_edges());
     render_stale_count(out, dir, state.records);
     out.push('\n');
 }
@@ -470,12 +471,11 @@ fn render_tree_node(
     .unwrap();
 
     let children: Vec<AdrId> = ctx
-        .parent_children
-        .get(id)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
+        .tree
+        .children_of(id)
+        .iter()
         .filter(|c| c.prefix() == ctx.domain_prefix)
+        .cloned()
         .collect();
 
     let n = children.len();
@@ -522,12 +522,11 @@ fn render_cross_domain_tree_node(
     .unwrap();
 
     let children: Vec<AdrId> = ctx
-        .parent_children
-        .get(id)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
+        .tree
+        .children_of(id)
+        .iter()
         .filter(|c| c.prefix() == ctx.domain_prefix)
+        .cloned()
         .collect();
 
     let n = children.len();
