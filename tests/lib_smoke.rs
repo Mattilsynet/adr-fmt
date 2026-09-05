@@ -5,13 +5,14 @@
 //! compile-time probe that every item in the Q2 public-API set (see bd
 //! adr-fmt-d7ao) resolves under its re-exported crate-root path.
 //!
-//! The `--help` / `--version` termination guards run out-of-process: an
-//! in-process assertion cannot bite, because `process::exit(0)` inside
-//! `run` would terminate the test binary *successfully* before the
-//! assertion executes. Each parent test spawns an `#[ignore]`d child
-//! probe in this same executable and requires a sentinel printed *after*
-//! `run` returns; a terminating `run` yields a successful child with no
-//! sentinel, which fails the parent.
+//! The `--help` / `--version` / infrastructure-failure termination
+//! guards run out-of-process: an in-process assertion cannot bite,
+//! because `process::exit` inside `run` would terminate the test binary
+//! before the assertion executes. Each parent test spawns an
+//! `#[ignore]`d child probe in this same executable and requires a
+//! sentinel printed *after* `run` returns; a terminating `run` yields
+//! either a successful child with no sentinel or a non-zero child,
+//! both of which fail the parent.
 //!
 //! Modules `context`, `nav`, `output`, `refs`, `rules`, `guidelines` are
 //! private per CHE-0030 (Flat Public API via Private Modules); external
@@ -49,31 +50,46 @@ fn spawn_child_probe(test_name: &str) -> String {
 #[ignore = "spawned by the termination-guard parent test"]
 fn child_probe_help() {
     let argv: Vec<OsString> = vec![OsString::from("adr-fmt"), OsString::from("--help")];
-    let exit: i32 = adr_fmt::run(argv);
-    println!("{SENTINEL} help {exit}");
+    let outcome: Result<(), adr_fmt::RunError> = adr_fmt::run(argv);
+    println!("{SENTINEL} help {outcome:?}");
 }
 
 #[test]
 #[ignore = "spawned by the termination-guard parent test"]
 fn child_probe_version() {
     let argv: Vec<OsString> = vec![OsString::from("adr-fmt"), OsString::from("--version")];
-    let exit: i32 = adr_fmt::run(argv);
-    println!("{SENTINEL} version {exit}");
+    let outcome: Result<(), adr_fmt::RunError> = adr_fmt::run(argv);
+    println!("{SENTINEL} version {outcome:?}");
+}
+
+#[test]
+#[ignore = "spawned by the termination-guard parent test"]
+fn child_probe_infrastructure_failure() {
+    let argv: Vec<OsString> = vec![
+        OsString::from("adr-fmt"),
+        OsString::from("--refs"),
+        OsString::from("INVALID"),
+    ];
+    let outcome: Result<(), adr_fmt::RunError> = adr_fmt::run(argv);
+    println!("{SENTINEL} refs {outcome:?}");
 }
 
 #[test]
 fn run_default_mode_via_lib_api_returns_zero() {
     let argv: Vec<OsString> = vec![OsString::from("adr-fmt")];
-    let exit: i32 = adr_fmt::run(argv);
-    assert_eq!(exit, 0, "default-mode run should exit 0");
+    let outcome: Result<(), adr_fmt::RunError> = adr_fmt::run(argv);
+    assert!(
+        outcome.is_ok(),
+        "default-mode run should succeed: {outcome:?}"
+    );
 }
 
 #[test]
 fn help_returns_to_caller_instead_of_terminating_the_process() {
     let stdout = spawn_child_probe("child_probe_help");
     assert!(
-        stdout.contains(&format!("{SENTINEL} help 0")),
-        "`run` must return control to the caller with exit 0 for --help \
+        stdout.contains(&format!("{SENTINEL} help Ok(())")),
+        "`run` must return control to the caller with a success result for --help \
          (AFM-0003:R1); the post-call sentinel was absent, which means the \
          process terminated inside `run`. child stdout:\n{stdout}"
     );
@@ -83,10 +99,22 @@ fn help_returns_to_caller_instead_of_terminating_the_process() {
 fn version_returns_to_caller_instead_of_terminating_the_process() {
     let stdout = spawn_child_probe("child_probe_version");
     assert!(
-        stdout.contains(&format!("{SENTINEL} version 0")),
-        "`run` must return control to the caller with exit 0 for --version \
+        stdout.contains(&format!("{SENTINEL} version Ok(())")),
+        "`run` must return control to the caller with a success result for --version \
          (AFM-0003:R1); the post-call sentinel was absent, which means the \
          process terminated inside `run`. child stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn infrastructure_failure_returns_to_caller_instead_of_terminating_the_process() {
+    let stdout = spawn_child_probe("child_probe_infrastructure_failure");
+    assert!(
+        stdout.contains(&format!("{SENTINEL} refs Err(Infrastructure)")),
+        "`run` must return `Err(RunError::Infrastructure)` to the caller rather \
+         than calling `process::exit(1)` (AFM-0026:R10); the post-call sentinel \
+         was absent, which means the process terminated inside `run`. child \
+         stdout:\n{stdout}"
     );
 }
 
@@ -96,8 +124,11 @@ fn parse_error_returns_to_caller_instead_of_terminating_the_process() {
         OsString::from("adr-fmt"),
         OsString::from("--no-such-flag-exists"),
     ];
-    let exit: i32 = adr_fmt::run(argv);
-    assert_eq!(exit, 2, "an unknown flag is a clap usage error (exit 2)");
+    let outcome: Result<(), adr_fmt::RunError> = adr_fmt::run(argv);
+    assert!(
+        matches!(outcome, Err(adr_fmt::RunError::Usage)),
+        "an unknown flag is a CLI usage failure, not an infrastructure one: {outcome:?}"
+    );
 }
 
 #[test]
@@ -107,8 +138,27 @@ fn mutually_exclusive_modes_return_a_conflict_error() {
         OsString::from("--lint"),
         OsString::from("--tree"),
     ];
-    let exit: i32 = adr_fmt::run(argv);
-    assert_eq!(exit, 2, "clap-declared exclusivity must still reject");
+    let outcome: Result<(), adr_fmt::RunError> = adr_fmt::run(argv);
+    assert!(
+        matches!(outcome, Err(adr_fmt::RunError::Usage)),
+        "clap-declared exclusivity must still reject as a usage failure: {outcome:?}"
+    );
+}
+
+#[test]
+fn run_error_implements_the_public_error_trait_obligation() {
+    let err = adr_fmt::run(vec![
+        OsString::from("adr-fmt"),
+        OsString::from("--no-such-flag-exists"),
+    ])
+    .expect_err("an unknown flag must fail");
+
+    let as_error: &dyn std::error::Error = &err;
+    assert!(
+        !as_error.to_string().is_empty(),
+        "Display must render a non-empty, human-readable message (AFM-0028:R2)"
+    );
+    assert!(!format!("{err:?}").is_empty(), "Debug must render");
 }
 
 #[test]
