@@ -8,165 +8,259 @@
 //! Output targets humans reading a terminal, not LLMs. Uses headings,
 //! bullet lists, and visual hierarchy.
 
+use std::io::{self, Write};
+
 use crate::config::Config;
 use crate::model::{RelVerb, Tier};
 use crate::rules::template::Budgets;
 
 /// Print the setup guide when no `adr-fmt.toml` exists.
-pub fn print_setup_guide() {
-    println!("adr-fmt — ADR Governance Tool");
-    println!("═══════════════════════════════");
-    println!();
-    println!("No adr-fmt.toml found. Create one at your workspace root.");
-    println!("Discovery walks up from the current directory until adr-fmt.toml");
-    println!("with a valid [corpus] table is found.");
-    println!();
-    println!("QUICK START");
-    println!("───────────");
-    println!();
-    println!("  1. Create adr-fmt.toml at the workspace root:");
-    println!();
-    println!("     [corpus]");
-    println!("     root = \"docs/adr\"");
-    println!();
-    println!("     [stale]");
-    println!("     directory = \"stale\"");
-    println!();
-    println!("     [[domains]]");
-    println!("     prefix = \"CHE\"");
-    println!("     name = \"Cherry\"");
-    println!("     directory = \"cherry\"");
-    println!("     description = \"Architecture decisions for the example project.\"");
-    println!("     crates = [\"example-core\"]");
-    println!();
-    println!("  2. Create your first ADR at docs/adr/cherry/CHE-0001-...md:");
-    println!();
-    println!("     # CHE-0001. Your First Decision");
-    println!();
-    println!("     Date: 2026-04-27");
-    println!("     Last-reviewed: 2026-04-27");
-    println!("     Tier: B");
-    println!("     Status: Draft");
-    println!();
-    println!("     ## Related");
-    println!();
-    println!("     Root: CHE-0001");
-    println!();
-    println!("     ## Context");
-    println!("     Why this decision exists and what problem it solves.");
-    println!();
-    println!("     ## Decision");
-    println!("     R1 [5]: The specific rule or decision statement");
-    println!();
-    println!("     ## Consequences");
-    println!("     What changes as a result of this decision being made.");
-    println!();
-    println!("  3. Run: adr-fmt --lint");
-    println!();
-    println!("MODES");
-    println!("─────");
-    println!();
-    println!("  adr-fmt                       Print governance guidelines (this output)");
-    println!("  adr-fmt --lint                Lint all ADRs");
-    println!("  adr-fmt --refs CHE-0001       Inbound references to an ADR");
-    println!("  adr-fmt --context crate-name  Decision rules for a crate");
-    println!("  adr-fmt --tree [DOMAIN]       Domain tree overview");
-    println!();
+///
+/// # Errors
+///
+/// Returns any write error from `w`, so a closed pipe surfaces as an
+/// infrastructure error (AFM-0003:R1) instead of a panic.
+pub fn print_setup_guide(w: &mut impl Write) -> io::Result<()> {
+    writeln!(w, "adr-fmt — ADR Governance Tool")?;
+    writeln!(w, "═══════════════════════════════")?;
+    writeln!(w)?;
+    writeln!(
+        w,
+        "No adr-fmt.toml found. Create one at your workspace root."
+    )?;
+    writeln!(
+        w,
+        "Discovery walks up from the current directory until adr-fmt.toml"
+    )?;
+    writeln!(w, "with a valid [corpus] table is found.")?;
+    writeln!(w)?;
+    writeln!(w, "QUICK START")?;
+    writeln!(w, "───────────")?;
+    writeln!(w)?;
+    writeln!(w, "  1. Create adr-fmt.toml at the workspace root:")?;
+    writeln!(w)?;
+    writeln!(w, "     [corpus]")?;
+    writeln!(w, "     root = \"docs/adr\"")?;
+    writeln!(w)?;
+    writeln!(w, "     [stale]")?;
+    writeln!(w, "     directory = \"stale\"")?;
+    writeln!(w)?;
+    writeln!(w, "     [[domains]]")?;
+    writeln!(w, "     prefix = \"CHE\"")?;
+    writeln!(w, "     name = \"Cherry\"")?;
+    writeln!(w, "     directory = \"cherry\"")?;
+    writeln!(
+        w,
+        "     description = \"Architecture decisions for the example project.\""
+    )?;
+    writeln!(w, "     crates = [\"example-core\"]")?;
+    writeln!(w)?;
+    writeln!(
+        w,
+        "  2. Create your first ADR at docs/adr/cherry/CHE-0001-...md:"
+    )?;
+    writeln!(w)?;
+    writeln!(w, "     # CHE-0001. Your First Decision")?;
+    writeln!(w)?;
+    writeln!(w, "     Date: 2026-04-27")?;
+    writeln!(w, "     Last-reviewed: 2026-04-27")?;
+    writeln!(w, "     Tier: B")?;
+    writeln!(w, "     Status: Draft")?;
+    writeln!(w)?;
+    writeln!(w, "     ## Related")?;
+    writeln!(w)?;
+    writeln!(w, "     Root: CHE-0001")?;
+    writeln!(w)?;
+    writeln!(w, "     ## Context")?;
+    writeln!(
+        w,
+        "     Why this decision exists and what problem it solves."
+    )?;
+    writeln!(w)?;
+    writeln!(w, "     ## Decision")?;
+    writeln!(w, "     R1 [5]: The specific rule or decision statement")?;
+    writeln!(w)?;
+    writeln!(w, "     ## Consequences")?;
+    writeln!(
+        w,
+        "     What changes as a result of this decision being made."
+    )?;
+    writeln!(w)?;
+    writeln!(w, "  3. Run: adr-fmt --lint")?;
+    writeln!(w)?;
+    writeln!(w, "MODES")?;
+    writeln!(w, "─────")?;
+    writeln!(w)?;
+    writeln!(
+        w,
+        "  adr-fmt                       Print governance guidelines (this output)"
+    )?;
+    writeln!(w, "  adr-fmt --lint                Lint all ADRs")?;
+    writeln!(
+        w,
+        "  adr-fmt --refs CHE-0001       Inbound references to an ADR"
+    )?;
+    writeln!(
+        w,
+        "  adr-fmt --context crate-name  Decision rules for a crate"
+    )?;
+    writeln!(w, "  adr-fmt --tree [DOMAIN]       Domain tree overview")?;
+    writeln!(w)?;
+    Ok(())
 }
 
 /// Print the full governance reference when config is present.
-pub fn print_governance(config: &Config) {
-    println!("ADR Governance Reference");
-    println!("════════════════════════");
-    println!();
-    println!("Generated by adr-fmt. Single source of truth for all invariant rules.");
-    println!("For rationale and process guidance, see docs/adr/adr-fmt/.");
-    println!();
+///
+/// # Errors
+///
+/// Returns any write error from `w`, so a closed pipe surfaces as an
+/// infrastructure error (AFM-0003:R1) instead of a panic.
+pub fn print_governance(w: &mut impl Write, config: &Config) -> io::Result<()> {
+    writeln!(w, "ADR Governance Reference")?;
+    writeln!(w, "════════════════════════")?;
+    writeln!(w)?;
+    writeln!(
+        w,
+        "Generated by adr-fmt. Single source of truth for all invariant rules."
+    )?;
+    writeln!(
+        w,
+        "For rationale and process guidance, see docs/adr/adr-fmt/."
+    )?;
+    writeln!(w)?;
 
-    print_modes();
-    print_domains(config);
-    print_tiers();
-    print_lifecycle();
-    print_template();
-    print_tagged_rules(config);
-    print_relationships(config);
-    print_naming();
-    print_link_rules();
-    print_stale(config);
-    print_overrides(config);
+    print_modes(w)?;
+    print_domains(w, config)?;
+    print_tiers(w)?;
+    print_lifecycle(w)?;
+    print_template(w)?;
+    print_tagged_rules(w, config)?;
+    print_relationships(w, config)?;
+    print_naming(w)?;
+    print_link_rules(w)?;
+    print_stale(w, config)?;
+    print_overrides(w, config)
 }
 
-fn print_modes() {
-    println!("MODES");
-    println!("─────");
-    println!();
-    println!("  (default)             Governance guidelines (this document)");
-    println!("  --lint                Lint all ADRs, report diagnostics");
-    println!("  --refs <ADR_ID>       Inbound references to an ADR (References + Supersedes)");
-    println!("  --context <CRATE>     Decision rules applicable to a crate");
-    println!("  --tree [DOMAIN]       Domain dependency tree");
-    println!();
-    println!("  Exit codes: 0 = complete, 1 = infrastructure error");
-    println!();
+fn print_modes(w: &mut impl Write) -> io::Result<()> {
+    writeln!(w, "MODES")?;
+    writeln!(w, "─────")?;
+    writeln!(w)?;
+    writeln!(
+        w,
+        "  (default)             Governance guidelines (this document)"
+    )?;
+    writeln!(
+        w,
+        "  --lint                Lint all ADRs, report diagnostics"
+    )?;
+    writeln!(
+        w,
+        "  --refs <ADR_ID>       Inbound references to an ADR (References + Supersedes)"
+    )?;
+    writeln!(
+        w,
+        "  --context <CRATE>     Decision rules applicable to a crate"
+    )?;
+    writeln!(w, "  --tree [DOMAIN]       Domain dependency tree")?;
+    writeln!(w)?;
+    writeln!(w, "  Exit codes: 0 = complete, 1 = infrastructure error")?;
+    writeln!(w)?;
+    Ok(())
 }
 
-fn print_domains(config: &Config) {
-    println!("DOMAINS");
-    println!("───────");
-    println!();
+fn print_domains(w: &mut impl Write, config: &Config) -> io::Result<()> {
+    writeln!(w, "DOMAINS")?;
+    writeln!(w, "───────")?;
+    writeln!(w)?;
     for domain in &config.domains {
         let marker = if domain.foundation {
             " ★ foundation"
         } else {
             ""
         };
-        println!("  {} ({}){marker}", domain.name, domain.prefix);
+        writeln!(w, "  {} ({}){marker}", domain.name, domain.prefix)?;
         let desc: String = domain
             .description
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
-        println!("    {desc}");
-        println!("    Directory: {}/", domain.directory);
+        writeln!(w, "    {desc}")?;
+        writeln!(w, "    Directory: {}/", domain.directory)?;
         if !domain.crates.is_empty() {
-            println!("    Crates: {}", domain.crates.join(", "));
+            writeln!(w, "    Crates: {}", domain.crates.join(", "))?;
         }
-        println!();
+        writeln!(w)?;
     }
+    Ok(())
 }
 
-fn print_tiers() {
-    println!("TIERS");
-    println!("─────");
-    println!();
+fn print_tiers(w: &mut impl Write) -> io::Result<()> {
+    writeln!(w, "TIERS")?;
+    writeln!(w, "─────")?;
+    writeln!(w)?;
     for tier in Tier::all() {
-        println!("  {tier:?} — {}", tier.name());
-        println!("    {}", tier.description());
-        println!("    Stability: {}", tier.stability());
-        println!();
+        writeln!(w, "  {tier:?} — {}", tier.name())?;
+        writeln!(w, "    {}", tier.description())?;
+        writeln!(w, "    Stability: {}", tier.stability())?;
+        writeln!(w)?;
     }
-    println!("  Assignment protocol (per AFM-0011):");
-    println!("    Ask \"Does this decision define <tier characteristic>?\" working");
-    println!("    from S downward. The first YES wins. The leverage hierarchy is");
-    println!("    Meadows-aligned: S (Paradigm) > A (Goals) > B (Self-Org) >");
-    println!("    C (Design) > D (Parameters). Higher tiers print first in");
-    println!("    --context output, exploiting LLM primacy bias so foundational");
-    println!("    constraints precede implementation details.");
-    println!();
-    println!("  Common mistakes:");
-    println!("    • Picking a tier by impact (\"this affects many crates\") rather");
-    println!("      than leverage (\"this defines a system characteristic\").");
-    println!("    • Promoting D-tier parameters because the value is critical:");
-    println!("      a critical timeout is still a parameter (D), not a goal (A).");
-    println!("    • Demoting S-tier paradigms because they feel \"too abstract to");
-    println!("      enforce\": abstraction is the source of S-tier leverage.");
-    println!();
+    writeln!(w, "  Assignment protocol (per AFM-0011):")?;
+    writeln!(
+        w,
+        "    Ask \"Does this decision define <tier characteristic>?\" working"
+    )?;
+    writeln!(
+        w,
+        "    from S downward. The first YES wins. The leverage hierarchy is"
+    )?;
+    writeln!(
+        w,
+        "    Meadows-aligned: S (Paradigm) > A (Goals) > B (Self-Org) >"
+    )?;
+    writeln!(
+        w,
+        "    C (Design) > D (Parameters). Higher tiers print first in"
+    )?;
+    writeln!(
+        w,
+        "    --context output, exploiting LLM primacy bias so foundational"
+    )?;
+    writeln!(w, "    constraints precede implementation details.")?;
+    writeln!(w)?;
+    writeln!(w, "  Common mistakes:")?;
+    writeln!(
+        w,
+        "    • Picking a tier by impact (\"this affects many crates\") rather"
+    )?;
+    writeln!(
+        w,
+        "      than leverage (\"this defines a system characteristic\")."
+    )?;
+    writeln!(
+        w,
+        "    • Promoting D-tier parameters because the value is critical:"
+    )?;
+    writeln!(
+        w,
+        "      a critical timeout is still a parameter (D), not a goal (A)."
+    )?;
+    writeln!(
+        w,
+        "    • Demoting S-tier paradigms because they feel \"too abstract to"
+    )?;
+    writeln!(
+        w,
+        "      enforce\": abstraction is the source of S-tier leverage."
+    )?;
+    writeln!(w)?;
+    Ok(())
 }
 
-fn print_lifecycle() {
-    println!("LIFECYCLE");
-    println!("─────────");
-    println!();
+fn print_lifecycle(w: &mut impl Write) -> io::Result<()> {
+    writeln!(w, "LIFECYCLE")?;
+    writeln!(w, "─────────")?;
+    writeln!(w)?;
     let statuses = [
         ("Draft", false),
         ("Proposed", false),
@@ -177,180 +271,396 @@ fn print_lifecycle() {
     ];
     for (name, terminal) in &statuses {
         let marker = if *terminal { " [terminal]" } else { "" };
-        println!("  {name}{marker}");
+        writeln!(w, "  {name}{marker}")?;
     }
-    println!();
-    println!("  Terminal states require:");
-    println!("    • Move ADR to stale directory");
-    println!("    • Add a ## Retirement section");
-    println!();
+    writeln!(w)?;
+    writeln!(w, "  Terminal states require:")?;
+    writeln!(w, "    • Move ADR to stale directory")?;
+    writeln!(w, "    • Add a ## Retirement section")?;
+    writeln!(w)?;
+    Ok(())
 }
 
-fn print_template() {
-    println!("TEMPLATE");
-    println!("────────");
-    println!();
-    println!("  Required structure:");
-    println!();
-    println!("    # PREFIX-NNNN. Title");
-    println!("    Date: YYYY-MM-DD");
-    println!("    Last-reviewed: YYYY-MM-DD");
-    println!("    Tier: S | A | B | C | D");
-    println!("    Status: Draft | Proposed | Accepted | ...");
-    println!("    ## Related");
-    println!("    ## Context");
-    println!("    ## Decision");
-    println!("    ## Consequences");
-    println!("    ## Retirement      (stale only)");
-    println!();
-    println!("  Metadata fields (preamble, before first ## heading):");
-    println!("    Date              Creation date (enforced: T002)");
-    println!("    Last-reviewed     Most recent review date (enforced: T003)");
-    println!("    Tier              Architectural significance S/A/B/C/D (enforced: T004)");
-    println!("    Status            Lifecycle state (enforced: T005, T006)");
-    println!("    Crates            Optional comma-separated crate list");
-    println!();
-    println!("  Related section format:");
-    println!("    Pipe-separated: Verb: TARGET1, TARGET2 | Verb: TARGET3");
-    println!("    Example: Root: CHE-0001 | References: CHE-0002, CHE-0010");
-    println!();
-    println!("  Rules:");
-    println!("    T002  Date field present (YYYY-MM-DD)");
-    println!("    T003  Last-reviewed field present (YYYY-MM-DD)");
-    println!("    T004  Tier field present (S/A/B/C/D)");
-    println!("    T005  Status value present — a `Status:` metadata field or a");
-    println!("          legacy ## Status section carrying a value MUST satisfy");
-    println!("          this; it fires only when neither supplies a status");
-    println!("    T005c Legacy ## Status section — accepted but deprecated. With");
-    println!("          no metadata field the section supplies the status and you");
-    println!("          SHOULD migrate it to a Status: preamble field; when a");
-    println!("          Status: field is also present the section is dead content");
-    println!("          and MUST be deleted — the metadata field is authoritative");
-    println!("    T006  Status is a recognized keyword (rejects Amended)");
-    println!("    T007  Related section present with at least one relationship");
-    println!("    T008  Context section present");
-    println!("    T009  Decision section present");
-    println!("    T010  Consequences section present");
-    println!("    T011  Code block size limit (max 20 lines)");
-    println!("    T014  Section order (Related → Context → Decision → Consequences)");
-    println!("    T015  Section word count — tier-scaled signal, not gate.");
-    println!("          The effective minimum and maximum MUST be the");
-    println!("          configured T015 base scaled by the tier factor, so");
-    println!("          the minimum printed above and the minimum enforced");
-    println!("          here are one value. S-tier ADRs get more room,");
-    println!("          D-tier must be tighter. Flags the section for review.");
-    println!("    T016  Tagged rules — tier-scaled signal, not gate. Max rules");
-    println!("          scales with tier. Word count (7–60), sequential IDs");
-    println!("          and layer outside 1–12 (invalid Meadows leverage");
-    println!("          point) are warnings. A rule-shaped line that");
-    println!("          does not match the required `RN [L]: text` format");
-    println!("          is reported against its own line — it is not");
-    println!("          silently skipped. Exceeding may indicate the ADR");
-    println!("          covers multiple decisions.");
-    println!("    T019  Rule-tier tension — asymmetric leverage bound. T019 MUST");
-    println!("          fire if and only if the rule's layer-derived tier has");
-    println!("          higher leverage than the ADR's tier (rule_rank <");
-    println!("          adr_rank); equal or lower leverage MUST pass silently.");
-    println!("          T019 MUST NOT apply domain carve-outs and MUST NOT apply");
-    println!("          a distance threshold. Move the rule to a matching-");
-    println!("          tier ADR or adjust the layer annotation.");
-    println!("    T020  Reference load — tier-scaled limit on References:");
-    println!("          count. Root and Supersedes are structural and don't");
-    println!("          count. High reference count signals broad scope.");
-    println!("    T022  MADR residue section — headings such as `## Context and");
-    println!("          Problem Statement`, `## Decision Drivers`, `## Considered");
-    println!("          Options`, `## Decision Outcome` and `## Pros and Cons of");
-    println!("          the Options` are not part of this template. Fold their");
-    println!("          content into `## Context` or `## Decision` and remove the");
-    println!("          heading. Skipped on stale ADRs.");
-    println!();
-    println!("  Parser-stage rules:");
-    println!("    P001  ADR file unreadable (filesystem error during read)");
-    println!("    P002  Missing or malformed H1 title (\"# PREFIX-NNNN. Title\")");
-    println!("    P003  Malformed `## Related` segment: missing `Verb: ` separator,");
-    println!("          unrecognized verb, or unparseable target. The malformed");
-    println!("          segment is skipped; other valid segments on the same");
-    println!("          line still parse and link. A clause-level target");
-    println!("          (`ID:Rn`) is accepted on `References:` only");
-    println!("          (AFM-0029:R4); elsewhere it is unparseable.");
-    println!("    P004  Duplicate ADR id: two records claim the same PREFIX-NNNN.");
-    println!("          Detected once, before any rule runs — no rule can consume");
-    println!("          the corpus while this holds (AFM-0008:R3).");
-    println!();
+fn print_template(w: &mut impl Write) -> io::Result<()> {
+    writeln!(w, "TEMPLATE")?;
+    writeln!(w, "────────")?;
+    writeln!(w)?;
+    writeln!(w, "  Required structure:")?;
+    writeln!(w)?;
+    writeln!(w, "    # PREFIX-NNNN. Title")?;
+    writeln!(w, "    Date: YYYY-MM-DD")?;
+    writeln!(w, "    Last-reviewed: YYYY-MM-DD")?;
+    writeln!(w, "    Tier: S | A | B | C | D")?;
+    writeln!(w, "    Status: Draft | Proposed | Accepted | ...")?;
+    writeln!(w, "    ## Related")?;
+    writeln!(w, "    ## Context")?;
+    writeln!(w, "    ## Decision")?;
+    writeln!(w, "    ## Consequences")?;
+    writeln!(w, "    ## Retirement      (stale only)")?;
+    writeln!(w)?;
+    writeln!(w, "  Metadata fields (preamble, before first ## heading):")?;
+    writeln!(w, "    Date              Creation date (enforced: T002)")?;
+    writeln!(
+        w,
+        "    Last-reviewed     Most recent review date (enforced: T003)"
+    )?;
+    writeln!(
+        w,
+        "    Tier              Architectural significance S/A/B/C/D (enforced: T004)"
+    )?;
+    writeln!(
+        w,
+        "    Status            Lifecycle state (enforced: T005, T006)"
+    )?;
+    writeln!(
+        w,
+        "    Crates            Optional comma-separated crate list"
+    )?;
+    writeln!(w)?;
+    writeln!(w, "  Related section format:")?;
+    writeln!(
+        w,
+        "    Pipe-separated: Verb: TARGET1, TARGET2 | Verb: TARGET3"
+    )?;
+    writeln!(
+        w,
+        "    Example: Root: CHE-0001 | References: CHE-0002, CHE-0010"
+    )?;
+    writeln!(w)?;
+    print_template_rules(w)
 }
 
-fn print_tagged_rules(config: &Config) {
-    println!("TAGGED RULES (Decision Section)");
-    println!("───────────────────────────────");
-    println!();
-    println!("  Format:  R1 [N]: Rule statement (7–60 words)");
-    println!("           R2 [N]: Next rule statement");
-    println!("           Multi-line rules: indent continuation ≥2 spaces");
-    println!();
-    println!("  [N] = Meadows leverage layer (1–12)");
-    println!();
-    println!(
+fn print_template_rules(w: &mut impl Write) -> io::Result<()> {
+    writeln!(w, "  Rules:")?;
+    writeln!(w, "    T002  Date field present (YYYY-MM-DD)")?;
+    writeln!(w, "    T003  Last-reviewed field present (YYYY-MM-DD)")?;
+    writeln!(w, "    T004  Tier field present (S/A/B/C/D)")?;
+    writeln!(
+        w,
+        "    T005  Status value present — a `Status:` metadata field or a"
+    )?;
+    writeln!(
+        w,
+        "          legacy ## Status section carrying a value MUST satisfy"
+    )?;
+    writeln!(
+        w,
+        "          this; it fires only when neither supplies a status"
+    )?;
+    writeln!(
+        w,
+        "    T005c Legacy ## Status section — accepted but deprecated. With"
+    )?;
+    writeln!(
+        w,
+        "          no metadata field the section supplies the status and you"
+    )?;
+    writeln!(
+        w,
+        "          SHOULD migrate it to a Status: preamble field; when a"
+    )?;
+    writeln!(
+        w,
+        "          Status: field is also present the section is dead content"
+    )?;
+    writeln!(
+        w,
+        "          and MUST be deleted — the metadata field is authoritative"
+    )?;
+    writeln!(
+        w,
+        "    T006  Status is a recognized keyword (rejects Amended)"
+    )?;
+    writeln!(
+        w,
+        "    T007  Related section present with at least one relationship"
+    )?;
+    writeln!(w, "    T008  Context section present")?;
+    writeln!(w, "    T009  Decision section present")?;
+    writeln!(w, "    T010  Consequences section present")?;
+    writeln!(w, "    T011  Code block size limit (max 20 lines)")?;
+    writeln!(
+        w,
+        "    T014  Section order (Related → Context → Decision → Consequences)"
+    )?;
+    writeln!(
+        w,
+        "    T015  Section word count — tier-scaled signal, not gate."
+    )?;
+    writeln!(w, "          The effective minimum and maximum MUST be the")?;
+    writeln!(
+        w,
+        "          configured T015 base scaled by the tier factor, so"
+    )?;
+    writeln!(
+        w,
+        "          the minimum printed above and the minimum enforced"
+    )?;
+    writeln!(
+        w,
+        "          here are one value. S-tier ADRs get more room,"
+    )?;
+    writeln!(
+        w,
+        "          D-tier must be tighter. Flags the section for review."
+    )?;
+    print_template_rules_t016(w)
+}
+
+fn print_template_rules_t016(w: &mut impl Write) -> io::Result<()> {
+    writeln!(
+        w,
+        "    T016  Tagged rules — tier-scaled signal, not gate. Max rules"
+    )?;
+    writeln!(
+        w,
+        "          scales with tier. Word count (7–60), sequential IDs"
+    )?;
+    writeln!(
+        w,
+        "          and layer outside 1–12 (invalid Meadows leverage"
+    )?;
+    writeln!(w, "          point) are warnings. A rule-shaped line that")?;
+    writeln!(
+        w,
+        "          does not match the required `RN [L]: text` format"
+    )?;
+    writeln!(w, "          is reported against its own line — it is not")?;
+    writeln!(
+        w,
+        "          silently skipped. Exceeding may indicate the ADR"
+    )?;
+    writeln!(w, "          covers multiple decisions.")?;
+    writeln!(
+        w,
+        "    T019  Rule-tier tension — asymmetric leverage bound. T019 MUST"
+    )?;
+    writeln!(
+        w,
+        "          fire if and only if the rule's layer-derived tier has"
+    )?;
+    writeln!(
+        w,
+        "          higher leverage than the ADR's tier (rule_rank <"
+    )?;
+    writeln!(
+        w,
+        "          adr_rank); equal or lower leverage MUST pass silently."
+    )?;
+    writeln!(
+        w,
+        "          T019 MUST NOT apply domain carve-outs and MUST NOT apply"
+    )?;
+    writeln!(
+        w,
+        "          a distance threshold. Move the rule to a matching-"
+    )?;
+    writeln!(w, "          tier ADR or adjust the layer annotation.")?;
+    writeln!(
+        w,
+        "    T020  Reference load — tier-scaled limit on References:"
+    )?;
+    writeln!(
+        w,
+        "          count. Root and Supersedes are structural and don't"
+    )?;
+    writeln!(
+        w,
+        "          count. High reference count signals broad scope."
+    )?;
+    writeln!(
+        w,
+        "    T022  MADR residue section — headings such as `## Context and"
+    )?;
+    writeln!(
+        w,
+        "          Problem Statement`, `## Decision Drivers`, `## Considered"
+    )?;
+    writeln!(
+        w,
+        "          Options`, `## Decision Outcome` and `## Pros and Cons of"
+    )?;
+    writeln!(
+        w,
+        "          the Options` are not part of this template. Fold their"
+    )?;
+    writeln!(
+        w,
+        "          content into `## Context` or `## Decision` and remove the"
+    )?;
+    writeln!(w, "          heading. Skipped on stale ADRs.")?;
+    writeln!(w)?;
+    print_template_parser_rules(w)
+}
+
+fn print_template_parser_rules(w: &mut impl Write) -> io::Result<()> {
+    writeln!(w, "  Parser-stage rules:")?;
+    writeln!(
+        w,
+        "    P001  ADR file unreadable (filesystem error during read)"
+    )?;
+    writeln!(
+        w,
+        "    P002  Missing or malformed H1 title (\"# PREFIX-NNNN. Title\")"
+    )?;
+    writeln!(
+        w,
+        "    P003  Malformed `## Related` segment: missing `Verb: ` separator,"
+    )?;
+    writeln!(
+        w,
+        "          unrecognized verb, or unparseable target. The malformed"
+    )?;
+    writeln!(
+        w,
+        "          segment is skipped; other valid segments on the same"
+    )?;
+    writeln!(
+        w,
+        "          line still parse and link. A clause-level target"
+    )?;
+    writeln!(w, "          (`ID:Rn`) is accepted on `References:` only")?;
+    writeln!(w, "          (AFM-0029:R4); elsewhere it is unparseable.")?;
+    writeln!(
+        w,
+        "    P004  Duplicate ADR id: two records claim the same PREFIX-NNNN."
+    )?;
+    writeln!(
+        w,
+        "          Detected once, before any rule runs — no rule can consume"
+    )?;
+    writeln!(w, "          the corpus while this holds (AFM-0008:R3).")?;
+    writeln!(w)?;
+    Ok(())
+}
+
+fn print_tagged_rules(w: &mut impl Write, config: &Config) -> io::Result<()> {
+    writeln!(w, "TAGGED RULES (Decision Section)")?;
+    writeln!(w, "───────────────────────────────")?;
+    writeln!(w)?;
+    writeln!(w, "  Format:  R1 [N]: Rule statement (7–60 words)")?;
+    writeln!(w, "           R2 [N]: Next rule statement")?;
+    writeln!(
+        w,
+        "           Multi-line rules: indent continuation ≥2 spaces"
+    )?;
+    writeln!(w)?;
+    writeln!(w, "  [N] = Meadows leverage layer (1–12)")?;
+    writeln!(w)?;
+    print_leverage_table(w, config)
+}
+
+fn print_leverage_table(w: &mut impl Write, config: &Config) -> io::Result<()> {
+    writeln!(
+        w,
         "    Layer  Leverage point (Meadows)                                              Tier"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "    ─────  ─────────────────────────────────────────────────────────────────────  ────"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "      1    The power to transcend paradigms                                        S"
-    );
-    println!("      2    The mindset or paradigm out of which the system arises                 S");
-    println!(
+    )?;
+    writeln!(
+        w,
+        "      2    The mindset or paradigm out of which the system arises                 S"
+    )?;
+    writeln!(
+        w,
         "      3    The goals of the system                                                 S"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "      4    The power to add, change, evolve, or self-organize system structure     A"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "      5    The rules of the system (incentives, punishments, constraints)          B"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "      6    The structure of information flows (who does and does not have access)  B"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "      7    The gain around driving positive feedback loops                         C"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "      8    The strength of negative feedback loops                                 C"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "      9    The lengths of delays, relative to the rate of system change            D"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "     10    The structure of material stocks and flows                              D"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "     11    The sizes of buffers and other stabilizing stocks, relative to flows    D"
-    );
-    println!(
+    )?;
+    writeln!(
+        w,
         "     12    Constants, parameters, numbers                                          D"
-    );
-    println!();
-    println!("  Global ID: PREFIX-NNNN:RN:LN  (e.g., CHE-0042:R1:L5)");
-    println!();
-    println!("  Constraints (signals — exceeding warrants review, not rejection):");
-    println!("    • At least 1 tagged rule per Decision section (all statuses)");
-    println!("    • Max rules are tier-scaled (S=15, A=12, B=10, C=8, D=6)");
-    println!("    • IDs must be sequential (R1, R2, R3 — no gaps)");
-    println!("    • Each rule: 7–60 words");
-    println!("    • Layer must be 1–12 (Meadows leverage points)");
-    println!("    • Rule-tier tension: fires when the rule's layer-derived");
-    println!("      tier has higher leverage than the ADR's tier; equal or");
-    println!("      lower leverage passes silently. No distance tolerance");
-    println!("      and no domain carve-outs (T019)");
-    println!();
+    )?;
+    writeln!(w)?;
+    writeln!(w, "  Global ID: PREFIX-NNNN:RN:LN  (e.g., CHE-0042:R1:L5)")?;
+    writeln!(w)?;
+    print_tagged_rule_constraints(w, config)
+}
 
-    println!("  Tier scaling — factor multiplies the configured min_words,");
-    println!("  max_words, and max_rules base values. The min_words column");
-    println!("  below is the effective T015 minimum this corpus enforces:");
+fn print_tagged_rule_constraints(w: &mut impl Write, config: &Config) -> io::Result<()> {
+    writeln!(
+        w,
+        "  Constraints (signals — exceeding warrants review, not rejection):"
+    )?;
+    writeln!(
+        w,
+        "    • At least 1 tagged rule per Decision section (all statuses)"
+    )?;
+    writeln!(
+        w,
+        "    • Max rules are tier-scaled (S=15, A=12, B=10, C=8, D=6)"
+    )?;
+    writeln!(w, "    • IDs must be sequential (R1, R2, R3 — no gaps)")?;
+    writeln!(w, "    • Each rule: 7–60 words")?;
+    writeln!(w, "    • Layer must be 1–12 (Meadows leverage points)")?;
+    writeln!(
+        w,
+        "    • Rule-tier tension: fires when the rule's layer-derived"
+    )?;
+    writeln!(
+        w,
+        "      tier has higher leverage than the ADR's tier; equal or"
+    )?;
+    writeln!(
+        w,
+        "      lower leverage passes silently. No distance tolerance"
+    )?;
+    writeln!(w, "      and no domain carve-outs (T019)")?;
+    writeln!(w)?;
+
+    writeln!(
+        w,
+        "  Tier scaling — factor multiplies the configured min_words,"
+    )?;
+    writeln!(
+        w,
+        "  max_words, and max_rules base values. The min_words column"
+    )?;
+    writeln!(
+        w,
+        "  below is the effective T015 minimum this corpus enforces:"
+    )?;
     for tier in Tier::all() {
-        println!("{}", tier_scaling_row(config, *tier));
+        writeln!(w, "{}", tier_scaling_row(config, *tier))?;
     }
-    println!();
+    writeln!(w)?;
+    Ok(())
 }
 
 pub(crate) fn tier_scaling_row(config: &Config, tier: Tier) -> String {
@@ -363,49 +673,95 @@ pub(crate) fn tier_scaling_row(config: &Config, tier: Tier) -> String {
     )
 }
 
-fn print_relationships(config: &Config) {
-    println!("RELATIONSHIPS");
-    println!("─────────────");
-    println!();
-    println!("  Links point toward the root of the dependency graph.");
-    println!("  Reverse links are computed on demand (--refs).");
-    println!();
-    println!("  Permitted verbs (3):");
+fn print_relationships(w: &mut impl Write, config: &Config) -> io::Result<()> {
+    writeln!(w, "RELATIONSHIPS")?;
+    writeln!(w, "─────────────")?;
+    writeln!(w)?;
+    writeln!(w, "  Links point toward the root of the dependency graph.")?;
+    writeln!(w, "  Reverse links are computed on demand (--refs).")?;
+    writeln!(w)?;
+    writeln!(w, "  Permitted verbs (3):")?;
     for verb in RelVerb::permitted() {
-        println!("    {verb:<12} {}", verb.description());
+        writeln!(w, "    {verb:<12} {}", verb.description())?;
     }
-    println!();
-    println!("  Usage:");
-    println!("    • Every ADR must have ≥1 relationship");
-    println!("    • Tree roots use `Root: OWN-ID`");
-    println!("    • Root + References cannot coexist (L009)");
-    println!("    • Root + Supersedes may coexist");
-    println!("    • Supersedes requires target status = `Superseded by PREFIX-NNNN`");
-    println!();
-    println!("  Reference ordering — first References target = structural parent:");
-    println!("    Per the parent-edge tree model (AFM-0020), every");
-    println!("    non-Root ADR is anchored in the tree by the FIRST target");
-    println!("    listed in its `References:` field. Other forwards (additional");
-    println!("    References, Refines, Supersedes) are secondary citations and");
-    println!("    do not create parent edges.");
-    println!();
-    println!("    List the most specialized applicable parent first, then add");
-    println!("    foundation citations after. The reference whose removal would");
-    println!("    most invalidate this ADR's decision ranks first.");
-    println!();
-    println!("  Root assignment (--context):");
-    println!("    Each ADR's root is found by walking the parent edge upward");
-    println!("    until a Root ADR is reached. Non-Accepted parents (Draft,");
-    println!("    Proposed) are advisory waypoints — the chain still flows");
-    println!("    through them (L012 warns). Cycles and chains terminating at");
-    println!("    a non-root land in the Unclaimed group.");
-    println!();
-    println!("  Cross-domain parents:");
-    println!("    A first References target in a different domain triggers L011.");
-    println!("    Suppress with `Parent-cross-domain: PREFIX-NNNN — reason` in");
-    println!("    the preamble. The suppression is exact-match: a stale ID will");
-    println!("    not silence L011.");
-    println!();
+    writeln!(w)?;
+    writeln!(w, "  Usage:")?;
+    writeln!(w, "    • Every ADR must have ≥1 relationship")?;
+    writeln!(w, "    • Tree roots use `Root: OWN-ID`")?;
+    writeln!(w, "    • Root + References cannot coexist (L009)")?;
+    writeln!(w, "    • Root + Supersedes may coexist")?;
+    writeln!(
+        w,
+        "    • Supersedes requires target status = `Superseded by PREFIX-NNNN`"
+    )?;
+    writeln!(w)?;
+    print_relationship_tree_model(w, config)
+}
+
+fn print_relationship_tree_model(w: &mut impl Write, config: &Config) -> io::Result<()> {
+    writeln!(
+        w,
+        "  Reference ordering — first References target = structural parent:"
+    )?;
+    writeln!(w, "    Per the parent-edge tree model (AFM-0020), every")?;
+    writeln!(
+        w,
+        "    non-Root ADR is anchored in the tree by the FIRST target"
+    )?;
+    writeln!(
+        w,
+        "    listed in its `References:` field. Other forwards (additional"
+    )?;
+    writeln!(
+        w,
+        "    References, Refines, Supersedes) are secondary citations and"
+    )?;
+    writeln!(w, "    do not create parent edges.")?;
+    writeln!(w)?;
+    writeln!(
+        w,
+        "    List the most specialized applicable parent first, then add"
+    )?;
+    writeln!(
+        w,
+        "    foundation citations after. The reference whose removal would"
+    )?;
+    writeln!(w, "    most invalidate this ADR's decision ranks first.")?;
+    writeln!(w)?;
+    writeln!(w, "  Root assignment (--context):")?;
+    writeln!(
+        w,
+        "    Each ADR's root is found by walking the parent edge upward"
+    )?;
+    writeln!(
+        w,
+        "    until a Root ADR is reached. Non-Accepted parents (Draft,"
+    )?;
+    writeln!(
+        w,
+        "    Proposed) are advisory waypoints — the chain still flows"
+    )?;
+    writeln!(
+        w,
+        "    through them (L012 warns). Cycles and chains terminating at"
+    )?;
+    writeln!(w, "    a non-root land in the Unclaimed group.")?;
+    writeln!(w)?;
+    writeln!(w, "  Cross-domain parents:")?;
+    writeln!(
+        w,
+        "    A first References target in a different domain triggers L011."
+    )?;
+    writeln!(
+        w,
+        "    Suppress with `Parent-cross-domain: PREFIX-NNNN — reason` in"
+    )?;
+    writeln!(
+        w,
+        "    the preamble. The suppression is exact-match: a stale ID will"
+    )?;
+    writeln!(w, "    not silence L011.")?;
+    writeln!(w)?;
     let foundation_prefixes: Vec<&str> = config
         .domains
         .iter()
@@ -414,96 +770,183 @@ fn print_relationships(config: &Config) {
         .collect();
     if !foundation_prefixes.is_empty() {
         let foundation_list = foundation_prefixes.join(", ");
-        println!("    Foundation roots ({foundation_list}) appear before domain roots");
-        println!("    in --context output, sorted by minimum layer then ADR number.");
-        println!();
+        writeln!(
+            w,
+            "    Foundation roots ({foundation_list}) appear before domain roots"
+        )?;
+        writeln!(
+            w,
+            "    in --context output, sorted by minimum layer then ADR number."
+        )?;
+        writeln!(w)?;
     }
-    println!("  Legacy verbs (produce warnings):");
+    writeln!(w, "  Legacy verbs (produce warnings):")?;
     for verb in RelVerb::legacy() {
         let migration = verb.migration().unwrap_or("remove");
-        println!("    {verb:<15} → {migration}");
+        writeln!(w, "    {verb:<15} → {migration}")?;
     }
-    println!();
+    writeln!(w)?;
+    Ok(())
 }
 
-fn print_naming() {
-    println!("NAMING");
-    println!("──────");
-    println!();
-    println!("  Rules:");
-    println!("    N001  Filename matches `PREFIX-NNNN-kebab-slug.md` pattern");
-    println!("    N002  Filename ID matches the H1 title ID — the filename and the");
-    println!("          `# PREFIX-NNNN. Title` heading MUST name the same ADR");
-    println!("    N003  Slug is lowercase kebab-case — letters, digits and hyphens");
-    println!("          only, with at least one letter segment, rejecting leading,");
-    println!("          trailing and consecutive hyphens (AFM-0008:R4)");
-    println!("    N004  Prefix matches a domain registered in `adr-fmt.toml` under");
-    println!("          `[[domains]]`; any unregistered prefix warns (AFM-0008:R2)");
-    println!();
+fn print_naming(w: &mut impl Write) -> io::Result<()> {
+    writeln!(w, "NAMING")?;
+    writeln!(w, "──────")?;
+    writeln!(w)?;
+    writeln!(w, "  Rules:")?;
+    writeln!(
+        w,
+        "    N001  Filename matches `PREFIX-NNNN-kebab-slug.md` pattern"
+    )?;
+    writeln!(
+        w,
+        "    N002  Filename ID matches the H1 title ID — the filename and the"
+    )?;
+    writeln!(
+        w,
+        "          `# PREFIX-NNNN. Title` heading MUST name the same ADR"
+    )?;
+    writeln!(
+        w,
+        "    N003  Slug is lowercase kebab-case — letters, digits and hyphens"
+    )?;
+    writeln!(
+        w,
+        "          only, with at least one letter segment, rejecting leading,"
+    )?;
+    writeln!(
+        w,
+        "          trailing and consecutive hyphens (AFM-0008:R4)"
+    )?;
+    writeln!(
+        w,
+        "    N004  Prefix matches a domain registered in `adr-fmt.toml` under"
+    )?;
+    writeln!(
+        w,
+        "          `[[domains]]`; any unregistered prefix warns (AFM-0008:R2)"
+    )?;
+    writeln!(w)?;
+    Ok(())
 }
 
-fn print_link_rules() {
-    println!("LINK RULES");
-    println!("──────────");
-    println!();
-    println!("  Rules:");
-    println!("    L001  Dangling link — target ADR file not found");
-    println!("    L003  Supersedes-status consistency");
-    println!("    L006  Legacy relationship verb — migrate to its replacement verb");
-    println!("          (see Legacy verbs above; per AFM-0009)");
-    println!("    L007  Stale reference — link to stale archive ADR");
-    println!("    L008  Root self-reference mismatch");
-    println!("    L009  Root + References coexistence");
-    println!("    L010  Missing parent — non-Root ADR has no References");
-    println!("    L011  Cross-domain parent — first References target is in another domain");
-    println!(
+fn print_link_rules(w: &mut impl Write) -> io::Result<()> {
+    writeln!(w, "LINK RULES")?;
+    writeln!(w, "──────────")?;
+    writeln!(w)?;
+    writeln!(w, "  Rules:")?;
+    writeln!(w, "    L001  Dangling link — target ADR file not found")?;
+    writeln!(w, "    L003  Supersedes-status consistency")?;
+    writeln!(
+        w,
+        "    L006  Legacy relationship verb — migrate to its replacement verb"
+    )?;
+    writeln!(w, "          (see Legacy verbs above; per AFM-0009)")?;
+    writeln!(w, "    L007  Stale reference — link to stale archive ADR")?;
+    writeln!(w, "    L008  Root self-reference mismatch")?;
+    writeln!(w, "    L009  Root + References coexistence")?;
+    writeln!(
+        w,
+        "    L010  Missing parent — non-Root ADR has no References"
+    )?;
+    writeln!(
+        w,
+        "    L011  Cross-domain parent — first References target is in another domain"
+    )?;
+    writeln!(
+        w,
         "    L012  Non-Accepted parent — first References target is Draft/Proposed (advisory)"
-    );
-    println!("    L013  Parent-edge cycle — chain forms a loop");
-    println!("    L014  Unreachable from root — chain ends at non-root");
-    println!("    L015  Root-first heuristic — first ref is Root while specialized siblings exist");
-    println!("    L016  Lower-tier parent — parent's tier is weaker leverage than child's");
-    println!("    L017  Superseded parent — first References target is Superseded by another ADR");
-    println!(
+    )?;
+    writeln!(w, "    L013  Parent-edge cycle — chain forms a loop")?;
+    writeln!(
+        w,
+        "    L014  Unreachable from root — chain ends at non-root"
+    )?;
+    writeln!(
+        w,
+        "    L015  Root-first heuristic — first ref is Root while specialized siblings exist"
+    )?;
+    writeln!(
+        w,
+        "    L016  Lower-tier parent — parent's tier is weaker leverage than child's"
+    )?;
+    writeln!(
+        w,
+        "    L017  Superseded parent — first References target is Superseded by another ADR"
+    )?;
+    writeln!(
+        w,
         "    L018  Parent-cross-domain mismatch — declaration ID does not match first References"
-    );
-    println!("    L019  Parent-cross-domain target missing — declared ADR does not exist");
-    println!("    L020  Link integrity indeterminate — target exists but failed to parse");
-    println!("    T020  Reference load — tier-scaled max on References: count");
-    println!();
+    )?;
+    writeln!(
+        w,
+        "    L019  Parent-cross-domain target missing — declared ADR does not exist"
+    )?;
+    writeln!(
+        w,
+        "    L020  Link integrity indeterminate — target exists but failed to parse"
+    )?;
+    writeln!(
+        w,
+        "    T020  Reference load — tier-scaled max on References: count"
+    )?;
+    writeln!(w)?;
+    Ok(())
 }
 
-fn print_stale(config: &Config) {
-    println!("STALE DIRECTORY");
-    println!("───────────────");
-    println!();
-    println!("  Path: {}/", config.stale.directory);
-    println!("  ADRs in terminal states are moved here.");
-    println!();
-    println!("  Stub policy (AFM-0022): a stale ADR reduces to");
-    println!("    • the preamble fields,");
-    println!("    • an optional `## Related` containing only");
-    println!("      `Supersedes:` edges (forward lineage; the");
-    println!("      reverse direction lives in the `Status:` field),");
-    println!("    • a `## Retirement` section (≥7 words).");
-    println!();
-    println!("  When moving an ADR to stale, delete `## Context`,");
-    println!("  `## Decision`, `## Consequences`, and any");
-    println!("  `References:` lines in the same commit; git history");
-    println!("  preserves the prior content.");
-    println!();
-    println!("  Lint coverage on the stale lifecycle and on stale stubs:");
-    println!("    S004  enforces presence of `## Retirement`");
-    println!("    S005  active ADR carries `## Retirement` — the section is for");
-    println!("          stale ADRs only; delete it or retire the ADR");
-    println!("    S006  terminal-status ADR is not in the stale directory — move");
-    println!("          the file here and add a `## Retirement` section");
-    println!("    S007  enforces stub structure (sections + verbs)");
-    println!("    S008  stale ADR carries a non-terminal status — either set a");
-    println!("          terminal status (Rejected, Deprecated, Superseded by");
-    println!("          PREFIX-NNNN) or move the file back out of this directory");
-    println!("    T007/T008/T009/T010/T016 are skipped on stale");
-    println!();
+fn print_stale(w: &mut impl Write, config: &Config) -> io::Result<()> {
+    writeln!(w, "STALE DIRECTORY")?;
+    writeln!(w, "───────────────")?;
+    writeln!(w)?;
+    writeln!(w, "  Path: {}/", config.stale.directory)?;
+    writeln!(w, "  ADRs in terminal states are moved here.")?;
+    writeln!(w)?;
+    writeln!(w, "  Stub policy (AFM-0022): a stale ADR reduces to")?;
+    writeln!(w, "    • the preamble fields,")?;
+    writeln!(w, "    • an optional `## Related` containing only")?;
+    writeln!(w, "      `Supersedes:` edges (forward lineage; the")?;
+    writeln!(w, "      reverse direction lives in the `Status:` field),")?;
+    writeln!(w, "    • a `## Retirement` section (≥7 words).")?;
+    writeln!(w)?;
+    writeln!(w, "  When moving an ADR to stale, delete `## Context`,")?;
+    writeln!(w, "  `## Decision`, `## Consequences`, and any")?;
+    writeln!(w, "  `References:` lines in the same commit; git history")?;
+    writeln!(w, "  preserves the prior content.")?;
+    writeln!(w)?;
+    writeln!(
+        w,
+        "  Lint coverage on the stale lifecycle and on stale stubs:"
+    )?;
+    writeln!(w, "    S004  enforces presence of `## Retirement`")?;
+    writeln!(
+        w,
+        "    S005  active ADR carries `## Retirement` — the section is for"
+    )?;
+    writeln!(w, "          stale ADRs only; delete it or retire the ADR")?;
+    writeln!(
+        w,
+        "    S006  terminal-status ADR is not in the stale directory — move"
+    )?;
+    writeln!(
+        w,
+        "          the file here and add a `## Retirement` section"
+    )?;
+    writeln!(w, "    S007  enforces stub structure (sections + verbs)")?;
+    writeln!(
+        w,
+        "    S008  stale ADR carries a non-terminal status — either set a"
+    )?;
+    writeln!(
+        w,
+        "          terminal status (Rejected, Deprecated, Superseded by"
+    )?;
+    writeln!(
+        w,
+        "          PREFIX-NNNN) or move the file back out of this directory"
+    )?;
+    writeln!(w, "    T007/T008/T009/T010/T016 are skipped on stale")?;
+    writeln!(w)?;
+    Ok(())
 }
 
 pub(crate) fn overrides_section(config: &Config) -> Option<String> {
@@ -529,11 +972,12 @@ pub(crate) fn overrides_section(config: &Config) -> Option<String> {
     ))
 }
 
-fn print_overrides(config: &Config) {
+fn print_overrides(w: &mut impl Write, config: &Config) -> io::Result<()> {
     if let Some(section) = overrides_section(config) {
-        println!("{section}");
-        println!();
+        writeln!(w, "{section}")?;
+        writeln!(w)?;
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -590,15 +1034,59 @@ params = { min_words = 7, max_words = 50 }
         &src[start..end]
     }
 
+    struct FailingWriter;
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"))
+        }
+    }
+
+    #[test]
+    fn setup_guide_returns_err_on_broken_writer() {
+        let err = print_setup_guide(&mut FailingWriter)
+            .expect_err("a failing writer must surface as Err, never a panic");
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::BrokenPipe,
+            "the underlying writer error must reach the caller unchanged so \
+             main can map it to the AFM-0003:R1 infrastructure exit code"
+        );
+    }
+
+    #[test]
+    fn governance_returns_err_on_broken_writer() {
+        let config = make_config();
+        let err = print_governance(&mut FailingWriter, &config)
+            .expect_err("a failing writer must surface as Err, never a panic");
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::BrokenPipe,
+            "the underlying writer error must reach the caller unchanged so \
+             main can map it to the AFM-0003:R1 infrastructure exit code"
+        );
+    }
+
     #[test]
     fn setup_guide_does_not_panic() {
-        print_setup_guide();
+        let mut sink = Vec::new();
+        print_setup_guide(&mut sink).expect("writing into a Vec cannot fail");
+        assert!(!sink.is_empty(), "the setup guide must render content");
     }
 
     #[test]
     fn governance_does_not_panic() {
         let config = make_config();
-        print_governance(&config);
+        let mut sink = Vec::new();
+        print_governance(&mut sink, &config).expect("writing into a Vec cannot fail");
+        assert!(
+            !sink.is_empty(),
+            "the governance reference must render content"
+        );
     }
 
     #[test]

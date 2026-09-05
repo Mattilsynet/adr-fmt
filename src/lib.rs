@@ -335,10 +335,10 @@ fn run_default_mode(discovery: ConfigDiscovery) -> i32 {
     match discovery {
         ConfigDiscovery::Ready { marker_dir, config } => {
             match config::resolve_corpus_root(&marker_dir, &config.corpus) {
-                Ok(_) => {
-                    guidelines::print_governance(&config);
-                    0
-                }
+                Ok(_) => exit_code_for_write(guidelines::print_governance(
+                    &mut std::io::stdout().lock(),
+                    &config,
+                )),
                 Err(e) => {
                     eprintln!("error: adr-fmt.toml in {}: {e}", marker_dir.display());
                     eprintln!(
@@ -360,8 +360,17 @@ fn run_default_mode(discovery: ConfigDiscovery) -> i32 {
             1
         }
         ConfigDiscovery::Absent => {
-            guidelines::print_setup_guide();
-            0
+            exit_code_for_write(guidelines::print_setup_guide(&mut std::io::stdout().lock()))
+        }
+    }
+}
+
+fn exit_code_for_write(result: std::io::Result<()>) -> i32 {
+    match result {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("error: failed writing guidelines to stdout: {e}");
+            1
         }
     }
 }
