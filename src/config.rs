@@ -105,9 +105,12 @@ impl Config {
 
 /// Raw deserialisation target for `adr-fmt.toml`. Private by design:
 /// it is the only shape TOML is decoded into, and [`Config`]'s own
-/// `Deserialize` routes through it, so every `Config` that exists has
-/// passed validation however it was built. Field types match [`Config`]
-/// exactly; the nested types are shared, not duplicated.
+/// `Deserialize` routes through it, so every DESERIALIZED `Config` has
+/// passed validation — `toml::from_str::<Config>` included, not only
+/// [`load_quiet`]. [`Config`] and its fields are public, so a value built
+/// by direct struct construction bypasses this and is not validated.
+/// Field types match [`Config`] exactly; the nested types are shared,
+/// not duplicated.
 #[derive(Debug, Deserialize)]
 struct RawConfig {
     corpus: CorpusConfig,
