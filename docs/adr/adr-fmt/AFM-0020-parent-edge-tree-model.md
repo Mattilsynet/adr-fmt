@@ -1,7 +1,7 @@
 # AFM-0020. Parent-Edge Tree Model
 
 Date: 2026-05-01
-Last-reviewed: 2026-05-01
+Last-reviewed: 2026-09-05
 Tier: B
 Status: Accepted
 
@@ -38,9 +38,11 @@ R3 [5]: Suppress L011 only when `Parent-cross-domain: PREFIX-NNNN —
 R4 [5]: Render `--tree` output as a per-domain parent-edge forest
   with `[also: …]` annotations for secondary citations and a per-domain
   orphan section for unreachable ADRs
-R5 [5]: Emit advisory waypoint warning L012 when the structural parent
-  is Draft or Proposed; emit L017 when the parent is Superseded by
-  another ADR (L017 takes precedence over L012)
+R5 [5]: Classify the structural parent by status: L012 when Draft or
+  Proposed (advisory waypoint, chain flows through); L017 when
+  Superseded; L021 when Rejected or Deprecated, which cannot anchor a
+  live chain; L022 when the status is unparseable and L023 when it is
+  absent, both reporting unknown liveness rather than a pass
 
 ### Reference ordering
 
@@ -68,9 +70,16 @@ Supersedes: CHE-0027                ← does not affect parent edge
 | L017 | warning  | First `References:` target is Superseded |
 | L018 | warning  | `Parent-cross-domain` ID does not match first References target |
 | L019 | warning  | `Parent-cross-domain` target ADR does not exist |
+| L021 | warning  | First `References:` target is Rejected or Deprecated |
+| L022 | warning  | First `References:` target has an unparseable status |
+| L023 | warning  | First `References:` target has no `Status:` line |
 
 L015 and L016 are heuristics — suppression is a judgment call,
 typically by reordering references rather than adding configuration.
+
+L022 and L023 report that the parent's liveness could not be
+determined. An undetermined parent is not a sound one; fix the
+parent's `Status:` line rather than reading silence as approval.
 
 ## Consequences
 

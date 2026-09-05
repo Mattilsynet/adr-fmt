@@ -1,25 +1,3 @@
-//! Link and relationship rules (L001, L003, L006–L019).
-//!
-//! - L001 dangling link, scoped to targets whose prefix this corpus
-//!   governs (AFM-0008:R5); L003 supersedes-status consistency; L006
-//!   legacy verb (deprecated per AFM-0009); L007 stale reference;
-//!   L008 Root self-reference mismatch; L009 Root+References
-//!   coexistence.
-//! - Tree-structure rules (parent-edge model, advisory): L010 missing
-//!   parent; L011 cross-domain parent (suppress via
-//!   `Parent-cross-domain:`); L012 non-Accepted parent; L013
-//!   parent-edge cycle; L014 unreachable from root; L015/L016
-//!   heuristics (flat-tree authoring, weak-tier parent); L017
-//!   superseded parent; L018/L019 `Parent-cross-domain` field
-//!   mismatch/dangling.
-//!
-//! Diagnostics are independent — one relationship may emit multiple
-//! codes. Cycle dominance: when L013 fires for a record, L011/L012/
-//! L014/L016/L017 are suppressed for it ("parent" is undefined inside
-//! a cycle); L010 cannot fire for cycle members; L015 still fires
-//! (inspects other References slots). Stale-archive ADRs (`is_stale`)
-//! are exempt from L010–L017.
-
 use crate::rules::catalog;
 use std::collections::HashMap;
 
@@ -464,24 +442,46 @@ fn emit_parent_status(
                 ),
             ));
         }
-        Some(other) => {
+        Some(live @ (Status::Draft | Status::Proposed)) => {
             diags.push(catalog::L012.diagnostic(
                 record.file_path(),
                 parent_rel_line(record, parent_id),
                 format!(
-                    "{} → {parent_id}: parent edge target is `{other}`, not `Accepted` — \
-                     advisory only; chain still flows through",
+                    "{} → {parent_id}: parent edge target is `{live}`, not yet `Accepted` — \
+                     advisory waypoint; chain still flows through",
+                    record.id(),
+                ),
+            ));
+        }
+        Some(terminal @ (Status::Rejected | Status::Deprecated)) => {
+            diags.push(catalog::L021.diagnostic(
+                record.file_path(),
+                parent_rel_line(record, parent_id),
+                format!(
+                    "{} → {parent_id}: parent edge target is `{terminal}` — a terminal \
+                     decision cannot anchor a live chain; re-parent onto a live ADR",
+                    record.id(),
+                ),
+            ));
+        }
+        Some(Status::Invalid(raw)) => {
+            diags.push(catalog::L022.diagnostic(
+                record.file_path(),
+                parent_rel_line(record, parent_id),
+                format!(
+                    "{} → {parent_id}: parent edge target's status `{raw}` is not a known \
+                     status — parent liveness is unknown, which is not the same as sound",
                     record.id(),
                 ),
             ));
         }
         None => {
-            diags.push(catalog::L012.diagnostic(
+            diags.push(catalog::L023.diagnostic(
                 record.file_path(),
                 parent_rel_line(record, parent_id),
                 format!(
-                    "{} → {parent_id}: parent edge target has no status — \
-                     advisory only; chain still flows through",
+                    "{} → {parent_id}: parent edge target has no `Status:` line — \
+                     parent liveness is unknown, which is not the same as sound",
                     record.id(),
                 ),
             ));
@@ -1259,50 +1259,106 @@ mod tests {
         );
     }
 
-    #[test]
-    fn non_accepted_parent_produces_l012() {
-        let mut parent = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
-        *parent.status_mut() = Some(Status::Draft);
-        *parent.status_raw_mut() = Some("Draft".into());
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ParentStatusCase {
+        Absent,
+        Accepted,
+        Draft,
+        Proposed,
+        Rejected,
+        Deprecated,
+        SupersededBy,
+        Invalid,
+    }
 
-        let child = make_record_with_rels("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        let records = vec![parent, child];
+    impl ParentStatusCase {
+        const ALL: [Self; 8] = [
+            Self::Absent,
+            Self::Accepted,
+            Self::Draft,
+            Self::Proposed,
+            Self::Rejected,
+            Self::Deprecated,
+            Self::SupersededBy,
+            Self::Invalid,
+        ];
+
+        fn sample(self) -> Option<Status> {
+            match self {
+                Self::Absent => None,
+                Self::Accepted => Some(Status::Accepted),
+                Self::Draft => Some(Status::Draft),
+                Self::Proposed => Some(Status::Proposed),
+                Self::Rejected => Some(Status::Rejected),
+                Self::Deprecated => Some(Status::Deprecated),
+                Self::SupersededBy => Some(Status::SupersededBy(make_id("CHE", 9))),
+                Self::Invalid => Some(Status::Invalid("Acepted".into())),
+            }
+        }
+    }
+
+    fn parent_status_case(status: Option<&Status>) -> ParentStatusCase {
+        match status {
+            None => ParentStatusCase::Absent,
+            Some(Status::Accepted) => ParentStatusCase::Accepted,
+            Some(Status::Draft) => ParentStatusCase::Draft,
+            Some(Status::Proposed) => ParentStatusCase::Proposed,
+            Some(Status::Rejected) => ParentStatusCase::Rejected,
+            Some(Status::Deprecated) => ParentStatusCase::Deprecated,
+            Some(Status::SupersededBy(_)) => ParentStatusCase::SupersededBy,
+            Some(Status::Invalid(_)) => ParentStatusCase::Invalid,
+        }
+    }
+
+    fn expected_parent_status_rules(status: Option<&Status>) -> &'static [&'static str] {
+        match status {
+            None => &["L023"],
+            Some(Status::Accepted) => &[],
+            Some(Status::Draft | Status::Proposed) => &["L012"],
+            Some(Status::Rejected | Status::Deprecated) => &["L021"],
+            Some(Status::SupersededBy(_)) => &["L017"],
+            Some(Status::Invalid(_)) => &["L022"],
+        }
+    }
+
+    fn parent_status_diagnostics(status: Option<Status>) -> Vec<&'static str> {
+        let parent_id = make_id("CHE", 1);
+        let mut parent = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
+        *parent.status_raw_mut() = status.as_ref().map(ToString::to_string);
+        *parent.status_mut() = status;
+
+        let child = make_record_with_rels("CHE", 2, vec![(RelVerb::References, parent_id.clone())]);
         let mut diags = Vec::new();
-        check(&records, &mut diags);
-        assert!(
-            diags.iter().any(|d| d.rule == "L012"),
-            "expected L012 for Draft parent, got: {diags:?}"
-        );
+        emit_parent_status(&child, &parent_id, &parent, &mut diags);
+        diags.into_iter().map(|d| d.rule).collect()
     }
 
     #[test]
-    fn superseded_parent_produces_l017_not_l012() {
-        let mut parent = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
-        *parent.status_mut() = Some(Status::SupersededBy(make_id("CHE", 9)));
-        *parent.status_raw_mut() = Some("Superseded by CHE-0009".into());
+    fn parent_status_emits_exactly_one_diagnostic_family_per_status() {
+        for case in ParentStatusCase::ALL {
+            let sample = case.sample();
+            assert_eq!(
+                parent_status_case(sample.as_ref()),
+                case,
+                "{case:?}: sample must be the status variant the case names"
+            );
+            let expected = expected_parent_status_rules(sample.as_ref());
+            let actual = parent_status_diagnostics(sample);
+            assert_eq!(
+                actual, expected,
+                "{case:?}: emit_parent_status must emit exactly {expected:?}"
+            );
+        }
+    }
 
-        let mut succ = make_record_with_rels(
-            "CHE",
-            9,
-            vec![
-                (RelVerb::Root, make_id("CHE", 9)),
-                (RelVerb::Supersedes, make_id("CHE", 1)),
-            ],
-        );
-        *succ.status_mut() = Some(Status::Accepted);
-
-        let child = make_record_with_rels("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        let records = vec![parent, succ, child];
-        let mut diags = Vec::new();
-        check(&records, &mut diags);
-        assert!(
-            diags.iter().any(|d| d.rule == "L017"),
-            "expected L017, got: {diags:?}"
-        );
-        assert!(
-            !diags.iter().any(|d| d.rule == "L012"),
-            "L017 supersedes L012 for superseded parent, got: {diags:?}"
-        );
+    #[test]
+    fn parent_status_cases_are_distinct() {
+        let mut seen: Vec<ParentStatusCase> = Vec::new();
+        for case in ParentStatusCase::ALL {
+            assert!(!seen.contains(&case), "{case:?} listed twice in ALL");
+            seen.push(case);
+        }
+        assert_eq!(seen.len(), ParentStatusCase::ALL.len());
     }
 
     #[test]

@@ -293,7 +293,7 @@ LINK RULES
     L009  Root + References coexistence
     L010  Missing parent — non-Root ADR has no References
     L011  Cross-domain parent — first References target is in another domain
-    L012  Non-Accepted parent — first References target is Draft/Proposed (advisory)
+    L012  Advisory waypoint parent — first References target is Draft or Proposed
     L013  Parent-edge cycle — chain forms a loop
     L014  Unreachable from root — chain ends at non-root
     L015  Root-first heuristic — first ref is Root while specialized siblings exist
@@ -302,6 +302,11 @@ LINK RULES
     L018  Parent-cross-domain mismatch — declaration ID does not match first References
     L019  Parent-cross-domain target missing — declared ADR does not exist
     L020  Link integrity indeterminate — target exists but failed to parse
+    L021  Terminal parent — first References target is Rejected or Deprecated
+    L022  Unparseable parent status — first References target's `Status:`
+          line is not a known status, so parent liveness is unknown
+    L023  Absent parent status — first References target has no `Status:`
+          line, so parent liveness is unknown
     T020  Reference load — tier-scaled max on References: count
 
 STALE DIRECTORY
