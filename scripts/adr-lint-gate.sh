@@ -14,7 +14,7 @@
 #
 # Exit 0 = at or under threshold. Exit 1 = over threshold.
 # Exit 2 = the gate could not obtain a verdict (lint failed, the
-# header was absent or unparseable, or the threshold or the parsed
+# header was absent, duplicated, or unparseable, or the threshold or the parsed
 # warning count is not a bare decimal integer of 1 to 9 digits, i.e.
 # 0 to 999999999) — never conflated with "clean".
 #
@@ -48,7 +48,21 @@ if ! output="$(eval "$lint_cmd" 2>&1)"; then
     exit 2
 fi
 
-header="$(printf '%s\n' "$output" | sed -n 's/^## Diagnostics: \([0-9][0-9]*\) warning(s).*/\1/p' | head -n 1)"
+header_count="$(printf '%s\n' "$output" | grep -c '^## Diagnostics:' || true)"
+
+if [ "$header_count" -eq 0 ]; then
+    printf '%s\n' "$output" >&2
+    echo "adr-lint-gate: no '## Diagnostics: N warning(s)' header found; no verdict" >&2
+    exit 2
+fi
+
+if [ "$header_count" -ne 1 ]; then
+    printf '%s\n' "$output" >&2
+    echo "adr-lint-gate: found $header_count '## Diagnostics' headers; a single verdict record is required; no verdict" >&2
+    exit 2
+fi
+
+header="$(printf '%s\n' "$output" | sed -n 's/^## Diagnostics: \([0-9][0-9]*\) warning(s).*/\1/p')"
 
 if [ -z "$header" ]; then
     printf '%s\n' "$output" >&2

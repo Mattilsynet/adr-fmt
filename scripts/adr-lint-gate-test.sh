@@ -64,6 +64,8 @@ expect "plus-signed threshold"        2 "printf '%s\n' '$clean_output'"     set 
 expect "oversized threshold"          2 "printf '%s\n' '$clean_output'"     set   "$huge"
 expect "max in-range threshold"       0 "printf '%s\n' '$clean_output'"     set   "999999999"
 expect "oversized parsed count"       2 "printf '%s\n' '$huge_output'"      set   "8"
+expect "two headers clean then over"  2 "printf '%s\n%s\n' '$clean_output' '$over_output'" set "8"
+expect "two headers over then clean"  2 "printf '%s\n%s\n' '$over_output' '$clean_output'" set "8"
 
 printf '\nadr-lint-gate-test: %s case(s), %s failure(s)\n' "$cases" "$failures"
 [ "$failures" -eq 0 ]
