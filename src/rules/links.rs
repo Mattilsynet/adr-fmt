@@ -1,25 +1,3 @@
-//! Link and relationship rules (L001, L003, L006–L019).
-//!
-//! - L001 dangling link, scoped to targets whose prefix this corpus
-//!   governs (AFM-0008:R5); L003 supersedes-status consistency; L006
-//!   legacy verb (deprecated per AFM-0009); L007 stale reference;
-//!   L008 Root self-reference mismatch; L009 Root+References
-//!   coexistence.
-//! - Tree-structure rules (parent-edge model, advisory): L010 missing
-//!   parent; L011 cross-domain parent (suppress via
-//!   `Parent-cross-domain:`); L012 non-Accepted parent; L013
-//!   parent-edge cycle; L014 unreachable from root; L015/L016
-//!   heuristics (flat-tree authoring, weak-tier parent); L017
-//!   superseded parent; L018/L019 `Parent-cross-domain` field
-//!   mismatch/dangling.
-//!
-//! Diagnostics are independent — one relationship may emit multiple
-//! codes. Cycle dominance: when L013 fires for a record, L011/L012/
-//! L014/L016/L017 are suppressed for it ("parent" is undefined inside
-//! a cycle); L010 cannot fire for cycle members; L015 still fires
-//! (inspects other References slots). Stale-archive ADRs (`is_stale`)
-//! are exempt from L010–L017.
-
 use crate::rules::catalog;
 use std::collections::HashMap;
 
