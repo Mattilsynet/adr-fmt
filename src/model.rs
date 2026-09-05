@@ -337,8 +337,8 @@ pub struct AdrRecord {
     file_path: PathBuf,
     title: Option<String>,
     title_line: usize,
-    date: Option<String>,
-    last_reviewed: Option<String>,
+    date: DateField,
+    last_reviewed: DateField,
     tier: TierField,
     status: Option<Status>,
     status_line: usize,
@@ -411,15 +411,31 @@ impl AdrRecord {
     }
 
     /// Raw `Date:` preamble value, if present.
+    ///
+    /// Returns the file's own text verbatim whether or not it is a valid
+    /// `YYYY-MM-DD` date; callers that must tell those apart use the
+    /// crate-internal `date_field`.
     #[must_use]
     pub fn date(&self) -> Option<&str> {
-        self.date.as_deref()
+        self.date.raw()
     }
 
     /// Raw `Last-reviewed:` preamble value, if present.
+    ///
+    /// Returns the file's own text verbatim whether or not it is a valid
+    /// `YYYY-MM-DD` date; callers that must tell those apart use the
+    /// crate-internal `last_reviewed_field`.
     #[must_use]
     pub fn last_reviewed(&self) -> Option<&str> {
-        self.last_reviewed.as_deref()
+        self.last_reviewed.raw()
+    }
+
+    pub(crate) fn date_field(&self) -> &DateField {
+        &self.date
+    }
+
+    pub(crate) fn last_reviewed_field(&self) -> &DateField {
+        &self.last_reviewed
     }
 
     /// Parsed `Tier:` preamble value, if present and valid.
@@ -637,8 +653,8 @@ impl AdrRecord {
             file_path,
             title,
             title_line,
-            date,
-            last_reviewed,
+            date: DateField::from_option(date),
+            last_reviewed: DateField::from_option(last_reviewed),
             tier,
             status,
             status_line,
@@ -709,12 +725,12 @@ impl AdrRecord {
         &mut self.title_line
     }
 
-    pub(crate) fn date_mut(&mut self) -> &mut Option<String> {
-        &mut self.date
+    pub(crate) fn set_date(&mut self, raw: Option<String>) {
+        self.date = DateField::from_option(raw);
     }
 
-    pub(crate) fn last_reviewed_mut(&mut self) -> &mut Option<String> {
-        &mut self.last_reviewed
+    pub(crate) fn set_last_reviewed(&mut self, raw: Option<String>) {
+        self.last_reviewed = DateField::from_option(raw);
     }
 
     pub(crate) fn set_tier(&mut self, tier: Option<Tier>) {
@@ -826,8 +842,8 @@ impl AdrRecord {
             file_path: PathBuf::new(),
             title: None,
             title_line: 0,
-            date: None,
-            last_reviewed: None,
+            date: DateField::Absent,
+            last_reviewed: DateField::Absent,
             tier: TierField::Absent,
             status: None,
             status_line: 0,
@@ -1158,6 +1174,121 @@ impl TierField {
         match self {
             Self::Valid(tier) => Some(*tier),
             Self::Absent | Self::Invalid { .. } => None,
+        }
+    }
+}
+
+/// Lowest and highest calendar year a preamble date value may name.
+///
+/// Narrow enough that a transposed digit (`2062`, `0226`) fails, wide
+/// enough that the bound is not itself a policy about the future.
+pub(crate) const DATE_MIN_YEAR: u16 = 2000;
+pub(crate) const DATE_MAX_YEAR: u16 = 2100;
+
+/// Why a preamble date value is not a `YYYY-MM-DD` calendar date.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DateError {
+    Shape,
+    YearOutOfRange,
+    ImpossibleDate,
+}
+
+impl fmt::Display for DateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Shape => write!(f, "expected four, two and two digits joined by `-`"),
+            Self::YearOutOfRange => {
+                write!(f, "year outside {DATE_MIN_YEAR}–{DATE_MAX_YEAR}")
+            }
+            Self::ImpossibleDate => write!(f, "no such day in that month"),
+        }
+    }
+}
+
+const fn is_leap_year(year: u16) -> bool {
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
+}
+
+const fn days_in_month(year: u16, month: u8) -> Option<u8> {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => Some(31),
+        4 | 6 | 9 | 11 => Some(30),
+        2 if is_leap_year(year) => Some(29),
+        2 => Some(28),
+        _ => None,
+    }
+}
+
+fn ascii_number(bytes: &[u8]) -> Option<u16> {
+    let mut value: u16 = 0;
+    for &byte in bytes {
+        let digit = (byte as char).to_digit(10)?;
+        value = value * 10 + u16::try_from(digit).ok()?;
+    }
+    Some(value)
+}
+
+/// Validate a raw preamble date value against the `YYYY-MM-DD` contract.
+///
+/// Proleptic Gregorian leap years, real month lengths, and the ratified
+/// [`DATE_MIN_YEAR`]–[`DATE_MAX_YEAR`] range. `std` only.
+fn validate_date(value: &str) -> Result<(), DateError> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return Err(DateError::Shape);
+    }
+    let (Some(year), Some(month), Some(day)) = (
+        ascii_number(&bytes[0..4]),
+        ascii_number(&bytes[5..7]),
+        ascii_number(&bytes[8..10]),
+    ) else {
+        return Err(DateError::Shape);
+    };
+    if !(DATE_MIN_YEAR..=DATE_MAX_YEAR).contains(&year) {
+        return Err(DateError::YearOutOfRange);
+    }
+    let month = u8::try_from(month).map_err(|_| DateError::ImpossibleDate)?;
+    let day = u8::try_from(day).map_err(|_| DateError::ImpossibleDate)?;
+    let last = days_in_month(year, month).ok_or(DateError::ImpossibleDate)?;
+    if day == 0 || day > last {
+        return Err(DateError::ImpossibleDate);
+    }
+    Ok(())
+}
+
+/// A `Date:` or `Last-reviewed:` preamble value and its verdict against
+/// the `YYYY-MM-DD` contract.
+///
+/// Mirrors the [`TierField`] precedent: an unparseable value is carried
+/// rather than discarded, so the rules layer can report it. The raw text
+/// is retained on every present variant, which is what keeps
+/// [`AdrRecord::date`] and [`AdrRecord::last_reviewed`] returning exactly
+/// what the file said.
+///
+/// [`DateField::from_option`] is the only constructor, so a `Valid` value
+/// holding raw text that fails [`validate_date`] cannot be built.
+#[derive(Debug, Clone)]
+pub(crate) enum DateField {
+    Absent,
+    Valid { raw: String },
+    Invalid { raw: String, reason: DateError },
+}
+
+impl DateField {
+    pub(crate) fn from_option(raw: Option<String>) -> Self {
+        match raw {
+            None => Self::Absent,
+            Some(raw) => match validate_date(&raw) {
+                Ok(()) => Self::Valid { raw },
+                Err(reason) => Self::Invalid { raw, reason },
+            },
+        }
+    }
+
+    pub(crate) fn raw(&self) -> Option<&str> {
+        match self {
+            Self::Absent => None,
+            Self::Valid { raw } | Self::Invalid { raw, .. } => Some(raw),
         }
     }
 }
@@ -2098,6 +2229,77 @@ mod tests {
         .build();
         assert_eq!(record.title(), None);
         assert_eq!(record.title_line(), 7);
+    }
+
+    #[test]
+    fn date_accessors_return_the_raw_text_byte_for_byte_whatever_its_validity() {
+        for raw in [
+            "2026-04-25",
+            "2000-01-01",
+            "2100-12-31",
+            "2024-02-29",
+            "banana",
+            "never",
+            "2026-13-45",
+            "2026-02-30",
+            "1999-04-25",
+            "2101-01-01",
+            "0226-04-25",
+            "2026-4-5",
+            " 2026-04-25 ",
+            "",
+        ] {
+            let record = CharacterisationFields {
+                date: Some(raw.to_owned()),
+                last_reviewed: Some(raw.to_owned()),
+                ..CharacterisationFields::empty()
+            }
+            .build();
+            assert_eq!(
+                record.date(),
+                Some(raw),
+                "AFM-0032:R5 pins `date()`; a validity verdict MUST NOT alter what it returns"
+            );
+            assert_eq!(
+                record.last_reviewed(),
+                Some(raw),
+                "AFM-0032:R5 pins `last_reviewed()`; a validity verdict MUST NOT alter what it returns"
+            );
+        }
+    }
+
+    #[test]
+    fn date_field_verdicts_partition_the_same_inputs() {
+        use super::{DateError, DateField};
+
+        for raw in ["2026-04-25", "2000-01-01", "2100-12-31", "2024-02-29"] {
+            assert!(
+                matches!(
+                    DateField::from_option(Some(raw.into())),
+                    DateField::Valid { .. }
+                ),
+                "{raw} must be Valid"
+            );
+        }
+        for (raw, want) in [
+            ("banana", DateError::Shape),
+            ("", DateError::Shape),
+            ("2026-4-5", DateError::Shape),
+            ("1999-12-31", DateError::YearOutOfRange),
+            ("2101-01-01", DateError::YearOutOfRange),
+            ("0226-04-25", DateError::YearOutOfRange),
+            ("2026-13-45", DateError::ImpossibleDate),
+            ("2026-02-30", DateError::ImpossibleDate),
+            ("2025-02-29", DateError::ImpossibleDate),
+            ("2026-04-00", DateError::ImpossibleDate),
+        ] {
+            let field = DateField::from_option(Some(raw.into()));
+            assert!(
+                matches!(field, DateField::Invalid { reason, .. } if reason == want),
+                "{raw} must be Invalid({want:?}), got {field:?}"
+            );
+        }
+        assert!(matches!(DateField::from_option(None), DateField::Absent));
     }
 
     #[test]

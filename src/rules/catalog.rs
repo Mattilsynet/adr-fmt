@@ -227,7 +227,17 @@ pub(crate) const T022: RuleEntry = wrapped(
         RuleLine::Text("heading. Skipped on stale ADRs."),
     ],
 );
-
+pub(crate) const T023: RuleEntry = wrapped(
+    "T023",
+    "Date value malformed — a `Date:` or `Last-reviewed:` value",
+    &[
+        RuleLine::Text("that is present MUST be `YYYY-MM-DD`, name a real"),
+        RuleLine::Text("calendar day, and fall in the year range 2000–2100."),
+        RuleLine::Text("Absence is T002/T003; this fires only on a value that"),
+        RuleLine::Text("is present and is not a date. The raw text is preserved"),
+        RuleLine::Text("unchanged for readers (AFM-0033)."),
+    ],
+);
 pub(crate) const P001: RuleEntry =
     entry("P001", "ADR file unreadable (filesystem error during read)");
 pub(crate) const P002: RuleEntry = entry(
@@ -388,6 +398,7 @@ pub(crate) const TEMPLATE_RULES_TAGGED: &[RuleRendering] = &[
     RuleRendering::Canonical(&T019),
     RuleRendering::Canonical(&T020),
     RuleRendering::Canonical(&T022),
+    RuleRendering::Canonical(&T023),
 ];
 
 pub(crate) const PARSER_RULES: &[RuleRendering] = &[
