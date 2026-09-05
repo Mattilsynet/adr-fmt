@@ -45,11 +45,31 @@ before changing behaviour they govern. Read them with `adr-fmt --tree`
 `adr-fmt.toml` lives at the **project root**, not inside
 `docs/adr/adr-fmt/` — look there first, not next to the ADR files.
 
-`cargo test`/`clippy` above verify code, not corpus health. AFM-0003:R3
-warning-threshold enforcement on the ADR corpus itself is unimplemented
-— in CI and locally; a clean local build does not mean the corpus is
-clean. Measured baseline: `adr-fmt --lint` reports `## Diagnostics: 26
-warning(s) across 32 ADR(s)` and exits 0 by design.
+`cargo test`/`clippy` above verify code, not corpus health. Corpus
+health has its own locally-runnable gate — run it before handing off
+work that touches `docs/adr/`:
+
+```
+scripts/adr-lint-gate.sh
+```
+
+It discharges AFM-0003:R3: `adr-fmt --lint` is advisory and exits 0 on
+findings by design, so the gate parses the `## Diagnostics: N
+warning(s)` header and exits 1 when N exceeds the threshold (exit 2
+when it cannot obtain a count — never conflated with clean). The
+threshold defaults to the measured baseline of **8** and is overridable
+via `ADR_LINT_MAX_WARNINGS`. CI runs the same script.
+
+Both the threshold and the parsed warning count must be a bare decimal
+integer of **1 to 9 digits** (0–999999999); that is the widest range
+the shell can compare without overflowing its fixed-width arithmetic.
+Anything else — empty, non-numeric, negative, leading `+`, whitespace,
+or more than 9 digits — is **no verdict: exit 2**, never a pass. An
+explicitly empty `ADR_LINT_MAX_WARNINGS=''` is a malformed value, not
+"unset"; only a genuinely unset variable falls back to the default 8.
+
+Measured baseline: `adr-fmt --lint` reports `## Diagnostics: 8
+warning(s) across 32 ADR(s)` and exits 0.
 
 ## ADR writing style
 

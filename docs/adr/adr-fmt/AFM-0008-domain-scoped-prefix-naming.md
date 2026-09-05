@@ -1,7 +1,7 @@
 # AFM-0008. Domain-Scoped Prefix Naming Convention
 
 Date: 2026-04-27
-Last-reviewed: 2026-05-02
+Last-reviewed: 2026-09-05
 Tier: S
 Status: Accepted
 
@@ -41,6 +41,10 @@ R3 [5]: Bind permanent, non-recycling sequence numbers within each
 R4 [5]: Name slug segments as lowercase kebab-case — letters, digits,
   and hyphens only, with at least one letter segment, rejecting
   leading, trailing, and consecutive hyphens (validated by N003)
+R5 [5]: Scope link integrity to targets carrying a configured
+  `[[domains]]` prefix; a citation naming any other prefix addresses
+  another corpus's governance, is unresolvable here by construction,
+  and does not trigger L001
 
 ## Consequences
 
@@ -48,4 +52,7 @@ Cross-domain references are unambiguous (`References: GEN-0007`
 identifies exactly one ADR). Directory listings sort chronologically
 within each domain. Adding a new domain requires only a config
 entry — no code changes. The 9,999 ADR-per-domain limit is
-sufficient for any realistic project.
+sufficient for any realistic project. A corpus extracted from a
+larger one keeps its inbound citations to the domains it left
+behind without those citations reading as defects; registering such
+a domain in `adr-fmt.toml` brings its targets back under R5.

@@ -281,7 +281,10 @@ pub(crate) const N004: RuleEntry = wrapped(
     )],
 );
 
-pub(crate) const L001: RuleEntry = entry("L001", "Dangling link — target ADR file not found");
+pub(crate) const L001: RuleEntry = entry(
+    "L001",
+    "Dangling link — no file for a target in a configured domain",
+);
 pub(crate) const L003: RuleEntry = entry("L003", "Supersedes-status consistency");
 pub(crate) const L006: RuleEntry = wrapped(
     "L006",

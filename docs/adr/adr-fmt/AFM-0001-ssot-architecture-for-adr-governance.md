@@ -1,7 +1,7 @@
 # AFM-0001. Single Source of Truth Architecture for ADR Governance
 
 Date: 2026-04-27
-Last-reviewed: 2026-05-02
+Last-reviewed: 2026-09-05
 Tier: S
 Status: Accepted
 
@@ -43,6 +43,17 @@ R5 [5]: Record rationale and judgment guidance in ADR Context and
 R6 [5]: Classify a rule as invariant when violating it produces an
   inconsistent corpus regardless of project context and map it as
   configurable otherwise — apply this classification to every new rule
+R7 [5]: Locate the R2 marker by walking from the current directory
+  (canonicalized where possible) toward the filesystem root, testing
+  each ancestor for a regular `adr-fmt.toml` file and binding the
+  nearest fit as the marker directory; report the corpus absent when
+  the root is reached with no fit
+R8 [5]: Judge a candidate marker fit only when it parses, its
+  `[corpus] root` resolves inside that directory to an existing
+  directory, and at least one configured domain directory exists;
+  note an unfit candidate on stderr and keep walking, but halt the
+  walk at one that is unparseable, declares a duplicate rule id, or
+  leaves domain existence indeterminate
 
 ## Consequences
 
@@ -59,4 +70,7 @@ resolution → COM-0038; tier-classification rationale → AFM-0011
 Context; domain-prefix rationale → AFM-0008 Context; quick-start
 and contributor onboarding → `adr-fmt --guidelines` setup output.
 The standalone governance document is retired in favor of the
-discovered `adr-fmt.toml` marker plus per-ADR narrative prose.
+discovered `adr-fmt.toml` marker plus per-ADR narrative prose. R7's
+nearest-fit rule lets a nested project shadow an outer corpus, while
+R8 keeps an unrelated `adr-fmt.toml` on the path from capturing the
+walk and refuses to silently skip a marker that is merely broken.

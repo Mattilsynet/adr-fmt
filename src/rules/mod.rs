@@ -23,7 +23,12 @@ pub fn run_all(records: &[AdrRecord], config: &Config, index: &CorpusIndex<'_>) 
         naming::check(record, &domain_prefixes, &mut diagnostics);
     }
 
-    links::check(records, index, &mut diagnostics);
+    links::check(
+        records,
+        index,
+        links::GovernedPrefixes::new(&domain_prefixes),
+        &mut diagnostics,
+    );
 
     diagnostics.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
     diagnostics
