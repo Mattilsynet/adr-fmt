@@ -1,27 +1,55 @@
-//! Bidirectional parity guard between the diagnostics adr-fmt implements
-//! and the rule registry its governance output renders.
+//! Bidirectional parity guard between the diagnostics adr-fmt constructs
+//! DIRECTLY and the rule registry its governance output renders.
 //!
 //! The rendered side is read from the real binary's stdout, never from
 //! source text: a source-scanning guard is satisfied by an id appearing in
 //! a comment or a test string and so fails open.
 //!
-//! The implemented side PARSES the source with `syn` and walks the AST. It
-//! used to scan text, which failed open four times on legal alternate
-//! spellings of the thing it banned — `Diagnostic { .. }` struct literals,
-//! a constructor bound as a value, interior whitespace in `Diagnostic ::
-//! warning`, and type aliases. Each fix taught the scanner one more
-//! spelling. Parsing removes the category: whitespace and formatting are
-//! gone before a check runs, and an alias is resolved rather than matched.
+//! # What this guard enforces
+//!
+//! The implemented side parses each file with `syn` and walks the AST. It
+//! rejects, and has been proven by planted compiling violations to reject:
+//!
+//! - a `Diagnostic { .. }` struct literal, under any formatting;
+//! - `Diagnostic::warning` / `::error` named as a value, called or not;
+//! - the same with interior whitespace (`Diagnostic :: warning`), which is
+//!   gone before a check runs because the input is parsed, not scanned;
+//! - a single-hop local alias, whether `use report::Diagnostic as Diag` or
+//!   `type D = Diagnostic`, declared before its use site.
+//!
+//! # What this guard does NOT enforce
+//!
+//! `syn` parses tokens. It does not resolve types and does not expand
+//! macros, so this is pattern-matching over spellings, NOT Rust name
+//! resolution. Each of the following compiles with zero errors and passes
+//! this guard — measured, not assumed:
+//!
+//! - `<Diagnostic>::warning(..)` — a qualified path. The `ExprPath` carries
+//!   a `QSelf` and its path holds only the `warning` segment, so the
+//!   owner-segment check cannot fire.
+//! - construction hidden in a macro invocation. The tokens live in an
+//!   `ExprMacro` this visitor never parses.
+//! - a forward alias chain (`type E = D; type D = Diagnostic; E { .. }`).
+//!   Spellings are collected in one pass, so `E` is visited before `D` is
+//!   known.
+//!
+//! These are not oversights awaiting one more match arm. Adding an arm per
+//! spelling is what produced four consecutive false-clean guards here; the
+//! list above is published so the guard is not mistaken for a complete
+//! bypass check. Closing the class needs semantic resolution over a
+//! compiled crate, or `Diagnostic`'s fields made non-public so direct
+//! construction is unconstructible. The latter is the durable fix and is
+//! deferred to v0.2 behind AFM-0026:R3 (bead `adr-fmt-qzl6`, F4), which
+//! also retires this guard.
 //!
 //! # Trusted base
 //!
 //! Two files are exempt because they ARE the canonical construction path:
 //! `report.rs`, which defines `Diagnostic`, and `rules/catalog.rs`, whose
-//! `RuleEntry::diagnostic` is the crate's only severity decision. Each
-//! exemption asserts the file still plays that role, so it cannot silently
-//! follow the code elsewhere. A bypass hidden INSIDE those two files is
-//! outside this guard's reach; that is a deliberate, named, two-file
-//! trusted base rather than an unbounded scan.
+//! `RuleEntry::diagnostic` is the crate's only intended severity decision.
+//! Each exemption asserts the file still plays that role, so it cannot
+//! silently follow the code elsewhere; neither asserts uniqueness WITHIN
+//! the file. A bypass inside those two files is trust, not enforcement.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -159,15 +187,16 @@ fn catalog_entries() -> BTreeMap<String, String> {
     entries.0
 }
 
-/// Every local name that denotes `Diagnostic` in one file.
+/// Local spellings that appear to denote `Diagnostic` in one file.
 ///
-/// Collected in a first pass so a `use ... as` rename or a `type` alias is
-/// RESOLVED rather than pattern-matched. This is what makes the guard
-/// spelling-independent: the bypass shapes differ in source text but all
-/// resolve to the same type here.
-struct DiagnosticNames(BTreeSet<String>);
+/// This is a one-pass token walk, NOT name resolution: it sees a `use ... as`
+/// rename and a `type` alias whose right-hand side is already a known
+/// spelling, and it sees them only if they are declared before the use site.
+/// A forward chain, a macro-generated alias, or an alias introduced through
+/// a re-export are all invisible to it.
+struct LocalDiagnosticSpellings(BTreeSet<String>);
 
-impl<'ast> Visit<'ast> for DiagnosticNames {
+impl<'ast> Visit<'ast> for LocalDiagnosticSpellings {
     fn visit_use_tree(&mut self, node: &'ast syn::UseTree) {
         match node {
             syn::UseTree::Name(name) if name.ident == DIAGNOSTIC_TYPE => {
@@ -189,8 +218,8 @@ impl<'ast> Visit<'ast> for DiagnosticNames {
     }
 }
 
-fn diagnostic_names(file: &syn::File) -> BTreeSet<String> {
-    let mut names = DiagnosticNames(BTreeSet::new());
+fn local_diagnostic_spellings(file: &syn::File) -> BTreeSet<String> {
+    let mut names = LocalDiagnosticSpellings(BTreeSet::new());
     names.0.insert(DIAGNOSTIC_TYPE.to_string());
     names.visit_file(file);
     names.0
@@ -200,7 +229,7 @@ struct Sites<'a> {
     catalog: &'a BTreeMap<String, String>,
     names: BTreeSet<String>,
     file: String,
-    enforce_construction_ban: bool,
+    enforce_direct_construction_ban: bool,
     ids: BTreeSet<String>,
     forwarded_receivers: usize,
     forwarding_calls: usize,
@@ -239,7 +268,7 @@ fn strip_reference(expr: &syn::Expr) -> &syn::Expr {
 
 impl<'ast> Visit<'ast> for Sites<'_> {
     fn visit_expr_struct(&mut self, node: &'ast syn::ExprStruct) {
-        if self.enforce_construction_ban
+        if self.enforce_direct_construction_ban
             && node
                 .path
                 .segments
@@ -250,7 +279,8 @@ impl<'ast> Visit<'ast> for Sites<'_> {
                 "{}: builds a `{DIAGNOSTIC_TYPE}` struct literal. Its fields are public \
                  (AFM-0026:R1, R7), so this compiles and emits a real diagnostic while \
                  consuming no catalog entry — a false clean. Construct through \
-                 `RuleEntry::diagnostic` in `src/{CATALOG_FILE}`",
+                 `RuleEntry::diagnostic` in `src/{CATALOG_FILE}`. Note this check covers \
+                 direct spellings only; see the module doc for the forms it cannot see",
                 self.file
             );
         }
@@ -260,14 +290,14 @@ impl<'ast> Visit<'ast> for Sites<'_> {
     fn visit_expr_path(&mut self, node: &'ast syn::ExprPath) {
         let mut segments = node.path.segments.iter().rev();
         if let (Some(last), Some(owner)) = (segments.next(), segments.next())
-            && self.enforce_construction_ban
+            && self.enforce_direct_construction_ban
             && CONSTRUCTORS.contains(&last.ident.to_string().as_str())
             && self.names.contains(&owner.ident.to_string())
         {
             panic!(
-                "{}: names the `{DIAGNOSTIC_TYPE}::{}` constructor. Diagnostics are built \
-                 through `RuleEntry::diagnostic` in `src/{CATALOG_FILE}` and nowhere else, so \
-                 that a rule's severity is decided by its catalog entry; naming the \
+                "{}: names the `{DIAGNOSTIC_TYPE}::{}` constructor. Diagnostics are \
+                 INTENDED to be built through `RuleEntry::diagnostic` in `src/{CATALOG_FILE}` \
+                 so that a rule's severity is decided by its catalog entry; naming the \
                  constructor bypasses that even when it is not called here",
                 self.file, last.ident
             );
@@ -323,7 +353,7 @@ impl<'ast> Visit<'ast> for Sites<'_> {
     }
 }
 
-fn implemented_rule_ids() -> BTreeSet<String> {
+fn directly_constructed_rule_ids() -> BTreeSet<String> {
     let catalog = catalog_entries();
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
@@ -364,9 +394,9 @@ fn implemented_rule_ids() -> BTreeSet<String> {
 
         let mut sites = Sites {
             catalog: &catalog,
-            names: diagnostic_names(&ast),
+            names: local_diagnostic_spellings(&ast),
             file: file.display().to_string(),
-            enforce_construction_ban: !is_definition && !is_canonical,
+            enforce_direct_construction_ban: !is_definition && !is_canonical,
             ids: BTreeSet::new(),
             forwarded_receivers: 0,
             forwarding_calls: 0,
@@ -398,7 +428,7 @@ fn implemented_rule_ids() -> BTreeSet<String> {
     );
     assert!(
         ids.len() >= 40,
-        "the construction-site walk found only {} rule ids; the walker is broken and this \
+        "the direct-construction walk found only {} rule ids; the walker is broken and this \
          guard would pass vacuously",
         ids.len()
     );
@@ -481,27 +511,27 @@ fn registry_description(stdout: &str, id: &str) -> String {
 }
 
 #[test]
-fn every_implemented_rule_is_rendered_in_governance_output() {
-    let implemented = implemented_rule_ids();
+fn every_directly_constructed_rule_is_rendered_in_governance_output() {
+    let constructed = directly_constructed_rule_ids();
     let rendered = rendered_rule_ids(&governance_output());
-    let missing: Vec<&String> = implemented.difference(&rendered).collect();
+    let missing: Vec<&String> = constructed.difference(&rendered).collect();
     assert!(
         missing.is_empty(),
-        "these rules are implemented in src/ but carry no described entry in the governance \
-         reference, which claims to be the single source of truth for all invariant rules: \
-         {missing:?}"
+        "these rules have a direct construction site in src/ but carry no described entry \
+         in the governance reference, which claims to be the single source of truth for all \
+         invariant rules: {missing:?}"
     );
 }
 
 #[test]
-fn every_rendered_rule_is_implemented_in_src() {
-    let implemented = implemented_rule_ids();
+fn every_rendered_rule_has_a_direct_construction_site() {
+    let constructed = directly_constructed_rule_ids();
     let rendered = rendered_rule_ids(&governance_output());
-    let bogus: Vec<&String> = rendered.difference(&implemented).collect();
+    let bogus: Vec<&String> = rendered.difference(&constructed).collect();
     assert!(
         bogus.is_empty(),
-        "the governance reference documents these rules, but no diagnostic construction site \
-         in src/ emits them: {bogus:?}"
+        "the governance reference documents these rules, but no DIRECT diagnostic \
+         construction site in src/ emits them: {bogus:?}"
     );
 }
 
