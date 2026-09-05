@@ -88,6 +88,17 @@ removes it in favour of `MetadataProbeFailed`, which carries
 still names only the relative segment, per AFM-0028:R2. Recorded in
 place per AFM-0029:R2 — no Supersedes edge, no successor ADR.
 
+Amendment 2026-09-05 (SM-6a): R1 broadened to add `model::AdrIdError`,
+and R9 added. `AdrIdError` is the `Err` of `AdrId::try_new` and of the
+`TryFrom<&str>` impl, both reachable through the R1-pinned `AdrId`; a
+consumer cannot use the pinned constructor without naming it, so this
+pins existing reality rather than widening the surface (AFM-0029:R2
+in-place amendment, AFM-0028:R4 error-type inheritance). R9 closes a
+gap no rule covered: R1 and R7 pin which items and fields are stable
+but are silent on whose types they are, leaving semver coupling to
+`clap`, `regex`, `serde`, and `toml` ungoverned. The audit found one
+such coupling, named in R9. Nothing is removed; no break is recorded.
+
 ## Decision
 
 Pin the `adr-fmt` library API to a flat re-export set at the crate
@@ -100,7 +111,7 @@ R1 [5]: The library exposes exactly these items at the crate root via
   internal reorganisation is non-breaking:
   `config::{Config, LoadError, load_quiet, resolve_corpus_root, ResolveCorpusError}`,
   `containment::{ContainmentError, contained_join, contained_join_optional}`,
-  `model::{AdrRecord, DomainDir, AdrId, Tier, Status, Relationship, RelVerb, parse_adr_id}`,
+  `model::{AdrRecord, DomainDir, AdrId, AdrIdError, Tier, Status, Relationship, RelVerb, parse_adr_id}`,
   `parser::{parse_domain, parse_stale, ParseOutcome, ParseError}`,
   `report::{Diagnostic, Severity}`.
   `config::load` is intentionally absent; adding it requires a
@@ -151,6 +162,13 @@ R8 [5]: Second break recorded under R6: `ContainmentError::MetadataFailed`
   indistinguishable from transient I/O error. Commit `b139537` removes
   it in favour of the typed `MetadataProbeFailed { segment, kind }`;
   additive half in `01aaa7a`.
+
+R9 [7]: Items in the R1 set MUST NOT name a third-party crate's type in
+  a public signature or in field shape reachable per R7, since that
+  couples this crate's semver to theirs. Implementing a third-party
+  trait is exempt. Sole authorised coupling: `toml::Value` in
+  `config::RuleConfig::params`, reached via `Config::rules`. Widening
+  requires a current-consumer justification per COM-0013:R1.
 
 ## Consequences
 
