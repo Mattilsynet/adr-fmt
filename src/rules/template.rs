@@ -19,7 +19,9 @@ use crate::rules::catalog;
 use std::path::Path;
 
 use crate::config::{Config, RuleParam};
-use crate::model::{AdrRecord, RelVerb, Related, Status, Tier, TierField, layer_to_tier};
+use crate::model::{
+    AdrRecord, DateError, DateField, RelVerb, Related, Status, Tier, TierField, layer_to_tier,
+};
 use crate::report::Diagnostic;
 
 const MAX_CODE_BLOCK_LINES: usize = 20;
@@ -229,18 +231,53 @@ pub fn check(record: &AdrRecord, config: &Config, budgets: &Budgets, diags: &mut
     check_stale_stub_structure(record, diags);
 }
 
-fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
-    if record.date().is_none() {
-        diags.push(catalog::T002.diagnostic(record.file_path(), 0, "missing `Date:` field".into()));
+fn malformed_date_message(label: &str, raw: &str, reason: DateError) -> String {
+    format!(
+        "`{label}` value `{}` is not a `YYYY-MM-DD` date — {reason}",
+        raw.escape_debug()
+    )
+}
+
+fn check_date_fields(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
+    match record.date_field() {
+        DateField::Valid { .. } => {}
+        DateField::Absent => {
+            diags.push(catalog::T002.diagnostic(
+                record.file_path(),
+                0,
+                "missing `Date:` field".into(),
+            ));
+        }
+        DateField::Invalid { raw, reason } => {
+            diags.push(catalog::T023.diagnostic(
+                record.file_path(),
+                0,
+                malformed_date_message("Date:", raw, *reason),
+            ));
+        }
     }
 
-    if record.last_reviewed().is_none() {
-        diags.push(catalog::T003.diagnostic(
-            record.file_path(),
-            0,
-            "missing `Last-reviewed:` field (required for all tiers)".into(),
-        ));
+    match record.last_reviewed_field() {
+        DateField::Valid { .. } => {}
+        DateField::Absent => {
+            diags.push(catalog::T003.diagnostic(
+                record.file_path(),
+                0,
+                "missing `Last-reviewed:` field (required for all tiers)".into(),
+            ));
+        }
+        DateField::Invalid { raw, reason } => {
+            diags.push(catalog::T023.diagnostic(
+                record.file_path(),
+                0,
+                malformed_date_message("Last-reviewed:", raw, *reason),
+            ));
+        }
     }
+}
+
+fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
+    check_date_fields(record, diags);
 
     match record.tier_field() {
         TierField::Valid(_) => {}
@@ -931,8 +968,8 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         *record.file_path_mut() = PathBuf::from("test.md");
         *record.title_mut() = Some("Test".into());
         *record.title_line_mut() = 1;
-        *record.date_mut() = Some("2026-04-25".into());
-        *record.last_reviewed_mut() = Some("2026-04-25".into());
+        record.set_date(Some("2026-04-25".into()));
+        record.set_last_reviewed(Some("2026-04-25".into()));
         record.set_tier(Some(Tier::S));
         *record.status_mut() = Some(Status::Accepted);
         *record.status_line_mut() = 8;
@@ -1089,7 +1126,7 @@ params = { min_words = 20, max_words = 200 }
         for tier in [Tier::S, Tier::A, Tier::B, Tier::C, Tier::D] {
             let mut record = make_record();
             record.set_tier(Some(tier));
-            *record.last_reviewed_mut() = None;
+            record.set_last_reviewed(None);
             let config = make_config();
             let mut diags = Vec::new();
             check(&record, &config, &mut diags);
@@ -2972,5 +3009,74 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
             !diags.iter().any(|d| d.rule == "T011"),
             "a 20-line planted block must not trigger T011, got: {diags:?}"
         );
+    }
+
+    fn t023_of(date: &str, last_reviewed: &str) -> Vec<Diagnostic> {
+        let mut record = make_record();
+        record.set_date(Some(date.to_owned()));
+        record.set_last_reviewed(Some(last_reviewed.to_owned()));
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(&record, &config, &mut diags);
+        diags.into_iter().filter(|d| d.rule == "T023").collect()
+    }
+
+    #[test]
+    fn t023_fires_on_a_non_date_value() {
+        let diags = t023_of("banana", "2026-04-25");
+        assert_eq!(diags.len(), 1, "expected exactly one T023, got: {diags:?}");
+        assert!(
+            diags[0].message.contains("Date:") && diags[0].message.contains("banana"),
+            "T023 must name the field and quote the offending value, got: {}",
+            diags[0].message
+        );
+    }
+
+    #[test]
+    fn t023_fires_on_an_impossible_calendar_date() {
+        assert_eq!(t023_of("2026-13-45", "2026-04-25").len(), 1);
+        assert_eq!(t023_of("2026-02-30", "2026-04-25").len(), 1);
+        assert_eq!(t023_of("2025-02-29", "2026-04-25").len(), 1);
+    }
+
+    #[test]
+    fn t023_fires_on_a_year_outside_the_ratified_range() {
+        assert_eq!(t023_of("1999-04-25", "2026-04-25").len(), 1);
+        assert_eq!(t023_of("2101-04-25", "2026-04-25").len(), 1);
+        assert_eq!(t023_of("0226-04-25", "2026-04-25").len(), 1);
+    }
+
+    #[test]
+    fn t023_fires_on_last_reviewed_independently() {
+        let diags = t023_of("2026-04-25", "never");
+        assert_eq!(diags.len(), 1, "expected exactly one T023, got: {diags:?}");
+        assert!(
+            diags[0].message.contains("Last-reviewed:"),
+            "T023 must name the offending field, got: {}",
+            diags[0].message
+        );
+    }
+
+    #[test]
+    fn t023_silent_on_well_formed_dates_including_leap_day() {
+        for date in ["2000-01-01", "2100-12-31", "2024-02-29", "2026-04-25"] {
+            assert!(
+                t023_of(date, date).is_empty(),
+                "{date} is a valid ratified date and must not trigger T023"
+            );
+        }
+    }
+
+    #[test]
+    fn t023_does_not_displace_the_absence_diagnostics() {
+        let mut record = make_record();
+        record.set_date(None);
+        record.set_last_reviewed(None);
+        let config = make_config();
+        let mut diags = Vec::new();
+        check(&record, &config, &mut diags);
+        assert!(diags.iter().any(|d| d.rule == "T002"), "got: {diags:?}");
+        assert!(diags.iter().any(|d| d.rule == "T003"), "got: {diags:?}");
+        assert!(!diags.iter().any(|d| d.rule == "T023"), "got: {diags:?}");
     }
 }
