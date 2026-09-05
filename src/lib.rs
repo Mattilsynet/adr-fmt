@@ -606,3 +606,46 @@ mod discover_marker_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod non_utf8_filename_tests {
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    #[cfg(unix)]
+    fn non_utf8_file_name() -> OsString {
+        use std::os::unix::ffi::OsStringExt;
+        OsString::from_vec(b"CHE-0001-caf\xFF-slug.md".to_vec())
+    }
+
+    #[cfg(windows)]
+    fn non_utf8_file_name() -> OsString {
+        use std::os::windows::ffi::OsStringExt;
+        let mut units: Vec<u16> = "CHE-0001-caf".encode_utf16().collect();
+        units.push(0xD800);
+        units.extend("-slug.md".encode_utf16());
+        OsString::from_wide(&units)
+    }
+
+    #[test]
+    fn non_utf8_filename_reaches_n001_rather_than_being_skipped() {
+        let name = non_utf8_file_name();
+        assert!(
+            name.to_str().is_none(),
+            "the fixture filename must not be valid UTF-8, or the test pins nothing"
+        );
+
+        let mut path = PathBuf::from("docs/adr/cherry");
+        path.push(&name);
+
+        let mut diags = Vec::new();
+        crate::rules::naming::check_file_name(&path, &["CHE"], &mut diags);
+
+        assert!(
+            diags.iter().any(|d| d.rule == "N001"),
+            "a non-UTF-8 ADR filename MUST be reported against N001; reading it \
+             through `to_str` instead of `to_string_lossy` returns early and \
+             lets the file escape every naming rule (bead adr-fmt-52r). Got: {diags:?}"
+        );
+    }
+}
