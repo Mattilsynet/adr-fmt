@@ -10,3 +10,10 @@ jobs:
   ci:
     name: CI
     uses: ./.github/workflows/ci-reusable.yml
+
+  adr-lint-gate:
+    name: ADR lint gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/adr-lint-gate.sh

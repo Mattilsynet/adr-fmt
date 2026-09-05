@@ -1,7 +1,7 @@
 # AFM-0003. Advisory-Only Validation With Exit-Code Semantics
 
 Date: 2026-04-27
-Last-reviewed: 2026-05-02
+Last-reviewed: 2026-09-05
 Tier: B
 Status: Accepted
 
@@ -18,9 +18,9 @@ and proposed ADRs may have placeholder relationships. Forcing zero
 warnings before merge would discourage ADR creation. Two exit-code
 strategies exist: non-zero on warnings (risks suppression) or zero
 on warnings with non-zero only for infrastructure errors (risks
-overlooked warnings without process discipline). The implementation
-briefly drifted toward `error[T016]` and exit 1 on findings; the
-drift was corrected on re-review.
+overlooked warnings without process discipline). Enforcement therefore
+belongs to a wrapper that reads the tool's own summary line, so the
+threshold is a project policy rather than a property of the binary.
 
 ## Decision
 
@@ -37,15 +37,17 @@ R2 [5]: Emit every advisory finding (rule findings and parser-stage
   findings per AFM-0017) as Severity::Warning via
   Diagnostic::warning in adr-fmt/src/report.rs; the Severity enum
   exposes only the Warning variant for the advisory diagnostic stream
-R3 [5]: Set CI wrapper scripts to parse the `## Diagnostics: N
-  warning(s)` header on stdout and fail the job when N exceeds the
-  project threshold, enforcing zero-warning policy outside `adr-fmt`
+R3 [5]: Enforce the warning threshold outside `adr-fmt` in
+  `scripts/adr-lint-gate.sh`, which parses the `## Diagnostics: N
+  warning(s)` header on stdout, exits 1 above the threshold, and
+  exits 2 when it cannot obtain that count; run it locally and in CI
 
 ## Consequences
 
 Authors can write Draft ADRs with incomplete sections without being
-blocked. CI integration requires a wrapper if zero-warning
-enforcement is desired. The "exit 0 does not mean clean" semantics
+blocked. Threshold enforcement lives in `scripts/adr-lint-gate.sh`,
+which contributors run locally rather than discovering the policy
+only in CI. The "exit 0 does not mean clean" semantics
 must be documented. Future `--error-on-warning` flag is compatible
 as a mode change. The model aligns with Rust conventions: `cargo
 fmt` and `cargo clippy` default to non-blocking output.
