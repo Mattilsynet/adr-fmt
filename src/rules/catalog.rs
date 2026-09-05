@@ -301,7 +301,7 @@ pub(crate) const L011: RuleEntry = entry(
 );
 pub(crate) const L012: RuleEntry = entry(
     "L012",
-    "Non-Accepted parent — first References target is Draft/Proposed (advisory)",
+    "Advisory waypoint parent — first References target is Draft or Proposed",
 );
 pub(crate) const L013: RuleEntry = entry("L013", "Parent-edge cycle — chain forms a loop");
 pub(crate) const L014: RuleEntry = entry("L014", "Unreachable from root — chain ends at non-root");
@@ -328,6 +328,22 @@ pub(crate) const L019: RuleEntry = entry(
 pub(crate) const L020: RuleEntry = entry(
     "L020",
     "Link integrity indeterminate — target exists but failed to parse",
+);
+pub(crate) const L021: RuleEntry = entry(
+    "L021",
+    "Terminal parent — first References target is Rejected or Deprecated",
+);
+pub(crate) const L022: RuleEntry = wrapped(
+    "L022",
+    "Unparseable parent status — first References target's `Status:`",
+    &[RuleLine::Text(
+        "line is not a known status, so parent liveness is unknown",
+    )],
+);
+pub(crate) const L023: RuleEntry = wrapped(
+    "L023",
+    "Absent parent status — first References target has no `Status:`",
+    &[RuleLine::Text("line, so parent liveness is unknown")],
 );
 
 /// T020 as the LINK RULES section states it.
@@ -425,6 +441,9 @@ pub(crate) const LINK_RULES: &[RuleRendering] = &[
     RuleRendering::Canonical(&L018),
     RuleRendering::Canonical(&L019),
     RuleRendering::Canonical(&L020),
+    RuleRendering::Canonical(&L021),
+    RuleRendering::Canonical(&L022),
+    RuleRendering::Canonical(&L023),
     T020_LINK_SUMMARY,
 ];
 

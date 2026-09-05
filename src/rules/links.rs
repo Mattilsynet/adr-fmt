@@ -464,24 +464,46 @@ fn emit_parent_status(
                 ),
             ));
         }
-        Some(other) => {
+        Some(live @ (Status::Draft | Status::Proposed)) => {
             diags.push(catalog::L012.diagnostic(
                 record.file_path(),
                 parent_rel_line(record, parent_id),
                 format!(
-                    "{} → {parent_id}: parent edge target is `{other}`, not `Accepted` — \
-                     advisory only; chain still flows through",
+                    "{} → {parent_id}: parent edge target is `{live}`, not yet `Accepted` — \
+                     advisory waypoint; chain still flows through",
+                    record.id(),
+                ),
+            ));
+        }
+        Some(terminal @ (Status::Rejected | Status::Deprecated)) => {
+            diags.push(catalog::L021.diagnostic(
+                record.file_path(),
+                parent_rel_line(record, parent_id),
+                format!(
+                    "{} → {parent_id}: parent edge target is `{terminal}` — a terminal \
+                     decision cannot anchor a live chain; re-parent onto a live ADR",
+                    record.id(),
+                ),
+            ));
+        }
+        Some(Status::Invalid(raw)) => {
+            diags.push(catalog::L022.diagnostic(
+                record.file_path(),
+                parent_rel_line(record, parent_id),
+                format!(
+                    "{} → {parent_id}: parent edge target's status `{raw}` is not a known \
+                     status — parent liveness is unknown, which is not the same as sound",
                     record.id(),
                 ),
             ));
         }
         None => {
-            diags.push(catalog::L012.diagnostic(
+            diags.push(catalog::L023.diagnostic(
                 record.file_path(),
                 parent_rel_line(record, parent_id),
                 format!(
-                    "{} → {parent_id}: parent edge target has no status — \
-                     advisory only; chain still flows through",
+                    "{} → {parent_id}: parent edge target has no `Status:` line — \
+                     parent liveness is unknown, which is not the same as sound",
                     record.id(),
                 ),
             ));
@@ -1259,50 +1281,76 @@ mod tests {
         );
     }
 
-    #[test]
-    fn non_accepted_parent_produces_l012() {
+    const PARENT_STATUS_RULES: &[&str] = &["L012", "L017", "L021", "L022", "L023"];
+
+    fn parent_status_rules_for(status: Option<Status>) -> Vec<&'static str> {
         let mut parent = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
-        *parent.status_mut() = Some(Status::Draft);
-        *parent.status_raw_mut() = Some("Draft".into());
+        *parent.status_raw_mut() = status.as_ref().map(ToString::to_string);
+        *parent.status_mut() = status;
 
-        let child = make_record_with_rels("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        let records = vec![parent, child];
-        let mut diags = Vec::new();
-        check(&records, &mut diags);
-        assert!(
-            diags.iter().any(|d| d.rule == "L012"),
-            "expected L012 for Draft parent, got: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn superseded_parent_produces_l017_not_l012() {
-        let mut parent = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
-        *parent.status_mut() = Some(Status::SupersededBy(make_id("CHE", 9)));
-        *parent.status_raw_mut() = Some("Superseded by CHE-0009".into());
-
-        let mut succ = make_record_with_rels(
-            "CHE",
-            9,
-            vec![
-                (RelVerb::Root, make_id("CHE", 9)),
-                (RelVerb::Supersedes, make_id("CHE", 1)),
-            ],
-        );
+        let mut succ = make_record_with_rels("CHE", 9, vec![(RelVerb::Root, make_id("CHE", 9))]);
         *succ.status_mut() = Some(Status::Accepted);
 
         let child = make_record_with_rels("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
         let records = vec![parent, succ, child];
         let mut diags = Vec::new();
         check(&records, &mut diags);
+        let mut rules: Vec<&'static str> = diags
+            .into_iter()
+            .map(|d| d.rule)
+            .filter(|rule| PARENT_STATUS_RULES.contains(rule))
+            .collect();
+        rules.sort_unstable();
+        rules
+    }
+
+    #[test]
+    fn accepted_parent_produces_no_status_diagnostic() {
         assert!(
-            diags.iter().any(|d| d.rule == "L017"),
-            "expected L017, got: {diags:?}"
+            parent_status_rules_for(Some(Status::Accepted)).is_empty(),
+            "Accepted parent is the clean case"
         );
-        assert!(
-            !diags.iter().any(|d| d.rule == "L012"),
-            "L017 supersedes L012 for superseded parent, got: {diags:?}"
+    }
+
+    #[test]
+    fn draft_parent_produces_only_l012() {
+        assert_eq!(parent_status_rules_for(Some(Status::Draft)), ["L012"]);
+    }
+
+    #[test]
+    fn proposed_parent_produces_only_l012() {
+        assert_eq!(parent_status_rules_for(Some(Status::Proposed)), ["L012"]);
+    }
+
+    #[test]
+    fn rejected_parent_produces_only_l021() {
+        assert_eq!(parent_status_rules_for(Some(Status::Rejected)), ["L021"]);
+    }
+
+    #[test]
+    fn deprecated_parent_produces_only_l021() {
+        assert_eq!(parent_status_rules_for(Some(Status::Deprecated)), ["L021"]);
+    }
+
+    #[test]
+    fn superseded_by_parent_produces_only_l017() {
+        assert_eq!(
+            parent_status_rules_for(Some(Status::SupersededBy(make_id("CHE", 9)))),
+            ["L017"]
         );
+    }
+
+    #[test]
+    fn invalid_status_parent_produces_only_l022() {
+        assert_eq!(
+            parent_status_rules_for(Some(Status::Invalid("Acepted".into()))),
+            ["L022"]
+        );
+    }
+
+    #[test]
+    fn absent_status_parent_produces_only_l023() {
+        assert_eq!(parent_status_rules_for(None), ["L023"]);
     }
 
     #[test]
