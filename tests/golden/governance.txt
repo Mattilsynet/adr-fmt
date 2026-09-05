@@ -152,6 +152,12 @@ TEMPLATE
           the Options` are not part of this template. Fold their
           content into `## Context` or `## Decision` and remove the
           heading. Skipped on stale ADRs.
+    T023  Date value malformed — a `Date:` or `Last-reviewed:` value
+          that is present MUST be `YYYY-MM-DD`, name a real
+          calendar day, and fall in the year range 2000–2100.
+          Absence is T002/T003; this fires only on a value that
+          is present and is not a date. The raw text is preserved
+          unchanged for readers (AFM-0033).
 
   Parser-stage rules:
     P001  ADR file unreadable (filesystem error during read)
@@ -165,6 +171,13 @@ TEMPLATE
     P004  Duplicate ADR id: two records claim the same PREFIX-NNNN.
           Detected once, before any rule runs — no rule can consume
           the corpus while this holds (AFM-0008:R3).
+    P005  Unreadable rule layer tag: a Decision line of the form
+          `RN [L]: text` whose `L` is not a number. The pinned tag
+          regex (AFM-0012:R2) does not match, so the line is not
+          read as a tagged rule and the surrounding `R` sequence
+          appears to have a gap. Reported here, against its own
+          line, so the authoring error is named where it is
+          (AFM-0034).
 
 TAGGED RULES (Decision Section)
 ───────────────────────────────
