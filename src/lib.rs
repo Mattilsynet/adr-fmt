@@ -456,6 +456,9 @@ fn try_marker(marker_dir: &Path) -> Result<MarkerVerdict, String> {
         Err(config::LoadError::Io(m)) => return Err(m),
         Err(config::LoadError::Parse(m)) => return Ok(MarkerVerdict::Invalid(m)),
         Err(config::LoadError::NotAMarker(m)) => return Ok(MarkerVerdict::Unfit(m)),
+        Err(e @ config::LoadError::DuplicateRuleId(_)) => {
+            return Ok(MarkerVerdict::Invalid(e.to_string()));
+        }
     };
     let Ok(corpus_root) = config::resolve_corpus_root(marker_dir, &config.corpus) else {
         return Ok(MarkerVerdict::Unfit(
