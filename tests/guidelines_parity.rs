@@ -6,9 +6,10 @@
 //! a comment or a test string and so fails open.
 //!
 //! The implemented side no longer scans for string literals. Every
-//! diagnostic construction site now takes its id from a `src/rules/catalog.rs`
-//! entry (`catalog::T002.id`), so this guard resolves those references
-//! through the catalog. That keeps the check honest in both directions: an
+//! diagnostic is now constructed through its `src/rules/catalog.rs` entry
+//! (`catalog::T002.diagnostic(..)`), which is also the only place in the
+//! crate that turns a severity into a `Diagnostic`, so this guard resolves
+//! those references through the catalog. That keeps the check honest in both directions: an
 //! entry a validator emits but no section renders is caught, and a rendered
 //! id no validator emits is caught. It also gives the guard a stronger
 //! invariant than before — a bare literal rule id at a construction site is
@@ -38,6 +39,8 @@ crates = []
 
 const DIAGNOSTIC_MARKERS: [&str; 2] = ["Diagnostic::warning(", "Diagnostic::error("];
 
+const CONSTRUCTION_MARKER: &str = ".diagnostic(";
+
 const FORWARDING_MARKER: &str = "resolve_param(";
 
 const FORWARDING_DEFINITION: &str = "fn resolve_param(";
@@ -45,6 +48,8 @@ const FORWARDING_DEFINITION: &str = "fn resolve_param(";
 const FORWARDING_DEFINITION_FILE: &str = "rules/template.rs";
 
 const FORWARDED_PARAM_NAME: &str = "rule";
+
+const FORWARDING_ARGUMENT_PREFIX: &str = "&catalog::";
 
 const CATALOG_FILE: &str = "rules/catalog.rs";
 
@@ -184,8 +189,52 @@ fn catalog_entries() -> BTreeMap<String, String> {
     entries
 }
 
-/// Resolve `catalog::NAME.id` at a construction site to the rule id it names.
-fn catalog_rule_id<'a>(
+/// Resolve the receiver of a `.diagnostic(..)` call to the rule id it names.
+///
+/// Returns `None` for the one forwarding receiver inside `resolve_param`,
+/// whose entry is supplied by its callers and counted there.
+fn construction_rule_id<'a>(
+    production: &str,
+    catalog: &'a BTreeMap<String, String>,
+    file: &Path,
+    base: usize,
+    site: usize,
+) -> Option<&'a str> {
+    let head = &production[..site];
+    let name_start = head
+        .rfind(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != ':')
+        .map_or(0, |at| at + 1);
+    let receiver = &head[name_start..];
+    if receiver == FORWARDED_PARAM_NAME {
+        return None;
+    }
+    let name = receiver
+        .strip_prefix(CATALOG_PATH_PREFIX)
+        .unwrap_or_else(|| {
+            panic!(
+                "{}: diagnostic construction at byte {} is built on `{receiver}` rather than a \
+             rule catalog entry. Every diagnostic is constructed through its entry in \
+             `src/{CATALOG_FILE}`, which is what keeps the validating side, the rule's \
+             severity, and the rendered governance reference from drifting apart",
+                file.display(),
+                base + site
+            )
+        });
+    Some(catalog.get(name).map_or_else(
+        || {
+            panic!(
+                "{}: construction at byte {} references `catalog::{name}`, which is not a \
+                 catalog entry carrying a rule id",
+                file.display(),
+                base + site
+            )
+        },
+        String::as_str,
+    ))
+}
+
+/// Resolve the `&catalog::NAME` entry a `resolve_param` call forwards.
+fn forwarded_rule_id<'a>(
     production: &str,
     catalog: &'a BTreeMap<String, String>,
     file: &Path,
@@ -193,23 +242,28 @@ fn catalog_rule_id<'a>(
     site: usize,
 ) -> &'a str {
     let rest = production[site..].trim_start();
-    assert!(
-        rest.starts_with(CATALOG_PATH_PREFIX),
-        "{}: diagnostic construction at byte {} does not take its id from the rule catalog \
-         (found `{}`). Rule ids are stated once, in `src/{CATALOG_FILE}`, so that the \
-         validating side and the rendered governance reference cannot drift; a literal here \
-         reintroduces exactly that drift",
-        file.display(),
-        base + site,
-        leading_identifier(production, site)
+    let name = rest.strip_prefix(FORWARDING_ARGUMENT_PREFIX).map_or_else(
+        || {
+            panic!(
+                "{}: `{FORWARDING_MARKER}` call at byte {} does not forward a catalog entry \
+                 (found `{rest_head}`); the forwarded rule would be invisible to this guard",
+                file.display(),
+                base + site,
+                rest_head = leading_identifier(production, site)
+            )
+        },
+        |tail| {
+            let end = tail
+                .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .unwrap_or(tail.len());
+            &tail[..end]
+        },
     );
-    let name_start = site + production[site..].len() - rest.len() + CATALOG_PATH_PREFIX.len();
-    let name = leading_identifier(production, name_start);
     catalog.get(name).map_or_else(
         || {
             panic!(
-                "{}: construction at byte {} references `catalog::{name}`, which is not a \
-                 catalog entry carrying a rule id",
+                "{}: `{FORWARDING_MARKER}` call at byte {} forwards `catalog::{name}`, which \
+                 is not a catalog entry carrying a rule id",
                 file.display(),
                 base + site
             )
@@ -227,7 +281,7 @@ fn implemented_rule_ids() -> BTreeSet<String> {
 
     let mut ids = BTreeSet::new();
     let mut definitions = 0usize;
-    let mut exempted_sites = 0usize;
+    let mut forwarding_receivers = 0usize;
     let mut forwarding_calls = 0usize;
     for file in &files {
         if file.ends_with(CATALOG_FILE) {
@@ -237,34 +291,35 @@ fn implemented_rule_ids() -> BTreeSet<String> {
         let is_definition_file = file.ends_with(FORWARDING_DEFINITION_FILE);
         for segment in production_segments(&text) {
             let production = segment.text;
-            let definition = forwarding_definition_span(production, file);
-            if definition.is_some() {
+            if forwarding_definition_span(production, file).is_some() {
                 assert!(
                     is_definition_file,
                     "{}: `{FORWARDING_DEFINITION}` is defined outside the one canonical \
-                     forwarding file `{FORWARDING_DEFINITION_FILE}`; the parity guard's \
-                     exemption is bound to that definition and must not silently follow it \
-                     elsewhere",
+                     forwarding file `{FORWARDING_DEFINITION_FILE}`; this guard's exemption \
+                     is bound to that definition and must not silently follow it elsewhere",
                     file.display()
                 );
                 definitions += 1;
             }
             for marker in DIAGNOSTIC_MARKERS {
-                let mut cursor = 0;
-                while let Some(offset) = production[cursor..].find(marker) {
-                    let site = cursor + offset + marker.len();
-                    cursor = site;
-                    let identifier = leading_identifier(production, site);
-                    let inside_definition =
-                        definition.is_some_and(|(start, end)| site >= start && site < end);
-                    if inside_definition && identifier == FORWARDED_PARAM_NAME {
-                        exempted_sites += 1;
-                        continue;
+                assert!(
+                    !production.contains(marker),
+                    "{}: constructs a `Diagnostic` directly via `{marker}`. Severity is \
+                     decided in exactly one place — `RuleEntry::diagnostic` in \
+                     `src/{CATALOG_FILE}` — so that governance guidance cannot claim a \
+                     severity the validators do not emit (adr-fmt-5qd)",
+                    file.display()
+                );
+            }
+            let mut cursor = 0;
+            while let Some(offset) = production[cursor..].find(CONSTRUCTION_MARKER) {
+                let site = cursor + offset;
+                cursor = site + CONSTRUCTION_MARKER.len();
+                match construction_rule_id(production, &catalog, file, segment.offset, site) {
+                    Some(id) => {
+                        ids.insert(id.to_string());
                     }
-                    ids.insert(
-                        catalog_rule_id(production, &catalog, file, segment.offset, site)
-                            .to_string(),
-                    );
+                    None => forwarding_receivers += 1,
                 }
             }
             let mut cursor = 0;
@@ -281,7 +336,8 @@ fn implemented_rule_ids() -> BTreeSet<String> {
                     .map(|at| site + at + 1)
                     .expect("a resolve_param call names its rule after the config argument");
                 ids.insert(
-                    catalog_rule_id(production, &catalog, file, segment.offset, comma).to_string(),
+                    forwarded_rule_id(production, &catalog, file, segment.offset, comma)
+                        .to_string(),
                 );
             }
         }
@@ -290,19 +346,19 @@ fn implemented_rule_ids() -> BTreeSet<String> {
     assert_eq!(
         definitions, 1,
         "expected exactly one `{FORWARDING_DEFINITION}` definition in src/; found \
-         {definitions}. The parity guard's only non-catalog exemption is bound to that \
-         single definition"
+         {definitions}. This guard's only non-catalog receiver is bound to that single \
+         definition"
     );
     assert_eq!(
-        exempted_sites, 1,
-        "expected exactly one exempted non-catalog diagnostic construction (the forwarding \
-         site inside `{FORWARDING_DEFINITION}`); found {exempted_sites}. A changed count \
+        forwarding_receivers, 1,
+        "expected exactly one forwarding `{FORWARDED_PARAM_NAME}.diagnostic(..)` receiver \
+         (inside `{FORWARDING_DEFINITION}`); found {forwarding_receivers}. A changed count \
          means the exemption has generalised and must be re-proven"
     );
     assert!(
         forwarding_calls > 0,
         "no `{FORWARDING_MARKER}` call sites found; the forwarded rule ids would be invisible \
-         to the parity guard"
+         to this guard"
     );
     assert!(
         ids.len() >= 40,

@@ -752,8 +752,7 @@ mod tests {
 
     #[test]
     fn render_diagnostics_with_warnings() {
-        let diags = vec![Diagnostic::warning(
-            catalog::T020.id,
+        let diags = vec![catalog::T020.diagnostic(
             &std::path::PathBuf::from("test.md"),
             1,
             "missing title".into(),

@@ -321,8 +321,7 @@ fn report_duplicate_id(
 }
 
 fn duplicate_id_diagnostic(dup: &index::DuplicateId) -> report::Diagnostic {
-    report::Diagnostic::warning(
-        catalog::P004.id,
+    catalog::P004.diagnostic(
         &dup.paths[0],
         0,
         format!(

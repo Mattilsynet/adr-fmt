@@ -31,8 +31,7 @@ pub fn check_file_name(path: &Path, domain_prefixes: &[&str], diags: &mut Vec<Di
     let parsed = parse_adr_id_from_filename_stem(stem);
 
     let Some(id) = parsed.filter(|_| N001_PATTERN.is_match(&file_name)) else {
-        diags.push(Diagnostic::warning(
-            catalog::N001.id,
+        diags.push(catalog::N001.diagnostic(
             path,
             0,
             format!(
@@ -46,8 +45,7 @@ pub fn check_file_name(path: &Path, domain_prefixes: &[&str], diags: &mut Vec<Di
     let slug = &stem[id.prefix().len() + 6..];
 
     if !KEBAB_PATTERN.is_match(slug) || !has_letter_segment(slug) {
-        diags.push(Diagnostic::warning(
-            catalog::N003.id,
+        diags.push(catalog::N003.diagnostic(
             path,
             0,
             format!(
@@ -58,8 +56,7 @@ pub fn check_file_name(path: &Path, domain_prefixes: &[&str], diags: &mut Vec<Di
     }
 
     if !domain_prefixes.contains(&id.prefix()) {
-        diags.push(Diagnostic::warning(
-            catalog::N004.id,
+        diags.push(catalog::N004.diagnostic(
             path,
             0,
             format!(
@@ -88,8 +85,7 @@ pub fn check(record: &AdrRecord, _domain_prefixes: &[&str], diags: &mut Vec<Diag
     if let Some(file_id) = parse_adr_id_from_filename_stem(stem)
         && (file_id.prefix() != record.id().prefix() || file_id.number() != record.id().number())
     {
-        diags.push(Diagnostic::warning(
-            catalog::N002.id,
+        diags.push(catalog::N002.diagnostic(
             record.file_path(),
             record.title_line(),
             format!(

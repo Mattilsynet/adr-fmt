@@ -14,24 +14,69 @@
 //! emits it, which makes the coupling a compile error rather than a
 //! convention.
 //!
+//! Severity lives here too. It used to be a bare `Diagnostic::warning`
+//! choice made independently at each construction site, with no registry to
+//! read, which is why the T016 guidance could claim a rule was an error
+//! while the validator emitted a warning (adr-fmt-5qd). `RuleEntry::diagnostic`
+//! is now the only place in the crate that decides a diagnostic's severity,
+//! and the renderer states severity by formatting the same field.
+//!
 //! Crate-private by construction (AFM-0026:R2). Nothing here is exported
 //! at the crate root; doing so would be a new public item under
 //! AFM-0026:R5 and would require an ADR.
 
-/// One diagnostic's identity and its rendered governance description.
+use std::path::Path;
+
+use crate::report::{Diagnostic, Severity};
+
+/// One rendered line of a rule's description.
+///
+/// `Severity` exists so a line that talks about how loudly a rule fires
+/// takes the word from the entry's `severity` field instead of restating
+/// it. Guidance therefore cannot claim a severity the validators do not
+/// emit — the drift class recorded three times in adr-fmt-5qd.
+pub(crate) enum RuleLine {
+    Text(&'static str),
+    Severity {
+        before: &'static str,
+        after: &'static str,
+    },
+}
+
+/// One diagnostic's identity, severity, and rendered governance description.
 ///
 /// `summary` is the first rendered line and is always present;
 /// `continuation` holds any further lines. Splitting them this way means a
 /// description-less entry cannot be constructed.
 pub(crate) struct RuleEntry {
     pub(crate) id: &'static str,
+    pub(crate) severity: Severity,
     pub(crate) summary: &'static str,
-    pub(crate) continuation: &'static [&'static str],
+    pub(crate) continuation: &'static [RuleLine],
+}
+
+impl RuleEntry {
+    /// Build this rule's diagnostic.
+    ///
+    /// The only site in the crate that turns a severity into a
+    /// `Diagnostic`, so a rule's severity is decided by its catalog entry
+    /// rather than by whichever constructor a call site reached for.
+    pub(crate) fn diagnostic(
+        &'static self,
+        file: &Path,
+        line: usize,
+        message: String,
+    ) -> Diagnostic {
+        match self.severity {
+            Severity::Warning => Diagnostic::warning(self.id, file, line, message),
+        }
+    }
 }
 
 const fn entry(id: &'static str, summary: &'static str) -> RuleEntry {
     RuleEntry {
         id,
+        severity: Severity::Warning,
         summary,
         continuation: &[],
     }
@@ -40,10 +85,11 @@ const fn entry(id: &'static str, summary: &'static str) -> RuleEntry {
 const fn wrapped(
     id: &'static str,
     summary: &'static str,
-    continuation: &'static [&'static str],
+    continuation: &'static [RuleLine],
 ) -> RuleEntry {
     RuleEntry {
         id,
+        severity: Severity::Warning,
         summary,
         continuation,
     }
@@ -56,18 +102,18 @@ pub(crate) const T005: RuleEntry = wrapped(
     "T005",
     "Status value present — a `Status:` metadata field or a",
     &[
-        "legacy ## Status section carrying a value MUST satisfy",
-        "this; it fires only when neither supplies a status",
+        RuleLine::Text("legacy ## Status section carrying a value MUST satisfy"),
+        RuleLine::Text("this; it fires only when neither supplies a status"),
     ],
 );
 pub(crate) const T005C: RuleEntry = wrapped(
     "T005c",
     "Legacy ## Status section — accepted but deprecated. With",
     &[
-        "no metadata field the section supplies the status and you",
-        "SHOULD migrate it to a Status: preamble field; when a",
-        "Status: field is also present the section is dead content",
-        "and MUST be deleted — the metadata field is authoritative",
+        RuleLine::Text("no metadata field the section supplies the status and you"),
+        RuleLine::Text("SHOULD migrate it to a Status: preamble field; when a"),
+        RuleLine::Text("Status: field is also present the section is dead content"),
+        RuleLine::Text("and MUST be deleted — the metadata field is authoritative"),
     ],
 );
 pub(crate) const T006: RuleEntry =
@@ -88,55 +134,58 @@ pub(crate) const T015: RuleEntry = wrapped(
     "T015",
     "Section word count — tier-scaled signal, not gate.",
     &[
-        "The effective minimum and maximum MUST be the",
-        "configured T015 base scaled by the tier factor, so",
-        "the minimum printed above and the minimum enforced",
-        "here are one value. S-tier ADRs get more room,",
-        "D-tier must be tighter. Flags the section for review.",
+        RuleLine::Text("The effective minimum and maximum MUST be the"),
+        RuleLine::Text("configured T015 base scaled by the tier factor, so"),
+        RuleLine::Text("the minimum printed above and the minimum enforced"),
+        RuleLine::Text("here are one value. S-tier ADRs get more room,"),
+        RuleLine::Text("D-tier must be tighter. Flags the section for review."),
     ],
 );
 pub(crate) const T016: RuleEntry = wrapped(
     "T016",
     "Tagged rules — tier-scaled signal, not gate. Max rules",
     &[
-        "scales with tier. Word count (7–60), sequential IDs",
-        "and layer outside 1–12 (invalid Meadows leverage",
-        "point) are warnings. A rule-shaped line that",
-        "does not match the required `RN [L]: text` format",
-        "is reported against its own line — it is not",
-        "silently skipped. Exceeding may indicate the ADR",
-        "covers multiple decisions.",
+        RuleLine::Text("scales with tier. Word count (7–60), sequential IDs"),
+        RuleLine::Text("and layer outside 1–12 (invalid Meadows leverage"),
+        RuleLine::Severity {
+            before: "point) are ",
+            after: "s. A rule-shaped line that",
+        },
+        RuleLine::Text("does not match the required `RN [L]: text` format"),
+        RuleLine::Text("is reported against its own line — it is not"),
+        RuleLine::Text("silently skipped. Exceeding may indicate the ADR"),
+        RuleLine::Text("covers multiple decisions."),
     ],
 );
 pub(crate) const T019: RuleEntry = wrapped(
     "T019",
     "Rule-tier tension — asymmetric leverage bound. T019 MUST",
     &[
-        "fire if and only if the rule's layer-derived tier has",
-        "higher leverage than the ADR's tier (rule_rank <",
-        "adr_rank); equal or lower leverage MUST pass silently.",
-        "T019 MUST NOT apply domain carve-outs and MUST NOT apply",
-        "a distance threshold. Move the rule to a matching-",
-        "tier ADR or adjust the layer annotation.",
+        RuleLine::Text("fire if and only if the rule's layer-derived tier has"),
+        RuleLine::Text("higher leverage than the ADR's tier (rule_rank <"),
+        RuleLine::Text("adr_rank); equal or lower leverage MUST pass silently."),
+        RuleLine::Text("T019 MUST NOT apply domain carve-outs and MUST NOT apply"),
+        RuleLine::Text("a distance threshold. Move the rule to a matching-"),
+        RuleLine::Text("tier ADR or adjust the layer annotation."),
     ],
 );
 pub(crate) const T020: RuleEntry = wrapped(
     "T020",
     "Reference load — tier-scaled limit on References:",
     &[
-        "count. Root and Supersedes are structural and don't",
-        "count. High reference count signals broad scope.",
+        RuleLine::Text("count. Root and Supersedes are structural and don't"),
+        RuleLine::Text("count. High reference count signals broad scope."),
     ],
 );
 pub(crate) const T022: RuleEntry = wrapped(
     "T022",
     "MADR residue section — headings such as `## Context and",
     &[
-        "Problem Statement`, `## Decision Drivers`, `## Considered",
-        "Options`, `## Decision Outcome` and `## Pros and Cons of",
-        "the Options` are not part of this template. Fold their",
-        "content into `## Context` or `## Decision` and remove the",
-        "heading. Skipped on stale ADRs.",
+        RuleLine::Text("Problem Statement`, `## Decision Drivers`, `## Considered"),
+        RuleLine::Text("Options`, `## Decision Outcome` and `## Pros and Cons of"),
+        RuleLine::Text("the Options` are not part of this template. Fold their"),
+        RuleLine::Text("content into `## Context` or `## Decision` and remove the"),
+        RuleLine::Text("heading. Skipped on stale ADRs."),
     ],
 );
 
@@ -150,19 +199,19 @@ pub(crate) const P003: RuleEntry = wrapped(
     "P003",
     "Malformed `## Related` segment: missing `Verb: ` separator,",
     &[
-        "unrecognized verb, or unparseable target. The malformed",
-        "segment is skipped; other valid segments on the same",
-        "line still parse and link. A clause-level target",
-        "(`ID:Rn`) is accepted on `References:` only",
-        "(AFM-0029:R4); elsewhere it is unparseable.",
+        RuleLine::Text("unrecognized verb, or unparseable target. The malformed"),
+        RuleLine::Text("segment is skipped; other valid segments on the same"),
+        RuleLine::Text("line still parse and link. A clause-level target"),
+        RuleLine::Text("(`ID:Rn`) is accepted on `References:` only"),
+        RuleLine::Text("(AFM-0029:R4); elsewhere it is unparseable."),
     ],
 );
 pub(crate) const P004: RuleEntry = wrapped(
     "P004",
     "Duplicate ADR id: two records claim the same PREFIX-NNNN.",
     &[
-        "Detected once, before any rule runs — no rule can consume",
-        "the corpus while this holds (AFM-0008:R3).",
+        RuleLine::Text("Detected once, before any rule runs — no rule can consume"),
+        RuleLine::Text("the corpus while this holds (AFM-0008:R3)."),
     ],
 );
 
@@ -173,20 +222,24 @@ pub(crate) const N001: RuleEntry = entry(
 pub(crate) const N002: RuleEntry = wrapped(
     "N002",
     "Filename ID matches the H1 title ID — the filename and the",
-    &["`# PREFIX-NNNN. Title` heading MUST name the same ADR"],
+    &[RuleLine::Text(
+        "`# PREFIX-NNNN. Title` heading MUST name the same ADR",
+    )],
 );
 pub(crate) const N003: RuleEntry = wrapped(
     "N003",
     "Slug is lowercase kebab-case — letters, digits and hyphens",
     &[
-        "only, with at least one letter segment, rejecting leading,",
-        "trailing and consecutive hyphens (AFM-0008:R4)",
+        RuleLine::Text("only, with at least one letter segment, rejecting leading,"),
+        RuleLine::Text("trailing and consecutive hyphens (AFM-0008:R4)"),
     ],
 );
 pub(crate) const N004: RuleEntry = wrapped(
     "N004",
     "Prefix matches a domain registered in `adr-fmt.toml` under",
-    &["`[[domains]]`; any unregistered prefix warns (AFM-0008:R2)"],
+    &[RuleLine::Text(
+        "`[[domains]]`; any unregistered prefix warns (AFM-0008:R2)",
+    )],
 );
 
 pub(crate) const L001: RuleEntry = entry("L001", "Dangling link — target ADR file not found");
@@ -194,7 +247,7 @@ pub(crate) const L003: RuleEntry = entry("L003", "Supersedes-status consistency"
 pub(crate) const L006: RuleEntry = wrapped(
     "L006",
     "Legacy relationship verb — migrate to its replacement verb",
-    &["(see Legacy verbs above; per AFM-0009)"],
+    &[RuleLine::Text("(see Legacy verbs above; per AFM-0009)")],
 );
 pub(crate) const L007: RuleEntry = entry("L007", "Stale reference — link to stale archive ADR");
 pub(crate) const L008: RuleEntry = entry("L008", "Root self-reference mismatch");
@@ -250,20 +303,24 @@ pub(crate) const S004: RuleEntry = entry("S004", "enforces presence of `## Retir
 pub(crate) const S005: RuleEntry = wrapped(
     "S005",
     "active ADR carries `## Retirement` — the section is for",
-    &["stale ADRs only; delete it or retire the ADR"],
+    &[RuleLine::Text(
+        "stale ADRs only; delete it or retire the ADR",
+    )],
 );
 pub(crate) const S006: RuleEntry = wrapped(
     "S006",
     "terminal-status ADR is not in the stale directory — move",
-    &["the file here and add a `## Retirement` section"],
+    &[RuleLine::Text(
+        "the file here and add a `## Retirement` section",
+    )],
 );
 pub(crate) const S007: RuleEntry = entry("S007", "enforces stub structure (sections + verbs)");
 pub(crate) const S008: RuleEntry = wrapped(
     "S008",
     "stale ADR carries a non-terminal status — either set a",
     &[
-        "terminal status (Rejected, Deprecated, Superseded by",
-        "PREFIX-NNNN) or move the file back out of this directory",
+        RuleLine::Text("terminal status (Rejected, Deprecated, Superseded by"),
+        RuleLine::Text("PREFIX-NNNN) or move the file back out of this directory"),
     ],
 );
 

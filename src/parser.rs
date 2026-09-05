@@ -203,8 +203,7 @@ fn is_adr_candidate(name: &str) -> bool {
 }
 
 fn unreadable_entry(dir: &Path, e: &std::io::Error) -> Diagnostic {
-    Diagnostic::warning(
-        catalog::P001.id,
+    catalog::P001.diagnostic(
         dir,
         0,
         format!(
@@ -229,12 +228,9 @@ fn absorb_file(outcome: &mut ParseOutcome, path: &Path, prefix: &str, is_stale: 
         }
         Err(e) => {
             let cause = ParseFailureCause::Unreadable(e);
-            outcome.diagnostics.push(Diagnostic::warning(
-                catalog::P001.id,
-                path,
-                0,
-                cause.to_string(),
-            ));
+            outcome
+                .diagnostics
+                .push(catalog::P001.diagnostic(path, 0, cause.to_string()));
             note_parse_failure(outcome, path, cause);
         }
     }
@@ -418,8 +414,7 @@ pub(crate) fn parse_adr_file(
     let outside = source.outside();
 
     if lines.is_empty() {
-        diagnostics.push(Diagnostic::warning(
-            catalog::P002.id,
+        diagnostics.push(catalog::P002.diagnostic(
             path,
             0,
             format!(
@@ -431,8 +426,7 @@ pub(crate) fn parse_adr_file(
     }
 
     let Some((id, title, title_line)) = parse_title(&outside, expected_prefix) else {
-        diagnostics.push(Diagnostic::warning(
-            catalog::P002.id,
+        diagnostics.push(catalog::P002.diagnostic(
             path,
             0,
             format!(
@@ -680,8 +674,7 @@ fn parse_related_segment(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let Some(colon_pos) = segment.find(": ") else {
-        diagnostics.push(Diagnostic::warning(
-            catalog::P003.id,
+        diagnostics.push(catalog::P003.diagnostic(
             path,
             line_no,
             format!("malformed `## Related` segment (missing `Verb: ` separator): `{segment}`"),
@@ -693,8 +686,7 @@ fn parse_related_segment(
     let targets_str = &segment[colon_pos + 2..];
 
     let Some(verb) = RelVerb::parse(verb_str) else {
-        diagnostics.push(Diagnostic::warning(
-            catalog::P003.id,
+        diagnostics.push(catalog::P003.diagnostic(
             path,
             line_no,
             format!("malformed `## Related` segment (unrecognized verb `{verb_str}`): `{segment}`"),
@@ -721,8 +713,7 @@ fn parse_related_segment(
                 line: line_no,
             });
         } else {
-            diagnostics.push(Diagnostic::warning(
-                catalog::P003.id,
+            diagnostics.push(catalog::P003.diagnostic(
                 path,
                 line_no,
                 format!(

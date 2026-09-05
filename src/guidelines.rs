@@ -12,7 +12,7 @@ use std::io::{self, Write};
 
 use crate::config::Config;
 use crate::model::{RelVerb, Tier};
-use crate::rules::catalog::{self, RuleEntry};
+use crate::rules::catalog::{self, RuleEntry, RuleLine};
 use crate::rules::template::Budgets;
 
 /// Print the setup guide when no `adr-fmt.toml` exists.
@@ -147,7 +147,12 @@ fn print_rule_entries(w: &mut impl Write, entries: &[&RuleEntry]) -> io::Result<
     for entry in entries {
         writeln!(w, "    {:<6}{}", entry.id, entry.summary)?;
         for line in entry.continuation {
-            writeln!(w, "          {line}")?;
+            match line {
+                RuleLine::Text(text) => writeln!(w, "          {text}")?,
+                RuleLine::Severity { before, after } => {
+                    writeln!(w, "          {before}{}{after}", entry.severity)?;
+                }
+            }
         }
     }
     Ok(())
@@ -606,7 +611,7 @@ fn print_relationship_tree_model(w: &mut impl Write, config: &Config) -> io::Res
         )?;
         writeln!(w)?;
     }
-    writeln!(w, "  Legacy verbs (produce warnings):")?;
+    writeln!(w, "  Legacy verbs (produce {}s):", catalog::L006.severity)?;
     for verb in RelVerb::legacy() {
         let migration = verb.migration().unwrap_or("remove");
         writeln!(w, "    {verb:<15} → {migration}")?;
@@ -936,29 +941,6 @@ crates = []
         assert!(
             !src.contains(&needle),
             "tier scaling values must not be hardcoded in println"
-        );
-    }
-
-    #[test]
-    fn t016_registry_text_matches_shipped_warning_severity() {
-        let src = include_str!("rules/catalog.rs");
-        let start = src
-            .find("const T016: RuleEntry")
-            .expect("T016 catalog entry exists");
-        let end = src[start..]
-            .find("const T019: RuleEntry")
-            .expect("the T016 entry is followed by the T019 entry")
-            + start;
-        let scan = &src[start..end];
-        assert!(
-            !scan.contains("is an error"),
-            "AFM-0003:R2 and rules/template.rs both expose the T016 layer \
-             finding as a WARNING; the generated text must not claim error"
-        );
-        assert!(
-            scan.contains("does not match the required"),
-            "the generated T016 guidance must document the malformed \
-             rule-shaped line check, or a shipped diagnostic is invisible"
         );
     }
 
