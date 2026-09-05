@@ -284,7 +284,7 @@ LINK RULES
 ──────────
 
   Rules:
-    L001  Dangling link — target ADR file not found
+    L001  Dangling link — no file for a target in a configured domain
     L003  Supersedes-status consistency
     L006  Legacy relationship verb — migrate to its replacement verb
           (see Legacy verbs above; per AFM-0009)

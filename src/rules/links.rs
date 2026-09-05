@@ -1,6 +1,7 @@
 //! Link and relationship rules (L001, L003, L006–L019).
 //!
-//! - L001 dangling link; L003 supersedes-status consistency; L006
+//! - L001 dangling link, scoped to targets whose prefix this corpus
+//!   governs (AFM-0008:R5); L003 supersedes-status consistency; L006
 //!   legacy verb (deprecated per AFM-0009); L007 stale reference;
 //!   L008 Root self-reference mismatch; L009 Root+References
 //!   coexistence.
@@ -27,7 +28,12 @@ use crate::model::{AdrId, AdrRecord, CrossDomainParent, RelVerb, Relationship, S
 use crate::nav::{compute_parent_edges, walk_parent_chain};
 use crate::report::Diagnostic;
 
-pub fn check(records: &[AdrRecord], by_id: &CorpusIndex<'_>, diags: &mut Vec<Diagnostic>) {
+pub fn check(
+    records: &[AdrRecord],
+    by_id: &CorpusIndex<'_>,
+    governed: GovernedPrefixes<'_>,
+    diags: &mut Vec<Diagnostic>,
+) {
     for record in records {
         check_root_references_coexistence(record, diags);
 
@@ -42,7 +48,7 @@ pub fn check(records: &[AdrRecord], by_id: &CorpusIndex<'_>, diags: &mut Vec<Dia
         }
 
         for rel in record.relationships() {
-            check_single_link(record, rel, by_id, diags);
+            check_single_link(record, rel, by_id, governed, diags);
         }
 
         check_parent_cross_domain_consistency(record, by_id, diags);
@@ -53,10 +59,38 @@ pub fn check(records: &[AdrRecord], by_id: &CorpusIndex<'_>, diags: &mut Vec<Dia
     check_tree_structure(records, by_id, diags);
 }
 
+/// The domain prefixes this corpus governs, taken from the `[[domains]]`
+/// entries of `adr-fmt.toml` (AFM-0008:R2).
+#[derive(Debug, Clone, Copy)]
+pub struct GovernedPrefixes<'a> {
+    prefixes: &'a [&'a str],
+}
+
+enum Membership {
+    Governed,
+    Ungoverned,
+}
+
+impl<'a> GovernedPrefixes<'a> {
+    #[must_use]
+    pub fn new(prefixes: &'a [&'a str]) -> Self {
+        Self { prefixes }
+    }
+
+    fn membership(self, id: &AdrId) -> Membership {
+        if self.prefixes.iter().any(|p| *p == id.prefix()) {
+            Membership::Governed
+        } else {
+            Membership::Ungoverned
+        }
+    }
+}
+
 fn check_single_link(
     source: &AdrRecord,
     rel: &Relationship,
     by_id: &CorpusIndex<'_>,
+    governed: GovernedPrefixes<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
     let target_id = &rel.target;
@@ -75,16 +109,19 @@ fn check_single_link(
                 ));
             }
         }
-        Resolution::Absent => {
-            diags.push(catalog::L001.diagnostic(
-                source.file_path(),
-                rel.line,
-                format!(
-                    "{} → {target_id}: dangling link (target ADR not found)",
-                    source.id(),
-                ),
-            ));
-        }
+        Resolution::Absent => match governed.membership(target_id) {
+            Membership::Governed => {
+                diags.push(catalog::L001.diagnostic(
+                    source.file_path(),
+                    rel.line,
+                    format!(
+                        "{} → {target_id}: dangling link (target ADR not found)",
+                        source.id(),
+                    ),
+                ));
+            }
+            Membership::Ungoverned => {}
+        },
         Resolution::Indeterminate(unparsed) => {
             diags.push(catalog::L020.diagnostic(
                 source.file_path(),
@@ -638,12 +675,47 @@ mod tests {
     use std::path::PathBuf;
 
     fn check(records: &[AdrRecord], diags: &mut Vec<Diagnostic>) {
+        check_governing(records, &["CHE", "ZED", "ACE"], diags);
+    }
+
+    fn check_governing(records: &[AdrRecord], governed: &[&str], diags: &mut Vec<Diagnostic>) {
         let scan = crate::index::ScannedCorpus::test_of(crate::parser::ParseOutcome::test_new(
             records.to_vec(),
             Vec::new(),
         ));
         let index = CorpusIndex::build(&scan).expect("test fixture ids must be unique");
-        super::check(records, &index, diags);
+        super::check(records, &index, GovernedPrefixes::new(governed), diags);
+    }
+
+    #[test]
+    fn reference_into_an_ungoverned_corpus_does_not_produce_l001() {
+        let records = vec![make_record_with_rels(
+            "CHE",
+            1,
+            vec![(RelVerb::References, make_id("GND", 4))],
+        )];
+        let mut diags = Vec::new();
+        check_governing(&records, &["CHE"], &mut diags);
+        assert!(
+            !diags.iter().any(|d| d.rule == "L001"),
+            "GND is not a configured domain of this corpus, so the citation is \
+             out of scope for link integrity, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn dangling_link_inside_a_governed_prefix_still_produces_l001() {
+        let records = vec![make_record_with_rels(
+            "CHE",
+            1,
+            vec![(RelVerb::References, make_id("ZED", 99))],
+        )];
+        let mut diags = Vec::new();
+        check_governing(&records, &["CHE", "ZED"], &mut diags);
+        assert!(
+            diags.iter().any(|d| d.rule == "L001"),
+            "ZED is governed here, so ZED-0099 is a genuine dangling link, got: {diags:?}"
+        );
     }
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
@@ -749,7 +821,12 @@ mod tests {
         let index = CorpusIndex::build(&scan).expect("test fixture ids must be unique");
 
         let mut diags = Vec::new();
-        super::check(&records, &index, &mut diags);
+        super::check(
+            &records,
+            &index,
+            GovernedPrefixes::new(&["CHE"]),
+            &mut diags,
+        );
 
         assert!(
             !diags.iter().any(|d| d.rule == "L001"),
@@ -1656,7 +1733,12 @@ mod tests {
         let index = CorpusIndex::build(&scan).expect("test fixture ids must be unique");
 
         let mut diags = Vec::new();
-        super::check(&records, &index, &mut diags);
+        super::check(
+            &records,
+            &index,
+            GovernedPrefixes::new(&["CHE"]),
+            &mut diags,
+        );
 
         assert!(
             !diags.iter().any(|d| d.rule == "L019"),
