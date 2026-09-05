@@ -32,6 +32,8 @@ mod config;
 mod containment;
 mod context;
 mod guidelines;
+#[cfg(test)]
+mod guidelines_golden;
 mod index;
 mod model;
 mod nav;

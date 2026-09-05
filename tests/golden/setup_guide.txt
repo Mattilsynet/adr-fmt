@@ -1,0 +1,58 @@
+adr-fmt — ADR Governance Tool
+═══════════════════════════════
+
+No adr-fmt.toml found. Create one at your workspace root.
+Discovery walks up from the current directory until adr-fmt.toml
+with a valid [corpus] table is found.
+
+QUICK START
+───────────
+
+  1. Create adr-fmt.toml at the workspace root:
+
+     [corpus]
+     root = "docs/adr"
+
+     [stale]
+     directory = "stale"
+
+     [[domains]]
+     prefix = "CHE"
+     name = "Cherry"
+     directory = "cherry"
+     description = "Architecture decisions for the example project."
+     crates = ["example-core"]
+
+  2. Create your first ADR at docs/adr/cherry/CHE-0001-...md:
+
+     # CHE-0001. Your First Decision
+
+     Date: 2026-04-27
+     Last-reviewed: 2026-04-27
+     Tier: B
+     Status: Draft
+
+     ## Related
+
+     Root: CHE-0001
+
+     ## Context
+     Why this decision exists and what problem it solves.
+
+     ## Decision
+     R1 [5]: The specific rule or decision statement
+
+     ## Consequences
+     What changes as a result of this decision being made.
+
+  3. Run: adr-fmt --lint
+
+MODES
+─────
+
+  adr-fmt                       Print governance guidelines (this output)
+  adr-fmt --lint                Lint all ADRs
+  adr-fmt --refs CHE-0001       Inbound references to an ADR
+  adr-fmt --context crate-name  Decision rules for a crate
+  adr-fmt --tree [DOMAIN]       Domain tree overview
+
