@@ -50,3 +50,26 @@ warning-threshold enforcement on the ADR corpus itself is unimplemented
 — in CI and locally; a clean local build does not mean the corpus is
 clean. Measured baseline: `adr-fmt --lint` reports `## Diagnostics: 26
 warning(s) across 32 ADR(s)` and exits 0 by design.
+
+## ADR writing style
+
+An ADR is a projection of the current state, stating only what is true
+now. Overwrite superseded text in place rather than annotating it — git
+already holds the prior state.
+
+Annotation marks the correction but never the thing corrected, so dead
+text goes on reading as live. The test: would a reader of *only that
+sentence* get the current state right?
+
+| Instead of | Write |
+|---|---|
+| "R3 previously required Y; it now requires X" | "R3 requires X" |
+| an erratum, changelog, or edit-history note | fix the text; the diff is the record |
+| "alternatives considered and rejected: A, B, C" | nothing — unless a reason prevents re-proposal, then state it as a rule carrying that reason |
+
+This governs prose **inside** a document. Corpus-level supersession is
+unchanged and stays in the structured fields — `Status:` and
+`Supersedes:`, which `adr-fmt --refs` reads — never as prose archaeology
+in `## Context` or `## Decision`. Whether the corpus itself becomes
+mutable rather than immutable-plus-supersession is a separate governance
+question this rule does not decide.
