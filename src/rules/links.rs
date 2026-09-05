@@ -1259,76 +1259,106 @@ mod tests {
         );
     }
 
-    const PARENT_STATUS_RULES: &[&str] = &["L012", "L017", "L021", "L022", "L023"];
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ParentStatusCase {
+        Absent,
+        Accepted,
+        Draft,
+        Proposed,
+        Rejected,
+        Deprecated,
+        SupersededBy,
+        Invalid,
+    }
 
-    fn parent_status_rules_for(status: Option<Status>) -> Vec<&'static str> {
+    impl ParentStatusCase {
+        const ALL: [Self; 8] = [
+            Self::Absent,
+            Self::Accepted,
+            Self::Draft,
+            Self::Proposed,
+            Self::Rejected,
+            Self::Deprecated,
+            Self::SupersededBy,
+            Self::Invalid,
+        ];
+
+        fn sample(self) -> Option<Status> {
+            match self {
+                Self::Absent => None,
+                Self::Accepted => Some(Status::Accepted),
+                Self::Draft => Some(Status::Draft),
+                Self::Proposed => Some(Status::Proposed),
+                Self::Rejected => Some(Status::Rejected),
+                Self::Deprecated => Some(Status::Deprecated),
+                Self::SupersededBy => Some(Status::SupersededBy(make_id("CHE", 9))),
+                Self::Invalid => Some(Status::Invalid("Acepted".into())),
+            }
+        }
+    }
+
+    fn parent_status_case(status: Option<&Status>) -> ParentStatusCase {
+        match status {
+            None => ParentStatusCase::Absent,
+            Some(Status::Accepted) => ParentStatusCase::Accepted,
+            Some(Status::Draft) => ParentStatusCase::Draft,
+            Some(Status::Proposed) => ParentStatusCase::Proposed,
+            Some(Status::Rejected) => ParentStatusCase::Rejected,
+            Some(Status::Deprecated) => ParentStatusCase::Deprecated,
+            Some(Status::SupersededBy(_)) => ParentStatusCase::SupersededBy,
+            Some(Status::Invalid(_)) => ParentStatusCase::Invalid,
+        }
+    }
+
+    fn expected_parent_status_rules(status: Option<&Status>) -> &'static [&'static str] {
+        match status {
+            None => &["L023"],
+            Some(Status::Accepted) => &[],
+            Some(Status::Draft | Status::Proposed) => &["L012"],
+            Some(Status::Rejected | Status::Deprecated) => &["L021"],
+            Some(Status::SupersededBy(_)) => &["L017"],
+            Some(Status::Invalid(_)) => &["L022"],
+        }
+    }
+
+    fn parent_status_diagnostics(status: Option<Status>) -> Vec<&'static str> {
+        let parent_id = make_id("CHE", 1);
         let mut parent = make_record_with_rels("CHE", 1, vec![(RelVerb::Root, make_id("CHE", 1))]);
         *parent.status_raw_mut() = status.as_ref().map(ToString::to_string);
         *parent.status_mut() = status;
 
-        let mut succ = make_record_with_rels("CHE", 9, vec![(RelVerb::Root, make_id("CHE", 9))]);
-        *succ.status_mut() = Some(Status::Accepted);
-
-        let child = make_record_with_rels("CHE", 2, vec![(RelVerb::References, make_id("CHE", 1))]);
-        let records = vec![parent, succ, child];
+        let child = make_record_with_rels("CHE", 2, vec![(RelVerb::References, parent_id.clone())]);
         let mut diags = Vec::new();
-        check(&records, &mut diags);
-        let mut rules: Vec<&'static str> = diags
-            .into_iter()
-            .map(|d| d.rule)
-            .filter(|rule| PARENT_STATUS_RULES.contains(rule))
-            .collect();
-        rules.sort_unstable();
-        rules
+        emit_parent_status(&child, &parent_id, &parent, &mut diags);
+        diags.into_iter().map(|d| d.rule).collect()
     }
 
     #[test]
-    fn accepted_parent_produces_no_status_diagnostic() {
-        assert!(
-            parent_status_rules_for(Some(Status::Accepted)).is_empty(),
-            "Accepted parent is the clean case"
-        );
+    fn parent_status_emits_exactly_one_diagnostic_family_per_status() {
+        for case in ParentStatusCase::ALL {
+            let sample = case.sample();
+            assert_eq!(
+                parent_status_case(sample.as_ref()),
+                case,
+                "{case:?}: sample must be the status variant the case names"
+            );
+            let expected = expected_parent_status_rules(sample.as_ref());
+            let actual = parent_status_diagnostics(sample);
+            assert_eq!(
+                actual, expected,
+                "{case:?}: emit_parent_status must emit exactly {expected:?}"
+            );
+        }
     }
 
     #[test]
-    fn draft_parent_produces_only_l012() {
-        assert_eq!(parent_status_rules_for(Some(Status::Draft)), ["L012"]);
-    }
-
-    #[test]
-    fn proposed_parent_produces_only_l012() {
-        assert_eq!(parent_status_rules_for(Some(Status::Proposed)), ["L012"]);
-    }
-
-    #[test]
-    fn rejected_parent_produces_only_l021() {
-        assert_eq!(parent_status_rules_for(Some(Status::Rejected)), ["L021"]);
-    }
-
-    #[test]
-    fn deprecated_parent_produces_only_l021() {
-        assert_eq!(parent_status_rules_for(Some(Status::Deprecated)), ["L021"]);
-    }
-
-    #[test]
-    fn superseded_by_parent_produces_only_l017() {
-        assert_eq!(
-            parent_status_rules_for(Some(Status::SupersededBy(make_id("CHE", 9)))),
-            ["L017"]
-        );
-    }
-
-    #[test]
-    fn invalid_status_parent_produces_only_l022() {
-        assert_eq!(
-            parent_status_rules_for(Some(Status::Invalid("Acepted".into()))),
-            ["L022"]
-        );
-    }
-
-    #[test]
-    fn absent_status_parent_produces_only_l023() {
-        assert_eq!(parent_status_rules_for(None), ["L023"]);
+    fn parent_status_cases_are_distinct() {
+        let mut seen: Vec<ParentStatusCase> = Vec::new();
+        for case in ParentStatusCase::ALL {
+            assert!(!seen.contains(&case), "{case:?} listed twice in ALL");
+            seen.push(case);
+        }
+        assert_eq!(seen.len(), ParentStatusCase::ALL.len());
     }
 
     #[test]
