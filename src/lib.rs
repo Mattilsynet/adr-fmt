@@ -335,10 +335,10 @@ fn run_default_mode(discovery: ConfigDiscovery) -> i32 {
     match discovery {
         ConfigDiscovery::Ready { marker_dir, config } => {
             match config::resolve_corpus_root(&marker_dir, &config.corpus) {
-                Ok(_) => {
-                    guidelines::print_governance(&config);
-                    0
-                }
+                Ok(_) => exit_code_for_write(guidelines::print_governance(
+                    &mut std::io::stdout().lock(),
+                    &config,
+                )),
                 Err(e) => {
                     eprintln!("error: adr-fmt.toml in {}: {e}", marker_dir.display());
                     eprintln!(
@@ -360,8 +360,17 @@ fn run_default_mode(discovery: ConfigDiscovery) -> i32 {
             1
         }
         ConfigDiscovery::Absent => {
-            guidelines::print_setup_guide();
-            0
+            exit_code_for_write(guidelines::print_setup_guide(&mut std::io::stdout().lock()))
+        }
+    }
+}
+
+fn exit_code_for_write(result: std::io::Result<()>) -> i32 {
+    match result {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("error: failed writing guidelines to stdout: {e}");
+            1
         }
     }
 }
@@ -594,6 +603,49 @@ mod discover_marker_tests {
         assert!(
             result.is_err(),
             "cwd unavailable must surface as Err, not Ok(None) (no-marker-found)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod non_utf8_filename_tests {
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    #[cfg(unix)]
+    fn non_utf8_file_name() -> OsString {
+        use std::os::unix::ffi::OsStringExt;
+        OsString::from_vec(b"CHE-0001-caf\xFF-slug.md".to_vec())
+    }
+
+    #[cfg(windows)]
+    fn non_utf8_file_name() -> OsString {
+        use std::os::windows::ffi::OsStringExt;
+        let mut units: Vec<u16> = "CHE-0001-caf".encode_utf16().collect();
+        units.push(0xD800);
+        units.extend("-slug.md".encode_utf16());
+        OsString::from_wide(&units)
+    }
+
+    #[test]
+    fn non_utf8_filename_reaches_n001_rather_than_being_skipped() {
+        let name = non_utf8_file_name();
+        assert!(
+            name.to_str().is_none(),
+            "the fixture filename must not be valid UTF-8, or the test pins nothing"
+        );
+
+        let mut path = PathBuf::from("docs/adr/cherry");
+        path.push(&name);
+
+        let mut diags = Vec::new();
+        crate::rules::naming::check_file_name(&path, &["CHE"], &mut diags);
+
+        assert!(
+            diags.iter().any(|d| d.rule == "N001"),
+            "a non-UTF-8 ADR filename MUST be reported against N001; reading it \
+             through `to_str` instead of `to_string_lossy` returns early and \
+             lets the file escape every naming rule (bead adr-fmt-52r). Got: {diags:?}"
         );
     }
 }
