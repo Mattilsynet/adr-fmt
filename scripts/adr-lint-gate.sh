@@ -9,19 +9,30 @@
 #
 # Usage:   scripts/adr-lint-gate.sh
 # Tune:    ADR_LINT_MAX_WARNINGS=12 scripts/adr-lint-gate.sh
+# Test:    ADR_LINT_CMD injects a stub lint producer; see
+#          scripts/adr-lint-gate-test.sh for the pinned contract.
 #
 # Exit 0 = at or under threshold. Exit 1 = over threshold.
-# Exit 2 = the gate could not obtain a verdict (lint failed, or the
-# header was absent or unparseable) — never conflated with "clean".
+# Exit 2 = the gate could not obtain a verdict (lint failed, the
+# header was absent or unparseable, or the configured threshold is
+# not a non-negative integer) — never conflated with "clean".
 
 set -euo pipefail
 
 threshold="${ADR_LINT_MAX_WARNINGS:-8}"
+lint_cmd="${ADR_LINT_CMD:-cargo run -q --locked -- --lint}"
+
+case "$threshold" in
+    '' | *[!0-9]*)
+        echo "adr-lint-gate: ADR_LINT_MAX_WARNINGS='$threshold' is not a non-negative integer; no verdict" >&2
+        exit 2
+        ;;
+esac
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-if ! output="$(cargo run -q --locked -- --lint 2>&1)"; then
+if ! output="$(eval "$lint_cmd" 2>&1)"; then
     printf '%s\n' "$output" >&2
     echo "adr-lint-gate: adr-fmt --lint failed to run; no verdict" >&2
     exit 2
