@@ -62,7 +62,7 @@ pub fn check(
 /// The domain prefixes this corpus governs, taken from the `[[domains]]`
 /// entries of `adr-fmt.toml` (AFM-0008:R2).
 #[derive(Debug, Clone, Copy)]
-pub struct GovernedPrefixes<'a> {
+pub(crate) struct GovernedPrefixes<'a> {
     prefixes: &'a [&'a str],
 }
 
@@ -73,7 +73,7 @@ enum Membership {
 
 impl<'a> GovernedPrefixes<'a> {
     #[must_use]
-    pub fn new(prefixes: &'a [&'a str]) -> Self {
+    pub(crate) fn new(prefixes: &'a [&'a str]) -> Self {
         Self { prefixes }
     }
 
