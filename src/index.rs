@@ -177,8 +177,8 @@ mod tests {
         *record.file_path_mut() = PathBuf::from(path);
         *record.title_mut() = Some("Test".into());
         *record.title_line_mut() = 1;
-        *record.date_mut() = Some("2026-04-25".into());
-        *record.last_reviewed_mut() = Some("2026-04-25".into());
+        record.set_date(Some("2026-04-25".into()));
+        record.set_last_reviewed(Some("2026-04-25".into()));
         record.set_tier(Some(Tier::B));
         *record.status_mut() = Some(Status::Accepted);
         *record.status_line_mut() = 8;
