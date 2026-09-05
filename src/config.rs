@@ -12,14 +12,13 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 /// Top-level configuration.
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct Config {
     pub corpus: CorpusConfig,
     pub stale: StaleConfig,
     pub domains: Vec<DomainConfig>,
     /// Optional rule overrides. If present with full declarations (legacy
     /// format), a deprecation warning is emitted to stderr.
-    #[serde(default)]
     pub rules: Vec<RuleConfig>,
 }
 
@@ -105,9 +104,10 @@ impl Config {
 }
 
 /// Raw deserialisation target for `adr-fmt.toml`. Private by design:
-/// it is the only shape TOML is decoded into, so every [`Config`]
-/// produced by [`load_quiet`] has passed validation. Field types match
-/// [`Config`] exactly; the nested types are shared, not duplicated.
+/// it is the only shape TOML is decoded into, and [`Config`]'s own
+/// `Deserialize` routes through it, so every `Config` that exists has
+/// passed validation however it was built. Field types match [`Config`]
+/// exactly; the nested types are shared, not duplicated.
 #[derive(Debug, Deserialize)]
 struct RawConfig {
     corpus: CorpusConfig,
@@ -125,6 +125,16 @@ fn reject_duplicate_rule_ids(rules: &[RuleConfig]) -> Result<(), LoadError> {
         }
     }
     Ok(())
+}
+
+impl<'de> Deserialize<'de> for Config {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawConfig::deserialize(deserializer)?;
+        Self::try_from(raw).map_err(serde::de::Error::custom)
+    }
 }
 
 impl TryFrom<RawConfig> for Config {
@@ -551,6 +561,45 @@ id = "{second_id}"
 params = {{ min_words = 99 }}
 "#
         )
+    }
+
+    #[test]
+    fn config_still_implements_deserialize_and_defaults_absent_rules() {
+        fn assert_deserialize<T: for<'de> Deserialize<'de>>() {}
+        assert_deserialize::<Config>();
+
+        let without_rules = r#"
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+[[domains]]
+prefix = "CHE"
+name = "Cherry"
+directory = "cherry"
+description = "Test"
+crates = []
+"#;
+        let config: Config = toml::from_str(without_rules)
+            .expect("an absent [[rules]] table must still default to empty");
+        assert!(
+            config.rules.is_empty(),
+            "absent rules must deserialise as an empty vec, not fail"
+        );
+    }
+
+    #[test]
+    fn direct_deserialize_rejects_duplicate_rule_ids() {
+        let err = toml::from_str::<Config>(&duplicate_config("T015"))
+            .expect_err("deserialising Config directly must not bypass rule-id validation");
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("T015"),
+            "the failure must name the duplicated rule id so the author can find it, \
+             got: {rendered}"
+        );
     }
 
     #[test]
