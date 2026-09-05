@@ -641,6 +641,7 @@ mod tests {
     use super::*;
     use crate::model::AdrId;
     use crate::model::Tier;
+    use crate::rules::catalog;
 
     fn make_id(prefix: &str, num: u16) -> AdrId {
         AdrId::test_new(prefix, num)
@@ -751,8 +752,7 @@ mod tests {
 
     #[test]
     fn render_diagnostics_with_warnings() {
-        let diags = vec![Diagnostic::warning(
-            "T020",
+        let diags = vec![catalog::T020.diagnostic(
             &std::path::PathBuf::from("test.md"),
             1,
             "missing title".into(),

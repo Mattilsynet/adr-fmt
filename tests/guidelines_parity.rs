@@ -1,15 +1,62 @@
-//! Bidirectional parity guard between the diagnostics adr-fmt implements
-//! and the rule registry its governance output renders.
+//! Bidirectional parity guard between the diagnostics adr-fmt constructs
+//! DIRECTLY and the rule registry its governance output renders.
 //!
 //! The rendered side is read from the real binary's stdout, never from
 //! source text: a source-scanning guard is satisfied by an id appearing in
 //! a comment or a test string and so fails open.
+//!
+//! # What this guard enforces
+//!
+//! The implemented side parses each file with `syn` and walks the AST. It
+//! rejects, and has been proven by planted compiling violations to reject:
+//!
+//! - a `Diagnostic { .. }` struct literal, under any formatting;
+//! - `Diagnostic::warning` / `::error` named as a value, called or not;
+//! - the same with interior whitespace (`Diagnostic :: warning`), which is
+//!   gone before a check runs because the input is parsed, not scanned;
+//! - a single-hop local alias, whether `use report::Diagnostic as Diag` or
+//!   `type D = Diagnostic`, declared before its use site.
+//!
+//! # What this guard does NOT enforce
+//!
+//! `syn` parses tokens. It does not resolve types and does not expand
+//! macros, so this is pattern-matching over spellings, NOT Rust name
+//! resolution. Each of the following compiles with zero errors and passes
+//! this guard — measured, not assumed:
+//!
+//! - `<Diagnostic>::warning(..)` — a qualified path. The `ExprPath` carries
+//!   a `QSelf` and its path holds only the `warning` segment, so the
+//!   owner-segment check cannot fire.
+//! - construction hidden in a macro invocation. The tokens live in an
+//!   `ExprMacro` this visitor never parses.
+//! - a forward alias chain (`type E = D; type D = Diagnostic; E { .. }`).
+//!   Spellings are collected in one pass, so `E` is visited before `D` is
+//!   known.
+//!
+//! These are not oversights awaiting one more match arm. Adding an arm per
+//! spelling is what produced four consecutive false-clean guards here; the
+//! list above is published so the guard is not mistaken for a complete
+//! bypass check. Closing the class needs semantic resolution over a
+//! compiled crate, or `Diagnostic`'s fields made non-public so direct
+//! construction is unconstructible. The latter is the durable fix and is
+//! deferred to v0.2 behind AFM-0026:R3 (bead `adr-fmt-qzl6`, F4), which
+//! also retires this guard.
+//!
+//! # Trusted base
+//!
+//! Two files are exempt because they ARE the canonical construction path:
+//! `report.rs`, which defines `Diagnostic`, and `rules/catalog.rs`, whose
+//! `RuleEntry::diagnostic` is the crate's only intended severity decision.
+//! Each exemption asserts the file still plays that role, so it cannot
+//! silently follow the code elsewhere; neither asserts uniqueness WITHIN
+//! the file. A bypass inside those two files is trust, not enforcement.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use syn::visit::Visit;
 use tempfile::TempDir;
 
 const PARITY_CONFIG: &str = r#"
@@ -27,15 +74,23 @@ description = "Parity guard domain."
 crates = []
 "#;
 
-const DIAGNOSTIC_MARKERS: [&str; 2] = ["Diagnostic::warning(", "Diagnostic::error("];
+const DIAGNOSTIC_TYPE: &str = "Diagnostic";
 
-const FORWARDING_MARKER: &str = "resolve_param(";
+const CONSTRUCTORS: [&str; 2] = ["warning", "error"];
 
-const FORWARDING_DEFINITION: &str = "fn resolve_param(";
+const CONSTRUCTION_METHOD: &str = "diagnostic";
 
-const FORWARDING_DEFINITION_FILE: &str = "rules/template.rs";
+const FORWARDING_FUNCTION: &str = "resolve_param";
 
-const FORWARDED_PARAM_NAME: &str = "rule";
+const FORWARDED_RECEIVER: &str = "rule";
+
+const CATALOG_MODULE: &str = "catalog";
+
+const CATALOG_FILE: &str = "rules/catalog.rs";
+
+const DEFINITION_FILE: &str = "report.rs";
+
+const ENTRY_TYPE: &str = "RuleEntry";
 
 fn is_rule_id(token: &str) -> bool {
     match token.as_bytes() {
@@ -67,191 +122,337 @@ fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-struct ProductionSegment<'a> {
-    offset: usize,
-    text: &'a str,
+fn parse(file: &Path) -> syn::File {
+    let text = fs::read_to_string(file).expect("source file is readable");
+    syn::parse_file(&text)
+        .unwrap_or_else(|e| panic!("{}: source does not parse: {e}", file.display()))
 }
 
-fn inline_test_module_end(src: &str, body: usize) -> usize {
-    src[body..]
-        .find("\n}\n")
-        .map_or(src.len(), |at| body + at + 3)
+fn type_name(ty: &syn::Type) -> Option<String> {
+    match ty {
+        syn::Type::Path(path) => Some(path.path.segments.last()?.ident.to_string()),
+        _ => None,
+    }
 }
 
-fn production_segments(src: &str) -> Vec<ProductionSegment<'_>> {
-    let mut segments = Vec::new();
-    let mut start = 0;
-    let mut cursor = 0;
-    while let Some(offset) = src[cursor..].find("\n#[cfg(test)]\n") {
-        let attribute = cursor + offset + 1;
-        let body = attribute + "#[cfg(test)]\n".len();
-        if src[body..].starts_with("mod ") {
-            segments.push(ProductionSegment {
-                offset: start,
-                text: &src[start..attribute],
-            });
-            let end = inline_test_module_end(src, body);
-            start = end;
-            cursor = end;
-        } else {
-            cursor = attribute + 1;
+/// The first string literal appearing anywhere in an expression.
+struct FirstStringLiteral(Option<String>);
+
+impl<'ast> Visit<'ast> for FirstStringLiteral {
+    fn visit_lit_str(&mut self, node: &'ast syn::LitStr) {
+        if self.0.is_none() {
+            self.0 = Some(node.value());
         }
     }
-    segments.push(ProductionSegment {
-        offset: start,
-        text: &src[start..],
-    });
-    segments
 }
 
-fn forwarding_definition_span(production: &str, file: &Path) -> Option<(usize, usize)> {
-    let matches = production.match_indices(FORWARDING_DEFINITION).count();
+/// Maps each catalog constant name to the rule id it carries.
+///
+/// Read from source rather than imported because `catalog` is crate-private
+/// (AFM-0026:R2) and an integration test cannot see it. The constant name and
+/// the id differ in case for `T005c`, so the mapping is read, never guessed.
+struct CatalogEntries(BTreeMap<String, String>);
+
+impl<'ast> Visit<'ast> for CatalogEntries {
+    fn visit_item_const(&mut self, node: &'ast syn::ItemConst) {
+        if type_name(&node.ty).as_deref() != Some(ENTRY_TYPE) {
+            return;
+        }
+        let mut first = FirstStringLiteral(None);
+        first.visit_expr(&node.expr);
+        match first.0 {
+            Some(id) if is_rule_id(&id) => {
+                self.0.insert(node.ident.to_string(), id);
+            }
+            _ => panic!(
+                "catalog entry `{}` does not open with a literal rule id",
+                node.ident
+            ),
+        }
+    }
+}
+
+fn catalog_entries() -> BTreeMap<String, String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join(CATALOG_FILE);
+    let mut entries = CatalogEntries(BTreeMap::new());
+    entries.visit_file(&parse(&path));
     assert!(
-        matches <= 1,
-        "{}: found {matches} definitions of `{FORWARDING_DEFINITION}`; the parity guard \
-         exempts exactly one forwarding definition, so a second one must not be added \
-         without re-proving the exemption",
-        file.display()
+        entries.0.len() >= 40,
+        "the catalog scan found only {} entries; the scanner is broken and this guard would \
+         pass vacuously",
+        entries.0.len()
     );
-    let start = production.find(FORWARDING_DEFINITION)?;
-    let end = production[start..]
-        .find("\n}\n")
-        .map_or(production.len(), |at| start + at + 2);
-    Some((start, end))
+    entries.0
 }
 
-fn leading_identifier(production: &str, site: usize) -> &str {
-    let rest = production[site..].trim_start();
-    let end = rest
-        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-        .unwrap_or(rest.len());
-    &rest[..end]
+/// Local spellings that appear to denote `Diagnostic` in one file.
+///
+/// This is a one-pass token walk, NOT name resolution: it sees a `use ... as`
+/// rename and a `type` alias whose right-hand side is already a known
+/// spelling, and it sees them only if they are declared before the use site.
+/// A forward chain, a macro-generated alias, or an alias introduced through
+/// a re-export are all invisible to it.
+struct LocalDiagnosticSpellings(BTreeSet<String>);
+
+impl<'ast> Visit<'ast> for LocalDiagnosticSpellings {
+    fn visit_use_tree(&mut self, node: &'ast syn::UseTree) {
+        match node {
+            syn::UseTree::Name(name) if name.ident == DIAGNOSTIC_TYPE => {
+                self.0.insert(name.ident.to_string());
+            }
+            syn::UseTree::Rename(rename) if rename.ident == DIAGNOSTIC_TYPE => {
+                self.0.insert(rename.rename.to_string());
+            }
+            _ => {}
+        }
+        syn::visit::visit_use_tree(self, node);
+    }
+
+    fn visit_item_type(&mut self, node: &'ast syn::ItemType) {
+        if type_name(&node.ty).is_some_and(|name| self.0.contains(&name)) {
+            self.0.insert(node.ident.to_string());
+        }
+        syn::visit::visit_item_type(self, node);
+    }
 }
 
-fn opens_with_literal(production: &str, site: usize) -> bool {
-    production[site..].trim_start().starts_with('"')
+fn local_diagnostic_spellings(file: &syn::File) -> BTreeSet<String> {
+    let mut names = LocalDiagnosticSpellings(BTreeSet::new());
+    names.0.insert(DIAGNOSTIC_TYPE.to_string());
+    names.visit_file(file);
+    names.0
 }
 
-fn literal_rule_id<'a>(production: &'a str, file: &Path, base: usize, site: usize) -> &'a str {
-    let Some(open) = production[site..].find('"').map(|at| site + at + 1) else {
-        panic!(
-            "{}: diagnostic construction at byte {} carries no literal rule id, so the \
-             parity guard cannot see this site",
-            file.display(),
-            base + site
-        );
-    };
-    let Some(close) = production[open..].find('"').map(|at| open + at) else {
-        panic!(
-            "{}: unterminated rule id literal at byte {}",
-            file.display(),
-            base + open
-        );
-    };
-    let id = &production[open..close];
-    assert!(
-        is_rule_id(id),
-        "{}: diagnostic construction at byte {} does not open with a literal rule id \
-         (found `{id}`), so the parity guard cannot see this site",
-        file.display(),
-        base + site
-    );
-    id
+struct Sites<'a> {
+    catalog: &'a BTreeMap<String, String>,
+    names: BTreeSet<String>,
+    file: String,
+    enforce_direct_construction_ban: bool,
+    ids: BTreeSet<String>,
+    forwarded_receivers: usize,
+    forwarding_calls: usize,
 }
 
-fn implemented_rule_ids() -> BTreeSet<String> {
+impl Sites<'_> {
+    fn rule_id(&self, name: &syn::Ident) -> String {
+        let name = name.to_string();
+        self.catalog.get(&name).cloned().unwrap_or_else(|| {
+            panic!(
+                "{}: references `{CATALOG_MODULE}::{name}`, which is not a catalog entry \
+                 carrying a rule id",
+                self.file
+            )
+        })
+    }
+
+    /// `catalog::NAME` as an expression, if that is what this path is.
+    fn catalog_entry_name(expr: &syn::Expr) -> Option<syn::Ident> {
+        let syn::Expr::Path(path) = strip_reference(expr) else {
+            return None;
+        };
+        let mut segments = path.path.segments.iter().rev();
+        let name = segments.next()?.ident.clone();
+        let module = segments.next()?;
+        (module.ident == CATALOG_MODULE).then_some(name)
+    }
+}
+
+fn strip_reference(expr: &syn::Expr) -> &syn::Expr {
+    match expr {
+        syn::Expr::Reference(reference) => strip_reference(&reference.expr),
+        other => other,
+    }
+}
+
+impl<'ast> Visit<'ast> for Sites<'_> {
+    fn visit_expr_struct(&mut self, node: &'ast syn::ExprStruct) {
+        if self.enforce_direct_construction_ban
+            && node
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| self.names.contains(&segment.ident.to_string()))
+        {
+            panic!(
+                "{}: builds a `{DIAGNOSTIC_TYPE}` struct literal. Its fields are public \
+                 (AFM-0026:R1, R7), so this compiles and emits a real diagnostic while \
+                 consuming no catalog entry — a false clean. Construct through \
+                 `RuleEntry::diagnostic` in `src/{CATALOG_FILE}`. Note this check covers \
+                 direct spellings only; see the module doc for the forms it cannot see",
+                self.file
+            );
+        }
+        syn::visit::visit_expr_struct(self, node);
+    }
+
+    fn visit_expr_path(&mut self, node: &'ast syn::ExprPath) {
+        let mut segments = node.path.segments.iter().rev();
+        if let (Some(last), Some(owner)) = (segments.next(), segments.next())
+            && self.enforce_direct_construction_ban
+            && CONSTRUCTORS.contains(&last.ident.to_string().as_str())
+            && self.names.contains(&owner.ident.to_string())
+        {
+            panic!(
+                "{}: names the `{DIAGNOSTIC_TYPE}::{}` constructor. Diagnostics are \
+                 INTENDED to be built through `RuleEntry::diagnostic` in `src/{CATALOG_FILE}` \
+                 so that a rule's severity is decided by its catalog entry; naming the \
+                 constructor bypasses that even when it is not called here",
+                self.file, last.ident
+            );
+        }
+        syn::visit::visit_expr_path(self, node);
+    }
+
+    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+        if node.method == CONSTRUCTION_METHOD {
+            match Sites::catalog_entry_name(&node.receiver) {
+                Some(name) => {
+                    self.ids.insert(self.rule_id(&name));
+                }
+                None => match strip_reference(&node.receiver) {
+                    syn::Expr::Path(path) if path.path.is_ident(FORWARDED_RECEIVER) => {
+                        self.forwarded_receivers += 1;
+                    }
+                    _ => panic!(
+                        "{}: calls `.{CONSTRUCTION_METHOD}(..)` on something that is neither a \
+                         `{CATALOG_MODULE}::` entry nor the one forwarding receiver; its rule \
+                         id would be invisible to this guard",
+                        self.file
+                    ),
+                },
+            }
+        }
+        syn::visit::visit_expr_method_call(self, node);
+    }
+
+    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
+        if let syn::Expr::Path(path) = node.func.as_ref()
+            && path
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == FORWARDING_FUNCTION)
+        {
+            self.forwarding_calls += 1;
+            let entry = node
+                .args
+                .iter()
+                .find_map(Sites::catalog_entry_name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{}: a `{FORWARDING_FUNCTION}` call forwards no `{CATALOG_MODULE}::` \
+                         entry, so the forwarded rule would be invisible to this guard",
+                        self.file
+                    )
+                });
+            self.ids.insert(self.rule_id(&entry));
+        }
+        syn::visit::visit_expr_call(self, node);
+    }
+}
+
+fn directly_constructed_rule_ids() -> BTreeSet<String> {
+    let catalog = catalog_entries();
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     rust_sources(&src_root, &mut files);
     files.sort();
 
     let mut ids = BTreeSet::new();
-    let mut definitions = 0usize;
-    let mut exempted_sites = 0usize;
+    let mut forwarded_receivers = 0usize;
     let mut forwarding_calls = 0usize;
+    let mut definition_files = 0usize;
+    let mut canonical_files = 0usize;
+
     for file in &files {
-        let text = fs::read_to_string(file).expect("source file is readable");
-        let is_definition_file = file.ends_with(FORWARDING_DEFINITION_FILE);
-        for segment in production_segments(&text) {
-            let production = segment.text;
-            let definition = forwarding_definition_span(production, file);
-            if definition.is_some() {
-                assert!(
-                    is_definition_file,
-                    "{}: `{FORWARDING_DEFINITION}` is defined outside the one canonical \
-                     forwarding file `{FORWARDING_DEFINITION_FILE}`; the parity guard's \
-                     exemption is bound to that definition and must not silently follow it \
-                     elsewhere",
-                    file.display()
-                );
-                definitions += 1;
-            }
-            for marker in DIAGNOSTIC_MARKERS {
-                let mut cursor = 0;
-                while let Some(offset) = production[cursor..].find(marker) {
-                    let site = cursor + offset + marker.len();
-                    cursor = site;
-                    if opens_with_literal(production, site) {
-                        ids.insert(
-                            literal_rule_id(production, file, segment.offset, site).to_string(),
-                        );
-                        continue;
-                    }
-                    let identifier = leading_identifier(production, site);
-                    let inside_definition =
-                        definition.is_some_and(|(start, end)| site >= start && site < end);
-                    assert!(
-                        inside_definition && identifier == FORWARDED_PARAM_NAME,
-                        "{}: diagnostic construction at byte {} opens with `{identifier}` \
-                         rather than a literal rule id, and is not the one exempted \
-                         forwarding site inside `{FORWARDING_DEFINITION}` in \
-                         `{FORWARDING_DEFINITION_FILE}`; the parity guard cannot see this \
-                         site, so it must either take a literal rule id or route through \
-                         that forwarding definition",
-                        file.display(),
-                        segment.offset + site
-                    );
-                    exempted_sites += 1;
-                }
-            }
-            let mut cursor = 0;
-            while let Some(offset) = production[cursor..].find(FORWARDING_MARKER) {
-                let start = cursor + offset;
-                let site = start + FORWARDING_MARKER.len();
-                cursor = site;
-                if production[..start].ends_with("fn ") {
-                    continue;
-                }
-                forwarding_calls += 1;
-                ids.insert(literal_rule_id(production, file, segment.offset, site).to_string());
-            }
+        let ast = parse(file);
+        let is_definition = file.ends_with(DEFINITION_FILE);
+        let is_canonical = file.ends_with(CATALOG_FILE);
+
+        if is_definition {
+            definition_files += 1;
+            assert!(
+                defines_diagnostic(&ast),
+                "{}: is exempt from the construction ban because it DEFINES \
+                 `{DIAGNOSTIC_TYPE}`; it no longer does, so the exemption is unbound and must \
+                 be re-proven",
+                file.display()
+            );
         }
+        if is_canonical {
+            canonical_files += 1;
+            assert!(
+                defines_construction(&ast),
+                "{}: is exempt because it holds the crate's only construction site \
+                 (`RuleEntry::{CONSTRUCTION_METHOD}`); it no longer does, so the exemption is \
+                 unbound",
+                file.display()
+            );
+        }
+
+        let mut sites = Sites {
+            catalog: &catalog,
+            names: local_diagnostic_spellings(&ast),
+            file: file.display().to_string(),
+            enforce_direct_construction_ban: !is_definition && !is_canonical,
+            ids: BTreeSet::new(),
+            forwarded_receivers: 0,
+            forwarding_calls: 0,
+        };
+        sites.visit_file(&ast);
+        ids.extend(sites.ids);
+        forwarded_receivers += sites.forwarded_receivers;
+        forwarding_calls += sites.forwarding_calls;
     }
 
     assert_eq!(
-        definitions, 1,
-        "expected exactly one `{FORWARDING_DEFINITION}` definition in src/; found \
-         {definitions}. The parity guard's only non-literal exemption is bound to that \
-         single definition"
+        definition_files, 1,
+        "expected exactly one file defining `{DIAGNOSTIC_TYPE}`; found {definition_files}"
     );
     assert_eq!(
-        exempted_sites, 1,
-        "expected exactly one exempted non-literal diagnostic construction (the forwarding \
-         site inside `{FORWARDING_DEFINITION}`); found {exempted_sites}. A changed count \
-         means the exemption has generalised and must be re-proven"
+        canonical_files, 1,
+        "expected exactly one canonical construction file; found {canonical_files}"
+    );
+    assert_eq!(
+        forwarded_receivers, 1,
+        "expected exactly one forwarding `{FORWARDED_RECEIVER}.{CONSTRUCTION_METHOD}(..)` \
+         receiver; found {forwarded_receivers}. A changed count means the exemption has \
+         generalised and must be re-proven"
     );
     assert!(
         forwarding_calls > 0,
-        "no `{FORWARDING_MARKER}` call sites found; the forwarded rule ids would be invisible \
-         to the parity guard"
+        "no `{FORWARDING_FUNCTION}` call sites found; the forwarded rule ids would be \
+         invisible to this guard"
     );
     assert!(
         ids.len() >= 40,
-        "the construction-site scan found only {} rule ids; the scanner is broken and the \
-         parity guard would pass vacuously",
+        "the direct-construction walk found only {} rule ids; the walker is broken and this \
+         guard would pass vacuously",
         ids.len()
     );
     ids
+}
+
+fn defines_diagnostic(ast: &syn::File) -> bool {
+    ast.items.iter().any(|item| match item {
+        syn::Item::Struct(item) => item.ident == DIAGNOSTIC_TYPE,
+        _ => false,
+    })
+}
+
+fn defines_construction(ast: &syn::File) -> bool {
+    ast.items.iter().any(|item| match item {
+        syn::Item::Impl(item) => {
+            type_name(&item.self_ty).as_deref() == Some(ENTRY_TYPE)
+                && item.items.iter().any(|member| match member {
+                    syn::ImplItem::Fn(function) => function.sig.ident == CONSTRUCTION_METHOD,
+                    _ => false,
+                })
+        }
+        _ => false,
+    })
 }
 
 fn governance_output() -> String {
@@ -310,27 +511,27 @@ fn registry_description(stdout: &str, id: &str) -> String {
 }
 
 #[test]
-fn every_implemented_rule_is_rendered_in_governance_output() {
-    let implemented = implemented_rule_ids();
+fn every_directly_constructed_rule_is_rendered_in_governance_output() {
+    let constructed = directly_constructed_rule_ids();
     let rendered = rendered_rule_ids(&governance_output());
-    let missing: Vec<&String> = implemented.difference(&rendered).collect();
+    let missing: Vec<&String> = constructed.difference(&rendered).collect();
     assert!(
         missing.is_empty(),
-        "these rules are implemented in src/ but carry no described entry in the governance \
-         reference, which claims to be the single source of truth for all invariant rules: \
-         {missing:?}"
+        "these rules have a direct construction site in src/ but carry no described entry \
+         in the governance reference, which claims to be the single source of truth for all \
+         invariant rules: {missing:?}"
     );
 }
 
 #[test]
-fn every_rendered_rule_is_implemented_in_src() {
-    let implemented = implemented_rule_ids();
+fn every_rendered_rule_has_a_direct_construction_site() {
+    let constructed = directly_constructed_rule_ids();
     let rendered = rendered_rule_ids(&governance_output());
-    let bogus: Vec<&String> = rendered.difference(&implemented).collect();
+    let bogus: Vec<&String> = rendered.difference(&constructed).collect();
     assert!(
         bogus.is_empty(),
-        "the governance reference documents these rules, but no diagnostic construction site \
-         in src/ emits them: {bogus:?}"
+        "the governance reference documents these rules, but no DIRECT diagnostic \
+         construction site in src/ emits them: {bogus:?}"
     );
 }
 

@@ -32,6 +32,8 @@ mod config;
 mod containment;
 mod context;
 mod guidelines;
+#[cfg(test)]
+mod guidelines_golden;
 mod index;
 mod model;
 mod nav;
@@ -49,6 +51,7 @@ pub use model::{
 pub use parser::{ParseError, ParseOutcome, parse_domain, parse_stale};
 pub use report::{Diagnostic, Severity};
 
+use crate::rules::catalog;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -318,8 +321,7 @@ fn report_duplicate_id(
 }
 
 fn duplicate_id_diagnostic(dup: &index::DuplicateId) -> report::Diagnostic {
-    report::Diagnostic::warning(
-        "P004",
+    catalog::P004.diagnostic(
         &dup.paths[0],
         0,
         format!(

@@ -12,6 +12,7 @@ use std::io::{self, Write};
 
 use crate::config::Config;
 use crate::model::{RelVerb, Tier};
+use crate::rules::catalog::{self, RuleLine, RuleRendering};
 use crate::rules::template::Budgets;
 
 /// Print the setup guide when no `adr-fmt.toml` exists.
@@ -140,6 +141,22 @@ pub fn print_governance(w: &mut impl Write, config: &Config) -> io::Result<()> {
     print_link_rules(w)?;
     print_stale(w, config)?;
     print_overrides(w, config)
+}
+
+fn print_rule_entries(w: &mut impl Write, entries: &[RuleRendering]) -> io::Result<()> {
+    for rendering in entries {
+        let entry = rendering.entry();
+        writeln!(w, "    {:<6}{}", entry.id, rendering.summary())?;
+        for line in rendering.continuation() {
+            match line {
+                RuleLine::Text(text) => writeln!(w, "          {text}")?,
+                RuleLine::Severity { before, after } => {
+                    writeln!(w, "          {before}{}{after}", entry.severity)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn print_modes(w: &mut impl Write) -> io::Result<()> {
@@ -332,204 +349,19 @@ fn print_template(w: &mut impl Write) -> io::Result<()> {
 
 fn print_template_rules(w: &mut impl Write) -> io::Result<()> {
     writeln!(w, "  Rules:")?;
-    writeln!(w, "    T002  Date field present (YYYY-MM-DD)")?;
-    writeln!(w, "    T003  Last-reviewed field present (YYYY-MM-DD)")?;
-    writeln!(w, "    T004  Tier field present (S/A/B/C/D)")?;
-    writeln!(
-        w,
-        "    T005  Status value present — a `Status:` metadata field or a"
-    )?;
-    writeln!(
-        w,
-        "          legacy ## Status section carrying a value MUST satisfy"
-    )?;
-    writeln!(
-        w,
-        "          this; it fires only when neither supplies a status"
-    )?;
-    writeln!(
-        w,
-        "    T005c Legacy ## Status section — accepted but deprecated. With"
-    )?;
-    writeln!(
-        w,
-        "          no metadata field the section supplies the status and you"
-    )?;
-    writeln!(
-        w,
-        "          SHOULD migrate it to a Status: preamble field; when a"
-    )?;
-    writeln!(
-        w,
-        "          Status: field is also present the section is dead content"
-    )?;
-    writeln!(
-        w,
-        "          and MUST be deleted — the metadata field is authoritative"
-    )?;
-    writeln!(
-        w,
-        "    T006  Status is a recognized keyword (rejects Amended)"
-    )?;
-    writeln!(
-        w,
-        "    T007  Related section present with at least one relationship"
-    )?;
-    writeln!(w, "    T008  Context section present")?;
-    writeln!(w, "    T009  Decision section present")?;
-    writeln!(w, "    T010  Consequences section present")?;
-    writeln!(w, "    T011  Code block size limit (max 20 lines)")?;
-    writeln!(
-        w,
-        "    T014  Section order (Related → Context → Decision → Consequences)"
-    )?;
-    writeln!(
-        w,
-        "    T015  Section word count — tier-scaled signal, not gate."
-    )?;
-    writeln!(w, "          The effective minimum and maximum MUST be the")?;
-    writeln!(
-        w,
-        "          configured T015 base scaled by the tier factor, so"
-    )?;
-    writeln!(
-        w,
-        "          the minimum printed above and the minimum enforced"
-    )?;
-    writeln!(
-        w,
-        "          here are one value. S-tier ADRs get more room,"
-    )?;
-    writeln!(
-        w,
-        "          D-tier must be tighter. Flags the section for review."
-    )?;
+    print_rule_entries(w, catalog::TEMPLATE_RULES)?;
     print_template_rules_t016(w)
 }
 
 fn print_template_rules_t016(w: &mut impl Write) -> io::Result<()> {
-    writeln!(
-        w,
-        "    T016  Tagged rules — tier-scaled signal, not gate. Max rules"
-    )?;
-    writeln!(
-        w,
-        "          scales with tier. Word count (7–60), sequential IDs"
-    )?;
-    writeln!(
-        w,
-        "          and layer outside 1–12 (invalid Meadows leverage"
-    )?;
-    writeln!(w, "          point) are warnings. A rule-shaped line that")?;
-    writeln!(
-        w,
-        "          does not match the required `RN [L]: text` format"
-    )?;
-    writeln!(w, "          is reported against its own line — it is not")?;
-    writeln!(
-        w,
-        "          silently skipped. Exceeding may indicate the ADR"
-    )?;
-    writeln!(w, "          covers multiple decisions.")?;
-    writeln!(
-        w,
-        "    T019  Rule-tier tension — asymmetric leverage bound. T019 MUST"
-    )?;
-    writeln!(
-        w,
-        "          fire if and only if the rule's layer-derived tier has"
-    )?;
-    writeln!(
-        w,
-        "          higher leverage than the ADR's tier (rule_rank <"
-    )?;
-    writeln!(
-        w,
-        "          adr_rank); equal or lower leverage MUST pass silently."
-    )?;
-    writeln!(
-        w,
-        "          T019 MUST NOT apply domain carve-outs and MUST NOT apply"
-    )?;
-    writeln!(
-        w,
-        "          a distance threshold. Move the rule to a matching-"
-    )?;
-    writeln!(w, "          tier ADR or adjust the layer annotation.")?;
-    writeln!(
-        w,
-        "    T020  Reference load — tier-scaled limit on References:"
-    )?;
-    writeln!(
-        w,
-        "          count. Root and Supersedes are structural and don't"
-    )?;
-    writeln!(
-        w,
-        "          count. High reference count signals broad scope."
-    )?;
-    writeln!(
-        w,
-        "    T022  MADR residue section — headings such as `## Context and"
-    )?;
-    writeln!(
-        w,
-        "          Problem Statement`, `## Decision Drivers`, `## Considered"
-    )?;
-    writeln!(
-        w,
-        "          Options`, `## Decision Outcome` and `## Pros and Cons of"
-    )?;
-    writeln!(
-        w,
-        "          the Options` are not part of this template. Fold their"
-    )?;
-    writeln!(
-        w,
-        "          content into `## Context` or `## Decision` and remove the"
-    )?;
-    writeln!(w, "          heading. Skipped on stale ADRs.")?;
+    print_rule_entries(w, catalog::TEMPLATE_RULES_TAGGED)?;
     writeln!(w)?;
     print_template_parser_rules(w)
 }
 
 fn print_template_parser_rules(w: &mut impl Write) -> io::Result<()> {
     writeln!(w, "  Parser-stage rules:")?;
-    writeln!(
-        w,
-        "    P001  ADR file unreadable (filesystem error during read)"
-    )?;
-    writeln!(
-        w,
-        "    P002  Missing or malformed H1 title (\"# PREFIX-NNNN. Title\")"
-    )?;
-    writeln!(
-        w,
-        "    P003  Malformed `## Related` segment: missing `Verb: ` separator,"
-    )?;
-    writeln!(
-        w,
-        "          unrecognized verb, or unparseable target. The malformed"
-    )?;
-    writeln!(
-        w,
-        "          segment is skipped; other valid segments on the same"
-    )?;
-    writeln!(
-        w,
-        "          line still parse and link. A clause-level target"
-    )?;
-    writeln!(w, "          (`ID:Rn`) is accepted on `References:` only")?;
-    writeln!(w, "          (AFM-0029:R4); elsewhere it is unparseable.")?;
-    writeln!(
-        w,
-        "    P004  Duplicate ADR id: two records claim the same PREFIX-NNNN."
-    )?;
-    writeln!(
-        w,
-        "          Detected once, before any rule runs — no rule can consume"
-    )?;
-    writeln!(w, "          the corpus while this holds (AFM-0008:R3).")?;
+    print_rule_entries(w, catalog::PARSER_RULES)?;
     writeln!(w)?;
     Ok(())
 }
@@ -780,7 +612,7 @@ fn print_relationship_tree_model(w: &mut impl Write, config: &Config) -> io::Res
         )?;
         writeln!(w)?;
     }
-    writeln!(w, "  Legacy verbs (produce warnings):")?;
+    writeln!(w, "  Legacy verbs (produce {}s):", catalog::L006.severity)?;
     for verb in RelVerb::legacy() {
         let migration = verb.migration().unwrap_or("remove");
         writeln!(w, "    {verb:<15} → {migration}")?;
@@ -794,38 +626,7 @@ fn print_naming(w: &mut impl Write) -> io::Result<()> {
     writeln!(w, "──────")?;
     writeln!(w)?;
     writeln!(w, "  Rules:")?;
-    writeln!(
-        w,
-        "    N001  Filename matches `PREFIX-NNNN-kebab-slug.md` pattern"
-    )?;
-    writeln!(
-        w,
-        "    N002  Filename ID matches the H1 title ID — the filename and the"
-    )?;
-    writeln!(
-        w,
-        "          `# PREFIX-NNNN. Title` heading MUST name the same ADR"
-    )?;
-    writeln!(
-        w,
-        "    N003  Slug is lowercase kebab-case — letters, digits and hyphens"
-    )?;
-    writeln!(
-        w,
-        "          only, with at least one letter segment, rejecting leading,"
-    )?;
-    writeln!(
-        w,
-        "          trailing and consecutive hyphens (AFM-0008:R4)"
-    )?;
-    writeln!(
-        w,
-        "    N004  Prefix matches a domain registered in `adr-fmt.toml` under"
-    )?;
-    writeln!(
-        w,
-        "          `[[domains]]`; any unregistered prefix warns (AFM-0008:R2)"
-    )?;
+    print_rule_entries(w, catalog::NAMING_RULES)?;
     writeln!(w)?;
     Ok(())
 }
@@ -835,61 +636,7 @@ fn print_link_rules(w: &mut impl Write) -> io::Result<()> {
     writeln!(w, "──────────")?;
     writeln!(w)?;
     writeln!(w, "  Rules:")?;
-    writeln!(w, "    L001  Dangling link — target ADR file not found")?;
-    writeln!(w, "    L003  Supersedes-status consistency")?;
-    writeln!(
-        w,
-        "    L006  Legacy relationship verb — migrate to its replacement verb"
-    )?;
-    writeln!(w, "          (see Legacy verbs above; per AFM-0009)")?;
-    writeln!(w, "    L007  Stale reference — link to stale archive ADR")?;
-    writeln!(w, "    L008  Root self-reference mismatch")?;
-    writeln!(w, "    L009  Root + References coexistence")?;
-    writeln!(
-        w,
-        "    L010  Missing parent — non-Root ADR has no References"
-    )?;
-    writeln!(
-        w,
-        "    L011  Cross-domain parent — first References target is in another domain"
-    )?;
-    writeln!(
-        w,
-        "    L012  Non-Accepted parent — first References target is Draft/Proposed (advisory)"
-    )?;
-    writeln!(w, "    L013  Parent-edge cycle — chain forms a loop")?;
-    writeln!(
-        w,
-        "    L014  Unreachable from root — chain ends at non-root"
-    )?;
-    writeln!(
-        w,
-        "    L015  Root-first heuristic — first ref is Root while specialized siblings exist"
-    )?;
-    writeln!(
-        w,
-        "    L016  Lower-tier parent — parent's tier is weaker leverage than child's"
-    )?;
-    writeln!(
-        w,
-        "    L017  Superseded parent — first References target is Superseded by another ADR"
-    )?;
-    writeln!(
-        w,
-        "    L018  Parent-cross-domain mismatch — declaration ID does not match first References"
-    )?;
-    writeln!(
-        w,
-        "    L019  Parent-cross-domain target missing — declared ADR does not exist"
-    )?;
-    writeln!(
-        w,
-        "    L020  Link integrity indeterminate — target exists but failed to parse"
-    )?;
-    writeln!(
-        w,
-        "    T020  Reference load — tier-scaled max on References: count"
-    )?;
+    print_rule_entries(w, catalog::LINK_RULES)?;
     writeln!(w)?;
     Ok(())
 }
@@ -917,33 +664,7 @@ fn print_stale(w: &mut impl Write, config: &Config) -> io::Result<()> {
         w,
         "  Lint coverage on the stale lifecycle and on stale stubs:"
     )?;
-    writeln!(w, "    S004  enforces presence of `## Retirement`")?;
-    writeln!(
-        w,
-        "    S005  active ADR carries `## Retirement` — the section is for"
-    )?;
-    writeln!(w, "          stale ADRs only; delete it or retire the ADR")?;
-    writeln!(
-        w,
-        "    S006  terminal-status ADR is not in the stale directory — move"
-    )?;
-    writeln!(
-        w,
-        "          the file here and add a `## Retirement` section"
-    )?;
-    writeln!(w, "    S007  enforces stub structure (sections + verbs)")?;
-    writeln!(
-        w,
-        "    S008  stale ADR carries a non-terminal status — either set a"
-    )?;
-    writeln!(
-        w,
-        "          terminal status (Rejected, Deprecated, Superseded by"
-    )?;
-    writeln!(
-        w,
-        "          PREFIX-NNNN) or move the file back out of this directory"
-    )?;
+    print_rule_entries(w, catalog::STALE_RULES)?;
     writeln!(w, "    T007/T008/T009/T010/T016 are skipped on stale")?;
     writeln!(w)?;
     Ok(())
@@ -1221,29 +942,6 @@ crates = []
         assert!(
             !src.contains(&needle),
             "tier scaling values must not be hardcoded in println"
-        );
-    }
-
-    #[test]
-    fn t016_registry_text_matches_shipped_warning_severity() {
-        let src = include_str!("guidelines.rs");
-        let start = src
-            .find("T016  Tagged rules")
-            .expect("T016 registry entry exists");
-        let end = src[start..]
-            .find("T019  Rule-tier tension")
-            .expect("the T016 entry is followed by the T019 entry")
-            + start;
-        let scan = &src[start..end];
-        assert!(
-            !scan.contains("is an error"),
-            "AFM-0003:R2 and rules/template.rs both expose the T016 layer \
-             finding as a WARNING; the generated text must not claim error"
-        );
-        assert!(
-            scan.contains("does not match the required"),
-            "the generated T016 guidance must document the malformed \
-             rule-shaped line check, or a shipped diagnostic is invisible"
         );
     }
 

@@ -1,5 +1,6 @@
 //! Rule modules — each validates one aspect of ADR compliance.
 
+pub(crate) mod catalog;
 mod links;
 pub(crate) mod naming;
 pub(crate) mod template;
