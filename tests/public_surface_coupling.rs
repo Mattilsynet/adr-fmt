@@ -1,56 +1,7 @@
-//! Structural enumeration of third-party types reachable from the
-//! AFM-0026:R1 public set, replacing the grep sweep that R9's coupling
-//! census previously rested on.
-//!
-//! # What this guard enforces
-//!
-//! Starting from the R1 re-export set as it is spelled in `src/lib.rs`,
-//! the walk follows public type-bearing syntax transitively — public
-//! struct fields, every enum variant field, `pub fn` signatures in
-//! inherent impls, free `pub fn` parameters and returns, type aliases,
-//! generic bounds and `impl Trait` bounds — through locally defined
-//! types, in the sense AFM-0026:R7 gives to "reachable". Every type or
-//! trait spelling along the way that belongs to a `[dependencies]` crate
-//! is recorded with the site that reaches it, and the resulting set must
-//! equal `GOLDEN_COUPLINGS` exactly.
-//!
-//! This is the check a grep cannot perform. `config::RuleConfig` is NOT
-//! in the R1 set; it is reached only through `Config::rules`, so a text
-//! search over the R1 names never visits the one coupling that exists.
-//!
-//! # What this guard does NOT enforce
-//!
-//! `syn` parses tokens. It does not resolve names, does not expand
-//! macros, and does not consult rustc. This is pattern-matching over
-//! spellings, so the honest claim is narrower than R9's prohibition:
-//!
-//! - A third-party type reached through a macro-generated item, or named
-//!   only inside a macro invocation, is invisible.
-//! - A type alias chain that leaves this crate — `pub use dep::T as U`
-//!   re-exported from elsewhere and then aliased — is not followed.
-//! - Associated types (`<T as Trait>::Assoc`) and blanket generic
-//!   parameters are not resolved to concrete types.
-//! - Trait impls are not inspected. `#[derive(Deserialize)]` on a local
-//!   type is a foreign trait implemented for a local type, which R9
-//!   exempts, and this walk never reads attributes.
-//! - Items public at the crate root but outside the R1 set — today only
-//!   `run` — are not walked, because R9 scopes itself to the R1 set.
-//!
-//! Closing that class needs semantic resolution over a compiled crate.
-//! The claim R9 makes is therefore the one this walk can back: the
-//! couplings its syntactic walk reaches, not the couplings that exist.
-//!
-//! Vacuity is guarded separately: the extracted R1 set must match the
-//! set R1 pins, the walk must reach a floor of local types including the
-//! four that carry the surface, and a glob import from a dependency
-//! anywhere in `src/` is rejected outright because it would let a bare
-//! identifier denote a third-party type with no binding to read.
-
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The AFM-0026:R1 pinned re-export set, as `(module, item)`.
 const R1_SET: [(&str, &str); 23] = [
     ("config", "Config"),
     ("config", "LoadError"),
@@ -77,10 +28,8 @@ const R1_SET: [(&str, &str); 23] = [
     ("report", "Severity"),
 ];
 
-/// Every third-party coupling the walk reaches, as `spelling @ site`.
 const GOLDEN_COUPLINGS: [&str; 1] = ["toml::Value @ config::RuleConfig::params"];
 
-/// Local types the walk must reach, or it is not exercising R7 transitivity.
 const REQUIRED_REACH: [&str; 4] = ["Config", "RuleConfig", "AdrRecord", "Diagnostic"];
 
 const REACH_FLOOR: usize = 15;
@@ -150,7 +99,6 @@ fn self_type_name(ty: &syn::Type) -> Option<String> {
     }
 }
 
-/// One source file, indexed by what the walk needs to read from it.
 struct Module {
     items: BTreeMap<String, syn::Item>,
     inherent: BTreeMap<String, Vec<syn::Signature>>,
@@ -246,7 +194,6 @@ fn index_module(path: &Path, deps: &BTreeSet<String>) -> Module {
     }
 }
 
-/// A type or trait spelling encountered in a public position.
 struct Spelling {
     path: syn::Path,
     site: String,
@@ -412,9 +359,28 @@ fn spellings_of(
     out
 }
 
+enum Owners {
+    Unique(String),
+    Ambiguous(BTreeSet<String>),
+}
+
+impl Owners {
+    fn add(&mut self, module: &str) {
+        match self {
+            Self::Unique(first) if first == module => {}
+            Self::Unique(first) => {
+                *self = Self::Ambiguous([first.clone(), module.to_owned()].into());
+            }
+            Self::Ambiguous(all) => {
+                all.insert(module.to_owned());
+            }
+        }
+    }
+}
+
 struct Walk {
     modules: BTreeMap<String, Module>,
-    owner_of: BTreeMap<String, String>,
+    owner_of: BTreeMap<String, Owners>,
     deps: BTreeSet<String>,
     couplings: BTreeSet<String>,
     reached: BTreeSet<String>,
@@ -429,7 +395,7 @@ impl Walk {
         files.sort();
 
         let mut modules = BTreeMap::new();
-        let mut owner_of: BTreeMap<String, String> = BTreeMap::new();
+        let mut owner_of: BTreeMap<String, Owners> = BTreeMap::new();
         for file in &files {
             let name = file
                 .strip_prefix(&src)
@@ -439,7 +405,10 @@ impl Walk {
                 .replace(std::path::MAIN_SEPARATOR, "::");
             let module = index_module(file, &deps);
             for item in module.items.keys() {
-                owner_of.entry(item.clone()).or_insert_with(|| name.clone());
+                owner_of
+                    .entry(item.clone())
+                    .and_modify(|owners| owners.add(&name))
+                    .or_insert_with(|| Owners::Unique(name.clone()));
             }
             modules.insert(name, module);
         }
@@ -453,7 +422,6 @@ impl Walk {
         }
     }
 
-    /// The R1 set as `src/lib.rs` actually spells it.
     fn declared_r1_set() -> BTreeSet<(String, String)> {
         let ast = parse(&manifest_dir().join("src").join("lib.rs"));
         let mut out = BTreeSet::new();
@@ -473,38 +441,91 @@ impl Walk {
             .iter()
             .map(|segment| segment.ident.to_string())
             .collect();
-        let Some(last) = segments.last() else {
+        let Some((last, prefix)) = segments.split_last() else {
             return Resolution::Ignored;
         };
-        let root = &segments[0];
 
-        if segments.len() > 1 {
-            if self.deps.contains(root) {
-                return Resolution::ThirdParty(format!("{root}::{last} @ {site}"));
+        if prefix.is_empty() {
+            if let Some(module) = self.site_module(site)
+                && let Some(dep) = module.dep_bindings.get(last)
+            {
+                return Resolution::ThirdParty(format!("{dep}::{last} @ {site}"));
             }
-            if PATH_ROOTS_STD.contains(&root.as_str()) {
-                return Resolution::Ignored;
-            }
-            if PATH_ROOTS_LOCAL.contains(&root.as_str()) {
-                return self.local(last);
-            }
-            return self.local(last);
+            return self.unqualified(last, site);
         }
 
-        if let Some(module) = self
-            .modules
-            .get(site.split("::").next().unwrap_or_default())
-            && let Some(dep) = module.dep_bindings.get(last)
-        {
-            return Resolution::ThirdParty(format!("{dep}::{last} @ {site}"));
+        let root = prefix[0].as_str();
+        if self.deps.contains(root) {
+            return Resolution::ThirdParty(format!("{root}::{last} @ {site}"));
         }
-        self.local(last)
+        if PATH_ROOTS_STD.contains(&root) {
+            return Resolution::Ignored;
+        }
+        match self.module_key(prefix, last, site) {
+            Some(module) => Resolution::Local(module, last.clone()),
+            None => self.unqualified(last, site),
+        }
     }
 
-    fn local(&self, name: &str) -> Resolution {
+    fn module_key(&self, prefix: &[String], last: &str, site: &str) -> Option<String> {
+        let mut rest = prefix;
+        let mut segments: Vec<String> = Vec::new();
+        while let Some(root) = rest.first().map(String::as_str)
+            && PATH_ROOTS_LOCAL.contains(&root)
+        {
+            match root {
+                "self" => segments = self.site_module_segments(site)?,
+                "super" => {
+                    if segments.is_empty() {
+                        segments = self.site_module_segments(site)?;
+                    }
+                    segments.pop()?;
+                }
+                _ => segments.clear(),
+            }
+            rest = &rest[1..];
+        }
+        segments.extend_from_slice(rest);
+        let joined = segments.join("::");
+        [joined.clone(), format!("{joined}::mod")]
+            .into_iter()
+            .find(|candidate| {
+                self.modules
+                    .get(candidate)
+                    .is_some_and(|module| module.items.contains_key(last))
+            })
+    }
+
+    fn site_module_segments(&self, site: &str) -> Option<Vec<String>> {
+        Some(
+            self.site_module_key(site)?
+                .split("::")
+                .map(str::to_owned)
+                .collect(),
+        )
+    }
+
+    fn site_module_key(&self, site: &str) -> Option<String> {
+        let segments: Vec<&str> = site.split("::").collect();
+        (1..segments.len())
+            .rev()
+            .map(|cut| segments[..cut].join("::"))
+            .find(|candidate| self.modules.contains_key(candidate))
+    }
+
+    fn site_module(&self, site: &str) -> Option<&Module> {
+        self.modules.get(&self.site_module_key(site)?)
+    }
+
+    fn unqualified(&self, name: &str, site: &str) -> Resolution {
         match self.owner_of.get(name) {
-            Some(module) => Resolution::Local(module.clone(), name.to_owned()),
             None => Resolution::Ignored,
+            Some(Owners::Unique(module)) => Resolution::Local(module.clone(), name.to_owned()),
+            Some(Owners::Ambiguous(modules)) => panic!(
+                "{site}: the bare name `{name}` is defined in {modules:?}. This walk cannot \
+                 tell which definition the path denotes, so it could follow the wrong one and \
+                 miss that definition's third-party coupling. Spell the path with its module"
+            ),
         }
     }
 
@@ -619,7 +640,24 @@ fn third_party_couplings_reachable_from_r1_match_the_census() {
         "the set of third-party type and trait spellings reachable from the AFM-0026:R1 set \
          through public signatures and R7 field shape has changed. AFM-0026:R9 pins this \
          census; widening it couples this crate's semver to a dependency's and requires an \
-         ADR. Note the walk is syntactic — see this file's module doc for the forms it \
-         cannot see"
+         ADR. The walk is syntactic: macro-generated items, cross-crate alias chains, \
+         associated types and trait impls are outside what it can see"
+    );
+}
+
+#[test]
+fn duplicate_local_names_are_recorded_as_ambiguous() {
+    let walk = Walk::load();
+    let ambiguous: Vec<&String> = walk
+        .owner_of
+        .iter()
+        .filter(|(_, owners)| matches!(owners, Owners::Ambiguous(_)))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        ambiguous.contains(&&"check".to_owned()),
+        "`check` is defined in several rule modules, so the index must record it as \
+         ambiguous. Recording one owner per name would let a bare path resolve to the \
+         wrong definition and miss its third-party coupling. Ambiguous: {ambiguous:?}"
     );
 }
