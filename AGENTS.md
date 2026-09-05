@@ -60,6 +60,14 @@ when it cannot obtain a count — never conflated with clean). The
 threshold defaults to the measured baseline of **8** and is overridable
 via `ADR_LINT_MAX_WARNINGS`. CI runs the same script.
 
+Both the threshold and the parsed warning count must be a bare decimal
+integer of **1 to 9 digits** (0–999999999); that is the widest range
+the shell can compare without overflowing its fixed-width arithmetic.
+Anything else — empty, non-numeric, negative, leading `+`, whitespace,
+or more than 9 digits — is **no verdict: exit 2**, never a pass. An
+explicitly empty `ADR_LINT_MAX_WARNINGS=''` is a malformed value, not
+"unset"; only a genuinely unset variable falls back to the default 8.
+
 Measured baseline: `adr-fmt --lint` reports `## Diagnostics: 8
 warning(s) across 32 ADR(s)` and exits 0.
 

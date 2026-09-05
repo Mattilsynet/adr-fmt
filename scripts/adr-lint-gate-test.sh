@@ -19,14 +19,22 @@ failures=0
 cases=0
 
 expect() {
-    local name="$1" want="$2" cmd="$3" threshold="$4"
+    local name="$1" want="$2" cmd="$3" mode="$4" threshold="${5-}"
     local got=0
     cases=$((cases + 1))
-    if [ -n "$threshold" ]; then
-        ADR_LINT_CMD="$cmd" ADR_LINT_MAX_WARNINGS="$threshold" bash "$gate" >/dev/null 2>&1 || got=$?
-    else
-        ADR_LINT_CMD="$cmd" bash "$gate" >/dev/null 2>&1 || got=$?
-    fi
+    case "$mode" in
+        unset)
+            ADR_LINT_CMD="$cmd" bash "$gate" >/dev/null 2>&1 || got=$?
+            ;;
+        set)
+            ADR_LINT_CMD="$cmd" ADR_LINT_MAX_WARNINGS="$threshold" bash "$gate" >/dev/null 2>&1 || got=$?
+            ;;
+        *)
+            printf 'FAIL %s: unknown mode %s\n' "$name" "$mode"
+            failures=$((failures + 1))
+            return
+            ;;
+    esac
     if [ "$got" -eq "$want" ]; then
         printf 'ok   %s (exit %s)\n' "$name" "$got"
     else
@@ -38,17 +46,24 @@ expect() {
 clean_output='## Diagnostics: 8 warning(s) across 32 ADR(s)'
 over_output='## Diagnostics: 9 warning(s) across 32 ADR(s)'
 no_header_output='some other output entirely'
+huge='999999999999999999999999999999999999'
+huge_output="## Diagnostics: $huge warning(s) across 32 ADR(s)"
 
-expect "at threshold is clean"        0 "printf '%s\n' '$clean_output'"     "8"
-expect "under threshold is clean"     0 "printf '%s\n' '$clean_output'"     "9"
-expect "over threshold fails"         1 "printf '%s\n' '$over_output'"      "8"
-expect "default threshold applies"    0 "printf '%s\n' '$clean_output'"     ""
-expect "missing header is no verdict" 2 "printf '%s\n' '$no_header_output'" "8"
-expect "producer failure no verdict"  2 "exit 3"                            "8"
-expect "malformed threshold"          2 "printf '%s\n' '$clean_output'"     "bogus"
-expect "negative threshold"           2 "printf '%s\n' '$clean_output'"     "-1"
-expect "empty threshold"              2 "printf '%s\n' '$clean_output'"     " "
-expect "float threshold"              2 "printf '%s\n' '$clean_output'"     "8.5"
+expect "at threshold is clean"        0 "printf '%s\n' '$clean_output'"     set   "8"
+expect "under threshold is clean"     0 "printf '%s\n' '$clean_output'"     set   "9"
+expect "over threshold fails"         1 "printf '%s\n' '$over_output'"      set   "8"
+expect "default threshold applies"    0 "printf '%s\n' '$clean_output'"     unset
+expect "missing header is no verdict" 2 "printf '%s\n' '$no_header_output'" set   "8"
+expect "producer failure no verdict"  2 "exit 3"                            set   "8"
+expect "malformed threshold"          2 "printf '%s\n' '$clean_output'"     set   "bogus"
+expect "negative threshold"           2 "printf '%s\n' '$clean_output'"     set   "-1"
+expect "whitespace threshold"         2 "printf '%s\n' '$clean_output'"     set   " "
+expect "float threshold"              2 "printf '%s\n' '$clean_output'"     set   "8.5"
+expect "explicitly empty threshold"   2 "printf '%s\n' '$clean_output'"     set   ""
+expect "plus-signed threshold"        2 "printf '%s\n' '$clean_output'"     set   "+8"
+expect "oversized threshold"          2 "printf '%s\n' '$clean_output'"     set   "$huge"
+expect "max in-range threshold"       0 "printf '%s\n' '$clean_output'"     set   "999999999"
+expect "oversized parsed count"       2 "printf '%s\n' '$huge_output'"      set   "8"
 
 printf '\nadr-lint-gate-test: %s case(s), %s failure(s)\n' "$cases" "$failures"
 [ "$failures" -eq 0 ]
