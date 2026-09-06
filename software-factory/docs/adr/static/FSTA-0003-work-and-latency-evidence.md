@@ -11,7 +11,7 @@ Root: FSTA-0003
 
 ## Context
 
-Algorithmic progress, operation counts and elapsed-time deadlines describe different properties of a running system.
+Algorithmic progress, operation counts and elapsed-time deadlines describe different properties of a running system. This independent root governs the meaning of predictability evidence rather than allocator selection. Work and latency claims need their own assumptions even when another decision specifies fixed capacity.
 
 ## Decision
 
@@ -23,4 +23,10 @@ R3 [5]: Collection complexity MUST be checked per operation; no_std, zero-cost a
 
 ## Consequences
 
-Finite benchmarks support only their measured conditions; fixed capacity does not make every operation constant time.
++ becomes easier: distinguishing abstract operation bounds from elapsed-time evidence.
+
+− becomes harder: complexity must be checked per operation and latency assumptions recorded explicitly.
+
+risks/migration: finite benchmarks support only measured conditions; fixed capacity does not make every operation constant time, and idle scans still consume work.
+
+Evidence: [SOURCES](../../../SOURCES.md#primary-external-sources) records heapless operation differences and lock-free progress limits. R1–R3 require adopter complexity and latency evidence; no deadline benchmark or universal timing guarantee is supplied.

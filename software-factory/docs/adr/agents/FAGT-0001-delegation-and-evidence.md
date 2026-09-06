@@ -11,7 +11,7 @@ Root: FAGT-0001
 
 ## Context
 
-Automated delegation amplifies authority and context mistakes unless task boundaries survive handoffs.
+Automated delegation amplifies authority and context mistakes unless task boundaries survive handoffs. This independent root governs delegation permissions and evidence transfer, not a specific review workflow or tracker. Its authority boundary applies without inventing an agent-role parent hierarchy.
 
 ## Decision
 
@@ -23,4 +23,10 @@ R3 [6]: Cross-agent evidence MUST have a durable, readable body with provenance;
 
 ## Consequences
 
-Repositories can choose their own agents and evidence store without losing accountability across execution boundaries.
++ becomes easier: inspecting task scope and provenance across handoffs.
+
+− becomes harder: durable bodies, pointer checks and permission boundaries add coordination work.
+
+risks/migration: a readable pointer does not establish evidence truth or secret safety; changing stores requires preserving provenance and access boundaries.
+
+Evidence: [SOURCES](../../../SOURCES.md#repository-families) maps delegation concepts while excluding mandatory tools and agent names. R1–R3 need mission, permission and evidence-body review; this corpus review is not a permission-bypass test or secret scan.

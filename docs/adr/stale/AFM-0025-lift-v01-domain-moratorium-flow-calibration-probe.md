@@ -5,10 +5,6 @@ Last-reviewed: 2026-06-19
 Tier: B
 Status: Deprecated
 
-## Related
-
-(no lineage edges — episodic moratorium concluded, no successor)
-
 ## Retirement
 
 Moved-to-stale: 2026-06-19

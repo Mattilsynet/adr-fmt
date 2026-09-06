@@ -11,7 +11,7 @@ Root: FFLO-0003
 
 ## Context
 
-Long-lived services need continued progress without allowing individual work units to monopolize execution.
+Long-lived services need continued progress without allowing individual work units to monopolize execution. This independent root governs supervision, cancellation and termination regardless of queue or telemetry design. Open-ended service lifetime is distinct from bounded work between checks, so no finite-lifetime parent is implied.
 
 ## Decision
 
@@ -23,4 +23,10 @@ R3 [5]: Cancellation MUST preserve partial-I/O state and ownership obligations; 
 
 ## Consequences
 
-Shutdown tests must include stalled consumers and partial effects; cancellation is not external rollback.
++ becomes easier: distinguishing supervised termination from merely dropping a handle.
+
+− becomes harder: partial I/O, stalled consumers and blocking workers need explicit shutdown tests and ownership accounting.
+
+risks/migration: cancellation is not external rollback; immediately ready awaits do not demonstrate fairness.
+
+Evidence: [SOURCES](../../../SOURCES.md#primary-external-sources) identifies graceful shutdown as an adaptation, not NASA's scheduler rule. R1–R3 need adopter progress, cancellation and termination evidence; no service was exercised by this documentation review.

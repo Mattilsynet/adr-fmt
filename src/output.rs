@@ -227,12 +227,12 @@ pub fn render_root_groups(crate_name: &str, groups: &[RootGroup]) -> String {
 
     writeln!(out, "# Architecture Rules").unwrap();
     writeln!(out).unwrap();
+    writeln!(out, "These decision rules apply to crate `{crate_name}`.").unwrap();
     writeln!(
         out,
-        "These rules are mandatory constraints for all code in crate `{crate_name}`."
+        "Preserve each rule's stated MUST, SHOULD or MAY strength and its conditions."
     )
     .unwrap();
-    writeln!(out, "Follow every rule without exception.").unwrap();
 
     for group in groups {
         if group.rules.is_empty() {
@@ -921,7 +921,9 @@ mod tests {
         assert!(output.contains("# Architecture Rules"), "output:\n{output}");
         assert!(output.contains("crate `example-core`"), "output:\n{output}");
         assert!(
-            output.contains("Follow every rule without exception"),
+            output.contains(
+                "Preserve each rule's stated MUST, SHOULD or MAY strength and its conditions."
+            ),
             "output:\n{output}"
         );
         assert!(
@@ -931,6 +933,33 @@ mod tests {
         assert!(
             output.contains("- All modules must log errors. [COM-0001:R1:L5]"),
             "output:\n{output}"
+        );
+    }
+
+    #[test]
+    fn context_authority_preserves_normative_strength() {
+        let groups = vec![RootGroup {
+            root: GroupRoot::Unclaimed,
+            root_title: "Unclaimed Rules".into(),
+            rules: [
+                "Clients MUST validate.",
+                "Clients SHOULD retry.",
+                "Clients MAY cache.",
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(i, text)| EmittedRule {
+                adr_id: make_id("COM", 1),
+                rule_id: format!("R{}", i + 1),
+                text: text.into(),
+                layer: 5,
+                depth: 0,
+            })
+            .collect(),
+        }];
+        assert_eq!(
+            render_root_groups("example-core", &groups),
+            "# Architecture Rules\n\nThese decision rules apply to crate `example-core`.\nPreserve each rule's stated MUST, SHOULD or MAY strength and its conditions.\n\n### Unclaimed. Unclaimed Rules\n- Clients MUST validate. [COM-0001:R1:L5]\n- Clients SHOULD retry. [COM-0001:R2:L5]\n- Clients MAY cache. [COM-0001:R3:L5]\n"
         );
     }
 

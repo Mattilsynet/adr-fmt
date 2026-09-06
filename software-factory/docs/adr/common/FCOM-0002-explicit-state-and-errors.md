@@ -13,6 +13,8 @@ Root: FCOM-0002
 
 Sentinels and ambiguous failures force every caller to reconstruct the same hidden state machine.
 
+This root defines state and observation semantics independently of module topology. Boundary design is related, but supplies no required parent for preserving unknown outcomes.
+
 ## Decision
 
 Domain types represent valid states and preserve uncertainty at fallible boundaries.
@@ -23,4 +25,8 @@ R3 [5]: Error elimination MUST preserve domain meaning; retries, defaults and em
 
 ## Consequences
 
-Callers handle fewer impossible combinations without sacrificing information needed for recovery or accurate verdicts.
++ becomes easier: callers retain information needed for recovery and accurate verdicts.
+− becomes harder: explicit unavailable and unauthorized states require consumer handling.
+risks/migration: constructor checks alone do not cover alternate construction or mutation routes; R1 does not prohibit genuinely independent flags.
+
+Evidence: [SOURCES.md](../../../SOURCES.md), Coverage and conflict review, explicitly rejects failed-observation masking. Review domain constructors, mutations and failure paths against R1–R3; no universal construction-safety or recovery proof is supplied.

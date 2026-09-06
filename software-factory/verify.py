@@ -82,8 +82,8 @@ def check_profile(cwd, selector, optional):
     expected = ids(CORE | optional)
     lines = context.splitlines()
     preamble = ["# Architecture Rules", "",
-                f"These rules are mandatory constraints for all code in crate `{selector}`.",
-                "Follow every rule without exception."]
+                f"These decision rules apply to crate `{selector}`.",
+                "Preserve each rule's stated MUST, SHOULD or MAY strength and its conditions."]
     require_equal(lines[:4], preamble, "context preamble")
     headings = Counter()
     rules = Counter()

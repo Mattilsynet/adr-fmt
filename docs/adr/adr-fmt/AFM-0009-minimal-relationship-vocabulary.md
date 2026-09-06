@@ -1,7 +1,7 @@
 # AFM-0009. Minimal Relationship Vocabulary With Three Verbs
 
 Date: 2026-04-27
-Last-reviewed: 2026-05-02
+Last-reviewed: 2026-09-06
 Tier: S
 Status: Accepted
 
@@ -11,15 +11,12 @@ References: AFM-0001
 
 ## Context
 
-ADR relationship systems face a vocabulary explosion problem. Rich
-vocabularies (Depends on, Extends, Illustrates, Contrasts with,
-Scoped by) create semantic ambiguity (what distinguishes "Depends
-on" from "References"?), validation complexity (each verb has
-different consistency requirements), and visualization overhead
-(8+ edge types produce unreadable graphs). Analysis of the
-cherry-pit corpus revealed all meaningful relationships can be
-expressed with three non-overlapping verbs: Root (tree root),
-References (citation), and Supersedes (replacement).
+AFM-0001:R1 owns relationship invariants and is the constraining parent.
+Three verbs distinguish root declaration, citation and replacement without
+requiring authors to classify every rhetorical relationship. Structural
+parentage further specializes References under AFM-0020:R1. Historical
+cherry-pit analysis is not available as independently inspected evidence;
+this decision makes no completeness claim about every possible relationship.
 
 ## Decision
 
@@ -40,10 +37,12 @@ R5 [5]: Permit multiple References entries to support cross-cutting
 
 ## Consequences
 
-The relationship graph has exactly three edge types, making
-visualization straightforward. Authors never debate verb choice for
-citations — it is always References. The tree structure is
-well-defined: every non-root ADR belongs to exactly one tree.
-Orphan ADRs with no relationships trigger T007. Adding a fourth
-verb requires demonstrating a semantic distinction that References
-cannot capture.
+- Easier: citations use one verb; replacement and root declaration stay distinct.
+- Harder: authors express finer relationships in prose rather than new verbs.
+- Risks: a non-root has at most one structural parent, not guaranteed membership
+  in a live tree; missing, cyclic or terminal ancestry needs diagnosis.
+
+Source evidence: `src/rules/links.rs:146–212` checks replacement, self-roots
+and legacy verbs; `src/nav.rs:71–106` selects the first References target.
+AFM-0020:R5 governs liveness. Mechanical graph construction cannot establish
+that the selected parent actually constrains the child.

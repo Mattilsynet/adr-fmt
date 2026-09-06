@@ -13,6 +13,8 @@ Root: FSEC-0001
 
 Untrusted data and ambient authority can convert ordinary processing into unauthorized actions.
 
+This root governs trust transitions and privileged effects, independently of confidentiality or resource accounting. No identity provider or deployment-specific parent is selected by the distribution.
+
 ## Decision
 
 Trust transitions validate data, origin and permission before granting narrowly scoped capabilities.
@@ -23,4 +25,8 @@ R3 [5]: Components MUST receive only required capabilities; authentication or au
 
 ## Consequences
 
-Explicit capabilities reduce accidental authority, while applications still need their own threat models and identity providers.
++ becomes easier: reviewers can locate validation, authentication and action-specific authorization boundaries.
+− becomes harder: adopters must supply threat models, identity integration and narrowly scoped capabilities.
+risks/migration: structurally valid input is not automatically trustworthy or authorized.
+
+Evidence: [SOURCES.md](../../../SOURCES.md), Repository families, attributes the trust/capability synthesis and excludes source-specific topology. Review trust transitions and denied-operation tests against R1–R3. No adopter authentication, authorization or deployment security was tested here.

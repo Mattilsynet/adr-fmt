@@ -1,7 +1,7 @@
 # AFM-0031. RFC-2119/8174 Requirement-Level Keywords as Normative Vocabulary
 
 Date: 2026-07-16
-Last-reviewed: 2026-07-16
+Last-reviewed: 2026-09-06
 Tier: S
 Status: Accepted
 
@@ -11,16 +11,13 @@ References: AFM-0012, GND-0002, GND-0009
 
 ## Context
 
-Tagged rules in `## Decision` sections use ad hoc phrasing for requirement
-strength — "must", "should", "may" appear inconsistently, sometimes
-lowercase, sometimes without any consistent meaning across ADRs. There is
-no shared vocabulary distinguishing an absolute prohibition from a
-recommendation. *RFC 2119 (Key words for use in RFCs to Indicate
-Requirement Levels)* and *RFC 8174 (Ambiguity of Uppercase vs Lowercase
-in RFC 2119 Key Words)* solve exactly this for specification documents;
-adopting them gives the corpus a normative vocabulary agents can parse
-unambiguously, orthogonal to the existing Meadows-layer classification
-(AFM-0012).
+Requirement strength and leverage answer different questions. AFM-0012:R1
+is the constraining parent because it supplies the tagged obligations whose
+strength this vocabulary expresses. RFC 2119/8174 uppercase keywords distinguish
+requirements from recommendations without changing the Meadows tags. Reviewers
+still judge intent and exceptions; keyword presence is not semantic proof.
+Foreign GND/COM citations retain their supporting role, without a fresh external
+entailment check in this local review.
 
 ## Decision
 
@@ -45,23 +42,13 @@ R5 [6]: Apply the keyword vocabulary to new and amended ADRs going
   forward; leave existing ADRs grandfathered and reword them
   opportunistically in place per AFM-0029:R2, with no flag-day migration
 
-### Future work
-
-Not implemented by this ADR: a candidate `adr-fmt --lint` diagnostic
-(tentatively `T###`) checking keyword presence/usage in tagged rules, and
-an opportunistic rewording of `TEMPLATE.md`'s tagged-rule guidance from
-"positive imperative, unconditional" to "positive imperative, declared
-requirement level". Both are follow-on scope, not part of this decision.
-
-Observation mechanism per GND-0005: review-gate — reviewers check keyword
-usage during normal ADR review, no automated enforcement yet.
+Keyword interpretation is a review obligation, not a new parser grammar or
+keyword lint. Generated authority lives in `src/guidelines.rs`, not a
+standalone template file.
 
 ## Consequences
 
-+ becomes easier: agents and reviewers can parse requirement strength
-  unambiguously from tagged-rule text, independent of Meadows layer.
-+ becomes easier: future tooling (the candidate lint diagnostic) has a
-  well-defined, RFC-anchored vocabulary to check against.
++ becomes easier: reviewers distinguish declared strength from leverage.
 − becomes harder: rule authors must learn and consistently apply the
   RFC 2119/8174 vocabulary instead of free-form phrasing.
 − becomes harder: mixed old/new phrasing persists during the
@@ -69,5 +56,7 @@ usage during normal ADR review, no automated enforcement yet.
   universal across the corpus.
 risks/migration: no flag-day migration — existing ADRs are grandfathered
   and reworded opportunistically in place (AFM-0029:R2) when otherwise
-  touched. No lint enforces keyword usage in this ADR; a future
-  diagnostic is future work, not a commitment made here.
+  touched. No new keyword diagnostic is committed here.
+
+Evidence: `src/guidelines.rs:133–178` teaches strength and human judgment;
+`src/parser.rs:977–1025` recognizes rule shape, not requirement meaning.

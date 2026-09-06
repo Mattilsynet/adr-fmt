@@ -15,18 +15,32 @@ adr-fmt --context <CRATE>   # decision rules for a crate
 adr-fmt --tree [DOMAIN]     # domain tree overview
 ```
 
-The corpus location is discovered by walking up from the current
-working directory until an `adr-fmt.toml` with a valid `[corpus]`
-table is found. Run from anywhere inside the workspace.
+The corpus location is discovered by walking up from the current directory
+to the nearest suitable `adr-fmt.toml`. Present broken or inaccessible markers
+fail; genuinely absent markers and intentionally unfit readable configurations
+may ascend. Assert corpus identity when nesting independent configurations.
 
 Exit codes:
 - `0` — analysis complete (warnings only, or clean)
-- `1` — infrastructure error or lint errors detected
+- `1` — infrastructure failure or incomplete refs/context/tree retrieval
+- `2` — CLI usage error
 
 Warnings are advisory by design (per AFM-0003): a corpus emitting
 warnings still exits `0`. Exit `1` is reserved for infrastructure
-failures and structural lint errors that prevent analysis. Treat
-warnings as signal for review, not as build-breakers.
+failures and retrieval that cannot establish completeness because parsing
+emitted findings or duplicate IDs prevent indexing. Such retrieval emits no
+authoritative stdout. Treat lint warnings as review signals; use the local gate
+for threshold enforcement and its distinct no-verdict result.
+
+### Migration to 0.3.0
+
+See the [six-technique migration guide](docs/adr-format-proposals.md) for
+discovery, retrieval, diagnostic and generated-output changes under AFM-0039.
+Generated guidance adopts all six conventions. Local author/source-review
+migration covers all 29 active AFM ADRs, ten retired stubs and 24 factory ADRs,
+with slice approvals tracked in the [review matrix](docs/adr/six-technique-review.md).
+Final package acceptance remains a separate commander review; these local
+assessments do not establish external compliance or performance guarantees.
 
 ### Warning detail and totals (0.2.0)
 
@@ -137,7 +151,9 @@ project's `Cargo.lock` takes over and this one is ignored.
 ## Governance
 
 This tool's own design decisions live in `docs/adr/adr-fmt/` (prefix
-`AFM`). AFM-0038 records the 0.2.0 warning-output break under AFM-0036.
+`AFM`): 29 Accepted decisions and 10 retired stubs, 39 total.
+AFM-0038 records the 0.2.0 warning-output break; AFM-0039 records 0.3.0
+under AFM-0036. The independent factory corpus retains 24 Accepted decisions.
 
 ## License
 

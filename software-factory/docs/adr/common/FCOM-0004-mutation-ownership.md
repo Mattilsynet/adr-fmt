@@ -13,6 +13,8 @@ Root: FCOM-0004
 
 Concurrency correctness depends on authority over mutation, not merely the presence of synchronization primitives.
 
+This root defines mutation authority independently of any actor, storage or runtime topology. Source ownership concepts support the rationale without importing a parent contract or mandatory single-writer design.
+
 ## Decision
 
 Each mutable resource has an explicit ownership and coordination contract.
@@ -23,4 +25,8 @@ R3 [5]: Ownership transfer MUST prevent stale authority from mutating protected 
 
 ## Consequences
 
-Ownership becomes reviewable without mandating actors, a particular runtime, or a universal prohibition on locks.
++ becomes easier: reviewers can locate mutation authority and transfer boundaries.
+− becomes harder: shared-state designs need explicit synchronization and stale-authority reasoning.
+risks/migration: local locking cannot establish distributed exclusion; preferred partitioning is not a universal lock prohibition.
+
+Evidence: [SOURCES.md](../../../SOURCES.md), Coverage and conflict review, explains the narrowed ownership adaptation. Review mutation and transfer paths against R1–R3, including stale owners; source lineage is not a concurrency or distributed-fencing proof.

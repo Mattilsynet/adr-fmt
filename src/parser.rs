@@ -503,6 +503,7 @@ pub(crate) fn parse_adr_file(
 
     let RuleExtraction {
         rules: decision_rules,
+        unparsed_layers,
         malformed: malformed_decision_rules,
         diagnostics: rule_tag_diagnostics,
     } = extract_tagged_rules(path, &source.rule_scan());
@@ -535,6 +536,7 @@ pub(crate) fn parse_adr_file(
         section_word_counts,
         crates,
         decision_rules,
+        unparsed_layers,
         malformed_decision_rules,
         parent_cross_domain,
     ));
@@ -983,6 +985,7 @@ static RULE_TAG_SHAPED_RE: LazyLock<Regex> =
 
 struct RuleExtraction {
     rules: Vec<TaggedRule>,
+    unparsed_layers: HashMap<usize, String>,
     malformed: Vec<MalformedRule>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -1038,6 +1041,7 @@ fn unreadable_layer_diagnostic(path: &Path, line_no: usize, rule: &str, layer: &
 fn extract_tagged_rules(path: &Path, scan: &RuleScanLines<'_>) -> RuleExtraction {
     let scanned = scan.as_slice();
     let mut rules = Vec::new();
+    let mut unparsed_layers = HashMap::new();
     let mut malformed = Vec::new();
     let mut diagnostics = Vec::new();
     let mut in_decision = false;
@@ -1070,7 +1074,12 @@ fn extract_tagged_rules(path: &Path, scan: &RuleScanLines<'_>) -> RuleExtraction
                 layer: layer_str,
                 text: rule_text,
             } => {
-                let layer: u8 = layer_str.parse().unwrap_or(0);
+                let layer = if let Ok(layer) = layer_str.parse::<u8>() {
+                    layer
+                } else {
+                    unparsed_layers.insert(line_no, layer_str.to_owned());
+                    0
+                };
                 let mut text = rule_text.trim().to_owned();
                 let rule_line = line_no;
 
@@ -1127,6 +1136,7 @@ fn extract_tagged_rules(path: &Path, scan: &RuleScanLines<'_>) -> RuleExtraction
 
     RuleExtraction {
         rules,
+        unparsed_layers,
         malformed,
         diagnostics,
     }

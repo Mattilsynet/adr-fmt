@@ -372,6 +372,7 @@ pub struct AdrRecord {
     /// Tagged rules extracted from the Decision section
     /// (`RN [L]: text` pattern). Empty when no tagged rules found.
     decision_rules: Vec<TaggedRule>,
+    unparsed_rule_layers: HashMap<usize, String>,
     /// Decision-section lines that are rule-shaped but do not conform to
     /// the `RN [L]: text` pattern. Kept alongside `decision_rules` so a
     /// malformed candidate cannot vanish between parser and rules.
@@ -594,6 +595,10 @@ impl AdrRecord {
         &self.malformed_decision_rules
     }
 
+    pub(crate) fn unparsed_rule_layer(&self, line: usize) -> Option<&str> {
+        self.unparsed_rule_layers.get(&line).map(String::as_str)
+    }
+
     /// Cross-domain parent exception declared via `Parent-cross-domain:`.
     ///
     /// Returns `Some` only for a well-formed declaration; a malformed
@@ -645,6 +650,7 @@ impl AdrRecord {
         section_word_counts: HashMap<String, usize>,
         crates: Vec<String>,
         decision_rules: Vec<TaggedRule>,
+        unparsed_rule_layers: HashMap<usize, String>,
         malformed_decision_rules: Vec<MalformedRule>,
         parent_cross_domain: CrossDomainParent,
     ) -> Self {
@@ -672,6 +678,7 @@ impl AdrRecord {
             section_word_counts,
             crates,
             decision_rules,
+            unparsed_rule_layers,
             malformed_decision_rules,
             parent_cross_domain,
         }
@@ -861,6 +868,7 @@ impl AdrRecord {
             section_word_counts: HashMap::new(),
             crates: Vec::new(),
             decision_rules: Vec::new(),
+            unparsed_rule_layers: HashMap::new(),
             malformed_decision_rules: Vec::new(),
             parent_cross_domain: CrossDomainParent::Absent,
         }
@@ -2182,6 +2190,7 @@ mod tests {
                 HashMap::new(),
                 Vec::new(),
                 Vec::new(),
+                HashMap::new(),
                 Vec::new(),
                 CrossDomainParent::Absent,
             )

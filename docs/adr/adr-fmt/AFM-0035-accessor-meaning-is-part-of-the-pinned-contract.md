@@ -1,7 +1,7 @@
 # AFM-0035. Accessor Meaning Is Part Of The Pinned Contract
 
 Date: 2026-09-05
-Last-reviewed: 2026-09-05
+Last-reviewed: 2026-09-06
 Tier: S
 Status: Accepted
 
@@ -11,27 +11,12 @@ References: AFM-0032, AFM-0026, AFM-0027
 
 ## Context
 
-AFM-0032:R5 pins the trait surfaces, accessor signatures and
-constructor signatures introduced by that ADR: none may be removed or
-reshaped without a successor ADR. It pins shape. Nothing pins what a
-call returns.
-
-A change can therefore leave every signature intact and still break
-`adr-srv`. `date()` keeps returning `Option<&str>` while beginning to
-return `None` for a value the file carries, or a normalised form
-rather than the file's own text. The crate compiles, this repository's
-tests pass, the pinned surface is untouched by AFM-0032:R5's wording,
-and the consumer AFM-0027 governs silently changes behaviour.
-
-The gap has been closed at review time before, by a reviewer noticing
-and asking. That works while someone notices. It is a judgement call
-standing in for a rule, re-made more than once — the signal that it
-should be written down.
-
-The date contract ratified in AFM-0033 is a worked example: it
-computes a validity verdict for `Date:` and deliberately routes it to
-a crate-private accessor so the pinned public ones keep returning the
-file's text byte for byte.
+AFM-0032:R5 is the constraining parent because it pins the accessor shapes
+whose meaning this decision protects. An unchanged `Option<&str>` signature
+can still change provenance or turn a previously retained value into None.
+AFM-0033:R4 supplies a concrete boundary: date validity is separate from the
+parser-supplied value. AFM-0036:R3 applies this compatibility principle across
+the current contract; external `adr-srv` behavior is not verified here.
 
 ## Decision
 
@@ -59,19 +44,13 @@ R4 [5]: A change claiming to preserve meaning MUST carry a test that
 
 ## Consequences
 
-The reviewer question becomes a rule with a named remedy: add an
-accessor rather than repurpose one. R3 makes the cheap path also the
-correct path, so the pressure that produces silent semantic drift is
-removed rather than merely watched for.
++ becomes easier: reviewers have a named remedy for meaning changes: preserve
+  the accessor and expose new knowledge separately.
+− becomes harder: additional accessors and characterization tests need maintenance.
+risks/migration: tests cover their selected inputs, not every downstream consumer.
+  AFM-0026:R3 schedules no Diagnostic accessor migration; the series is 0.3.x.
 
-The cost is accessor count. Encapsulation that computes a verdict must
-expose it beside the raw value instead of folding it in, which is more
-surface than the folded version. AFM-0026:R2 keeps that surface
-crate-private unless an external consumer needs it, so the growth is
-mostly internal and does not widen the v0.1 contract.
-
-R4 is the part that bites. "Behaviour is unchanged" is not reviewable
-by reading a diff once the change is more than a rename, so the claim
-has to be executable. This does not reopen AFM-0026:R3, which defers
-accessor migration to v0.2 and requires its own successor ADR; it
-governs how meaning may move in the meantime.
+Evidence: `src/model.rs:414–440,2244–2311` preserves supplied date values while
+testing separate validity outcomes. `src/parser.rs:569–581` defines the earlier
+trimming/absence boundary. No new normalization or version-driven migration is
+authorized by this review.

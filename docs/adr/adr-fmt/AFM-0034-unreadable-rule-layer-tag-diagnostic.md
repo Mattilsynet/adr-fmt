@@ -1,7 +1,7 @@
 # AFM-0034. Unreadable Rule Layer Tag Diagnostic
 
 Date: 2026-09-05
-Last-reviewed: 2026-09-05
+Last-reviewed: 2026-09-06
 Tier: B
 Status: Accepted
 
@@ -10,19 +10,12 @@ Status: Accepted
 References: AFM-0017, AFM-0003, AFM-0012
 ## Context
 
-The tagged-rule regex AFM-0012:R2 pins requires a digit run as the
-layer tag. A Decision line such as `R2 [abc]: text` does not match and
-never reaches the rule id sequence. That sequence runs `R1`, `R3`, and
-T016 reports a gap after `R1`.
-
-That points at the wrong thing. The author mistyped one layer tag; the
-tool answers that a rule is missing. A confident report of a
-different fault beats no report only in volume.
-
-Widening the regex was refuted. A layer type bounded to `1..=12`
-cannot represent what the pinned regex admits — a planted
-`R99999999999999999999` parses today — so the bound would reject input
-the parser accepts, changing AFM-0012:R2 rather than serving it.
+AFM-0017:R1 is the constraining parent because an unreadable tag belongs in
+the parser diagnostic namespace. AFM-0012:R2 requires a digit run; `R2 [abc]`
+therefore cannot become a parsed rule. In an R1/R3 sequence the missing R2
+still causes T016. P005 identifies the malformed source rather than suppressing
+that independent finding. Numeric overflow remains distinct: AFM-0039:R4 retains
+its source spelling without narrowing the pinned parser language.
 ## Decision
 
 Report the unreadable layer tag as a parser-stage diagnostic emitted
@@ -49,14 +42,11 @@ R4 [5]: `P005` MUST NOT suppress the T016 sequence gap. The gap is a
 
 ## Consequences
 
-A mistyped layer tag now produces a diagnostic that names the mistyped
-tag, on the line carrying it. The T016 gap remains and is no longer
-the only signal, so the pair reads as one story rather than as a
-misdirection.
++ becomes easier: malformed tags have source-local explanations.
+− becomes harder: an unreadable middle rule can produce P005 plus T016 format
+  and sequence findings; the count depends on surrounding parsed rules.
+risks/migration: P005 does not diagnose numeric overflow or establish rule meaning.
 
-The cost is that one authoring error yields three diagnostics: `P005`,
-the T016 format complaint, and the T016 gap. That is accepted over
-narrowing T016, which would be a semantic change to a rule for the
-sake of output volume. R3 keeps the blast radius at one added
-diagnostic: no existing rule changes meaning, and no ADR in the corpus
-changes count.
+Evidence: `src/parser.rs:977–1143` classifies and retains malformed candidates;
+`src/rules/template.rs:773–874` checks format, layer and parsed sequence.
+These paths preserve diagnostic distinctions, not a universal three-warning count.

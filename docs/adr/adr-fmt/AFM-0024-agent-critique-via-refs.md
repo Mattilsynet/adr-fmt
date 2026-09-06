@@ -1,7 +1,7 @@
 # AFM-0024. Agent Critique via `--refs`
 
 Date: 2026-05-03
-Last-reviewed: 2026-05-03
+Last-reviewed: 2026-09-06
 Tier: B
 Status: Accepted
 
@@ -12,17 +12,11 @@ References: AFM-0012, AFM-0011
 
 ## Context
 
-AFM-0024 defines `--refs`, a single-purpose
-reverse-reference query. The rationale was that agents can read ADR
-bodies directly; the binary's role is to answer derived questions the
-raw corpus cannot cheaply provide.
-
-The asymmetric T019 rule (AFM-0012:R4, as reshaped by this ADR's
-package) surfaces structural tension only when a rule operates at
-*higher* leverage than its ADR tier warrants. This replaces the
-symmetric `abs_diff` approach and removes the `process_governance`
-carve-out. The new semantics make `--lint` the sole authority for
-tier-tension diagnostics; `--refs` remains a pure graph query.
+AFM-0012:R4 defines the tension diagnostic this critique workflow must use,
+so it is the constraining parent; AFM-0011:R3 supplies tier interpretation.
+`--refs` answers an inbound graph question while agents read selected bodies
+directly. Separating retrieval from judgment avoids presenting a graph
+projection as an architectural critique.
 
 ## Decision
 
@@ -39,29 +33,19 @@ R2 [5]: The asymmetric T019 rule (AFM-0012:R4) is the authoritative
   `adr-fmt --lint` rather than by computing tension inline in the
   critique loop
 R3 [6]: `adr-fmt --refs ADR-X` returns a one-bullet-per-referrer
-  markdown list (per AFM-0021:R1–R4) without inlining body content;
+   markdown list of non-stale References/Supersedes referrers without body content;
   agents that need body content follow up with direct file reads,
   preserving context-window budget
 
 ## Consequences
 
-- **Composability preserved.** The agent critique loop (enumerate
-  referrers → read selectively → surface tension via `--lint`) is
-  deterministic and parallelisable; no binary-side aggregation.
-- **T019 is the tier-tension authority.** Removing the
-  `process_governance` carve-out from T019 means all domains are
-  evaluated under the same asymmetric rule; agents need not track
-  domain-specific tolerance overrides.
-- **AFM-0021 retired.** This ADR
-  documents the agent-side workflow contract layered atop that
-  surface. AFM-0021 is superseded and relocated to `docs/adr/stale/`
-  per AFM-0022:R1–R2.
+- Easier: agents enumerate inbound citations before selectively reading bodies.
+- Harder: semantic critique still requires source reads and relevance judgment.
+- Risks: a deterministic list does not guarantee sufficient context or sound
+  conclusions; no context-window saving is measured here.
 
-## Tier classification footnote
-
-Codifies an agent-side workflow rule over an unchanged CLI surface.
-Tier B (Design) per AFM-0011 R1 first-yes-wins: AFM-0024 specifies
-information flow between agent and binary (layer 5–6) but does not
-change the binary's extensibility seam, which remains pinned by
-AFM-0021 (A). Tier downgrade on supersession is correct — AFM-0021
-*created* the seam; AFM-0024 *uses* it.
+Source evidence: `src/refs.rs:32–101` selects and sorts non-stale referrers;
+`src/lib.rs:292–317` rejects incomplete retrieval before rendering.
+AFM-0012:R4 remains the live tension authority, not retired AFM-0021 rules.
+Tier B classifies this information-flow workflow under AFM-0011:R1; no new
+extensibility or semantic-analysis contract is implied.
