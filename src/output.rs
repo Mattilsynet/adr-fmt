@@ -121,7 +121,7 @@ pub fn render_refs(report: &RefsReport) -> String {
 }
 
 /// Render a `Status` for the refs view, preserving the full
-/// `Superseded by X` payload (per AFM-0021 R2).
+/// `Superseded by X` payload.
 fn render_status(status: Option<&Status>) -> String {
     status.map_or_else(|| "?".into(), Status::short_display)
 }

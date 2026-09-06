@@ -40,7 +40,9 @@ crates = ["adr-fmt"]
 #                     T019 asymmetric leverage-bound: fires iff rule_rank < adr_rank (no carve-outs; not configurable)
 #                     T020 max_refs per tier: S=3 A=5 B=7 C=8 D=5 (not configurable)
 #
-# T015 and T016 limits are scaled by tier factor (S=1.5 A=1.2 B=1.0 C=0.8 D=0.6).
+# T015 min_words/max_words and T016 max_rules are scaled by tier factor
+# (S=1.5 A=1.2 B=1.0 C=0.8 D=0.6). T016 min_rule_words/max_rule_words are
+# consumed raw, unscaled.
 # All four are signals, not gates. Exceeding the limit flags
 # an ADR for review — it may be overloaded or genuinely need the
 # space. A warning here is interesting, not necessarily wrong.

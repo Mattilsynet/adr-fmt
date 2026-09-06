@@ -54,6 +54,13 @@ R6 [5]: Regenerating a golden MUST NOT be a passing path. The
   regenerating run rewrites and then fails, so no single command can
   both change the expected output and report success
 
+R7 [5]: An `AFM-NNNN` citation in a literal Rust doc attribute under
+  `src/` or `tests/` MUST name a live ADR, and each rule id in a
+  recognized suffix form MUST exist as a rule line. Existence only,
+  never entailment; string literals, identifiers and generated docs
+  stay out of reach, and forms the guard detects but cannot read fail
+  closed
+
 ## Consequences
 
 A guard's cost is stated up front: it is finished not when it is
@@ -65,7 +72,6 @@ meaning-preserving changes to the guards themselves.
 R3 keeps the corpus honest about `syn`, which gives syntax and not
 name resolution.
 
-One gap stays open and unguarded: nothing checks that an ADR
-identifier cited in Rust source still exists, or still says what the
-citing comment claims. This ADR does not rule on it, because a rule
-no guard implements is the aspiration R1 exists to prevent.
+One gap stays open and unguarded: nothing checks that a cited rule
+still says what the citing comment claims. That is entailment, and
+`syn` gives syntax.
