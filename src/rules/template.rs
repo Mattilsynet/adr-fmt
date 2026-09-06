@@ -830,7 +830,10 @@ fn check_tagged_rules(
                 format!(
                     "Rule {id} has layer {layer} (must be 1-12, Meadows leverage points)",
                     id = rule.id,
-                    layer = rule.layer,
+                    layer = record.unparsed_rule_layer(rule.line).map_or_else(
+                        || rule.layer.to_string(),
+                        str::to_owned,
+                    ),
                 ),
             ));
         }
@@ -844,6 +847,14 @@ fn check_tagged_rules(
     }
 
     nums.sort_unstable();
+    if let Some([duplicate, _]) = nums.windows(2).find(|pair| pair[0] == pair[1]) {
+        diags.push(catalog::T016.diagnostic(
+            record.file_path(),
+            0,
+            format!("Duplicate tagged rule ID R{duplicate}"),
+        ));
+        return;
+    }
     for (i, &num) in nums.iter().enumerate() {
         let expected = u32::try_from(i).expect("rule count fits u32") + 1;
         if num != expected {
@@ -1677,6 +1688,89 @@ params = { min_words = 20, max_words = 200 }
             t016.is_none(),
             "60-word rule should not trigger T016 max, got: {diags:?}"
         );
+    }
+
+    #[test]
+    fn duplicate_and_gap_diagnostics_are_distinct() {
+        use crate::model::{RuleId, TaggedRule};
+        for (ids, expected) in [
+            (vec!["R1", "R1"], "Duplicate tagged rule ID R1"),
+            (
+                vec!["R1", "R3"],
+                "Tagged rule IDs not sequential (gap after R1)",
+            ),
+            (
+                vec!["R2"],
+                "Tagged rule IDs not sequential (gap after start)",
+            ),
+            (vec!["R2", "R1"], ""),
+            (vec!["R1", "R01"], "Duplicate tagged rule ID R1"),
+        ] {
+            let mut record = make_record();
+            *record.decision_rules_mut() = ids
+                .into_iter()
+                .map(|id| TaggedRule {
+                    id: RuleId::test_new(id),
+                    text: "This rule has enough words to pass the minimum check".into(),
+                    layer: 5,
+                    line: 10,
+                })
+                .collect();
+            let mut diags = Vec::new();
+            check_tagged_rules(&record, 7, 60, &mut diags);
+            let messages: Vec<_> = diags.iter().map(|d| d.message.as_str()).collect();
+            let expected: Vec<_> = if expected.is_empty() {
+                vec![]
+            } else {
+                vec![expected]
+            };
+            assert_eq!(messages, expected);
+        }
+    }
+
+    #[test]
+    fn numeric_layer_diagnostics_preserve_source_values() {
+        for layer in [
+            "0",
+            "1",
+            "12",
+            "13",
+            "255",
+            "256",
+            "999999999999999999999999999999999999999999",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("CHE-0001-layer.md");
+            std::fs::write(&path, format!("# CHE-0001. Layer\n\n## Decision\nR1 [{layer}]: This rule has enough words for the minimum word count\n")).unwrap();
+            let crate::parser::ParseFileOutcome::Parsed {
+                record,
+                diagnostics,
+            } = crate::parser::parse_adr_file(&path, "CHE", false).unwrap()
+            else {
+                panic!("numeric layers must remain parseable");
+            };
+            assert!(diagnostics.is_empty());
+            assert_eq!(record.decision_rules().len(), 1);
+            assert_eq!(
+                record.decision_rules()[0].layer,
+                layer.parse::<u8>().unwrap_or(0)
+            );
+            let mut diags = Vec::new();
+            check_tagged_rules(&record, 7, 60, &mut diags);
+            let expected = match layer {
+                "1" | "12" => vec![],
+                _ => vec![format!(
+                    "Rule R1 has layer {layer} (must be 1-12, Meadows leverage points)"
+                )],
+            };
+            assert_eq!(
+                diags.iter().map(|d| d.message.clone()).collect::<Vec<_>>(),
+                expected
+            );
+            for diagnostic in diags {
+                assert_eq!((diagnostic.rule, diagnostic.line), ("T016", 4));
+            }
+        }
     }
 
     #[test]

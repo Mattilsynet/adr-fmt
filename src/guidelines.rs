@@ -61,31 +61,7 @@ pub fn print_setup_guide(w: &mut impl Write) -> io::Result<()> {
         "  2. Create your first ADR at docs/adr/cherry/CHE-0001-...md:"
     )?;
     writeln!(w)?;
-    writeln!(w, "     # CHE-0001. Your First Decision")?;
-    writeln!(w)?;
-    writeln!(w, "     Date: 2026-04-27")?;
-    writeln!(w, "     Last-reviewed: 2026-04-27")?;
-    writeln!(w, "     Tier: B")?;
-    writeln!(w, "     Status: Draft")?;
-    writeln!(w)?;
-    writeln!(w, "     ## Related")?;
-    writeln!(w)?;
-    writeln!(w, "     Root: CHE-0001")?;
-    writeln!(w)?;
-    writeln!(w, "     ## Context")?;
-    writeln!(
-        w,
-        "     Why this decision exists and what problem it solves."
-    )?;
-    writeln!(w)?;
-    writeln!(w, "     ## Decision")?;
-    writeln!(w, "     R1 [5]: The specific rule or decision statement")?;
-    writeln!(w)?;
-    writeln!(w, "     ## Consequences")?;
-    writeln!(
-        w,
-        "     What changes as a result of this decision being made."
-    )?;
+    print_examples(w)?;
     writeln!(w)?;
     writeln!(w, "  3. Run: adr-fmt --lint")?;
     writeln!(w)?;
@@ -107,7 +83,7 @@ pub fn print_setup_guide(w: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(w, "  adr-fmt --tree [DOMAIN]       Domain tree overview")?;
     writeln!(w)?;
-    Ok(())
+    print_author_guidance(w)
 }
 
 /// Print the full governance reference when config is present.
@@ -131,6 +107,8 @@ pub fn print_governance(w: &mut impl Write, config: &Config) -> io::Result<()> {
     writeln!(w)?;
 
     print_modes(w)?;
+    print_author_guidance(w)?;
+    print_examples(w)?;
     print_domains(w, config)?;
     print_tiers(w)?;
     print_lifecycle(w)?;
@@ -141,6 +119,140 @@ pub fn print_governance(w: &mut impl Write, config: &Config) -> io::Result<()> {
     print_link_rules(w)?;
     print_stale(w, config)?;
     print_overrides(w, config)
+}
+
+fn print_author_guidance(w: &mut impl Write) -> io::Result<()> {
+    writeln!(
+        w,
+        "AUTHOR AND REVIEW OBLIGATIONS
+─────────────────────────────
+
+  These six conventions are binding author/reviewer guidance, not new grammar.
+  Reviewers assess meaning; syntax checks cannot certify a sound decision.
+
+  1. Write every tagged obligation with a standalone action, object and scope.
+     Preserve MUST/SHOULD/MAY strength and conditions when extracting rules.
+     Keep RN [L]: text and two-space-indented continuations; do not depend
+     on surrounding Context to identify what the rule requires.
+
+  2. Put the actual constraining parent first in References; justify why
+     removing that parent's constraint would invalidate this decision.
+     Read the exact cited rule (for example CHE-0001:R1), not just its title.
+     Later references are citations, not parents. A root uses Root: OWN-ID
+     without References. Do not invent a Parent verb or replacement semantics.
+
+  3. Retrieve current rules with --context example-core, not a copied bundle.
+     Use --tree CHE for a domain and --refs CHE-0001 for inbound citations.
+     Configure crate mappings; Crates: narrows ordinary-domain ADR scope.
+     Foundation ADRs are included independently of direct crate membership.
+     Review scope completeness; no inbound references does not prove independence.
+     Context emits all rules of eligible non-stale Accepted ADRs, at all layers.
+
+  4. Keep Context concise: state the present reason and constraints, not history.
+     In Consequences state + becomes easier:, − becomes harder:, and
+     risks/migration: explicitly, including justified absence where appropriate.
+     Preserve reasons that prevent re-proposing an unsuitable alternative.
+     Respect configured tier-scaled prose budgets; do not retier to silence lint.
+
+  5. Keep evidence independently inspectable beside normative rules.
+     Link ordinary explanatory prose to a review record with source path/line,
+     exact command, observed exit/result, date, conditions and exclusions.
+     Do not invent a successful run or embed volatile logs in tagged obligations.
+     Keep evidence in canonical sections; an extra H2 inside Decision ends
+     rule extraction. Optional explanatory headings elsewhere are not banned.
+
+  6. Use existing lifecycle fields: amend partial obsolescence in place, delete
+     obsolete rules, renumber survivors, audit citations and bump Last-reviewed.
+     Whole-ADR Supersedes requires retiring the predecessor to a stale stub;
+     there is no Amended status or clause-level replacement.
+     Lint exit zero is advisory, not a clean verdict. Read global/per-kind
+     totals even with --max-warning-docs 0 (detail hidden, totals unchanged).
+     Duplicate IDs prevent complete validation; do not treat that as clean.
+     Apply the repository's local gate and review advisories; a gate's
+     no-verdict result is not acceptance. No universal zero-warning policy.
+
+  Validation boundary
+    Deterministic checks: syntax, identifiers, links, ordering, lifecycle
+    consistency, configured budgets and truthful diagnostic accounting.
+    Human judgment: standalone meaning, parent justification, scope completeness,
+    trade-off quality and whether cited constraints support the decision.
+    Evidence freshness and entailment require inspection, not a lint pass.
+    Acceptance and supersession require an explicit review decision.
+    Citation existence checks cover supported locations, not all prose or meaning.
+    No semantic validation, agent-effectiveness or token-efficiency guarantee.
+"
+    )
+}
+
+fn print_examples(w: &mut impl Write) -> io::Result<()> {
+    writeln!(
+        w,
+        "  Illustrative independent corpus, not adopted project policy.
+  Save the two ADRs separately as CHE-0001-visible-input.md and
+  CHE-0002-result-format.md in the configured CHE directory.
+  Accepted demonstrates retrieval only; real acceptance requires review.
+  The evidence below is a verification plan, not a claimed successful run.
+  BEGIN EXAMPLES
+     # CHE-0001. Visible Input
+
+     Date: 2026-09-06
+     Last-reviewed: 2026-09-06
+     Tier: B
+     Status: Accepted
+
+     ## Related
+
+     Root: CHE-0001
+
+     ## Context
+
+     Operators need visible input selection before interpreting validation results.
+
+     ## Decision
+
+     R1 [5]: Validation results MUST identify the selected input for each invocation.
+
+     ## Consequences
+
+     + becomes easier: identifying which input produced each result.
+     − becomes harder: maintaining compatibility with existing output consumers.
+     risks/migration: update consumers before changing the result format.
+
+     # CHE-0002. Result Format
+
+     Date: 2026-09-06
+     Last-reviewed: 2026-09-06
+     Tier: B
+     Status: Accepted
+     Crates: example-core
+
+     ## Related
+
+     References: CHE-0001
+
+     ## Context
+
+     CHE-0001:R1 requires visible input identification; without that constraint,
+     this output-prefix decision has no purpose. A stable prefix lets operators
+     associate each result with its input.
+
+     ## Decision
+
+     R1 [5]: The example-core result formatter MUST prefix each validation result
+       with the selected input identifier before diagnostic text.
+
+     ## Consequences
+
+     + becomes easier: associating diagnostics with their selected input.
+     − becomes harder: preserving compatibility with positional output consumers.
+     risks/migration: migrate consumers before deploying the prefix format.
+     Evidence plan: run adr-fmt --lint and adr-fmt --context example-core;
+     record command, date, exit, output and conditions in a review record.
+     These checks cover corpus syntax and extraction, not formatter correctness;
+     link a separate formatter test and inspected source location before acceptance.
+  END EXAMPLES
+"
+    )
 }
 
 fn print_rule_entries(w: &mut impl Write, entries: &[RuleRendering]) -> io::Result<()> {
@@ -181,7 +293,11 @@ fn print_modes(w: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(w, "  --tree [DOMAIN]       Domain dependency tree")?;
     writeln!(w)?;
-    writeln!(w, "  Exit codes: 0 = complete, 1 = infrastructure error")?;
+    writeln!(
+        w,
+        "  Exit codes: 0 = completed command, not a clean verdict;"
+    )?;
+    writeln!(w, "  1 = infrastructure error or incomplete retrieval.")?;
     writeln!(w)?;
     Ok(())
 }
@@ -233,17 +349,18 @@ fn print_tiers(w: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         w,
-        "    Meadows-aligned: S (Paradigm) > A (Goals) > B (Self-Org) >"
+        "    Meadows-aligned: S (Intent) > A (Self-organization) > B (Design) >"
+    )?;
+    writeln!(w, "    C (Feedbacks) > D (Parameters).")?;
+    writeln!(
+        w,
+        "    Within each --context group, rules sort by Meadows layer (1–12),"
     )?;
     writeln!(
         w,
-        "    C (Design) > D (Parameters). Higher tiers print first in"
+        "    not ADR tier; ties use depth, ADR prefix, ADR number, then rule ID."
     )?;
-    writeln!(
-        w,
-        "    --context output, exploiting LLM primacy bias so foundational"
-    )?;
-    writeln!(w, "    constraints precede implementation details.")?;
+    writeln!(w, "    Unclaimed prints last, with no depth tie-break.")?;
     writeln!(w)?;
     writeln!(w, "  Common mistakes:")?;
     writeln!(
@@ -260,7 +377,7 @@ fn print_tiers(w: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         w,
-        "      a critical timeout is still a parameter (D), not a goal (A)."
+        "      a critical timeout is still a parameter (D), not a goal (S)."
     )?;
     writeln!(
         w,
@@ -339,10 +456,8 @@ fn print_template(w: &mut impl Write) -> io::Result<()> {
         w,
         "    Pipe-separated: Verb: TARGET1, TARGET2 | Verb: TARGET3"
     )?;
-    writeln!(
-        w,
-        "    Example: Root: CHE-0001 | References: CHE-0002, CHE-0010"
-    )?;
+    writeln!(w, "    Root example: Root: CHE-0001")?;
+    writeln!(w, "    Child example: References: CHE-0001")?;
     writeln!(w)?;
     print_template_rules(w)
 }
@@ -546,7 +661,7 @@ fn print_relationship_tree_model(w: &mut impl Write, config: &Config) -> io::Res
     )?;
     writeln!(
         w,
-        "    References, Refines, Supersedes) are secondary citations and"
+        "    References and Supersedes) are secondary citations and"
     )?;
     writeln!(w, "    do not create parent edges.")?;
     writeln!(w)?;
@@ -578,6 +693,11 @@ fn print_relationship_tree_model(w: &mut impl Write, config: &Config) -> io::Res
         "    through them (L012 warns). Cycles and chains terminating at"
     )?;
     writeln!(w, "    a non-root land in the Unclaimed group.")?;
+    writeln!(
+        w,
+        "    Stale, terminal and unknown-status nodes sever ancestry;"
+    )?;
+    writeln!(w, "    eligible descendants retain all rules in Unclaimed.")?;
     writeln!(w)?;
     writeln!(w, "  Cross-domain parents:")?;
     writeln!(
@@ -608,7 +728,11 @@ fn print_relationship_tree_model(w: &mut impl Write, config: &Config) -> io::Res
         )?;
         writeln!(
             w,
-            "    in --context output, sorted by minimum layer then ADR number."
+            "    in --context output; within each category, roots are"
+        )?;
+        writeln!(
+            w,
+            "    sorted by minimum rule layer, then ADR prefix and number."
         )?;
         writeln!(w)?;
     }
@@ -906,6 +1030,35 @@ crates = []
         assert!(
             !src.contains("\"COM, RST, SEC\""),
             "foundation prefixes must not be hardcoded"
+        );
+    }
+
+    #[test]
+    fn tier_assignment_uses_meadows_names() {
+        let mut rendered = Vec::new();
+        print_tiers(&mut rendered).unwrap();
+        let text = String::from_utf8(rendered).unwrap();
+        assert!(
+            text.contains("Meadows-aligned: S (Intent) > A (Self-organization) > B (Design) >\n    C (Feedbacks) > D (Parameters).")
+                && text.contains("not a goal (S)"),
+            "AFM-0011:R3 tier names and the goal example must agree: {text}"
+        );
+    }
+
+    #[test]
+    fn context_order_guidance_describes_grouped_rule_layers() {
+        let mut rendered = Vec::new();
+        print_governance(&mut rendered, &make_config()).unwrap();
+        let text = String::from_utf8(rendered).unwrap();
+        assert!(
+            text.contains("Within each --context group, rules sort by Meadows layer (1–12),")
+                && text.contains(
+                    "not ADR tier; ties use depth, ADR prefix, ADR number, then rule ID."
+                )
+                && text.contains("Unclaimed prints last, with no depth tie-break.")
+                && text.contains("sorted by minimum rule layer, then ADR prefix and number.")
+                && !text.contains("Higher tiers print first"),
+            "context guidance must describe grouped rule-layer sorting, not ADR tiers: {text}"
         );
     }
 

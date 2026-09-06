@@ -16,6 +16,41 @@ struct EligibleContext<'a> {
     foundation_prefixes: Vec<&'a str>,
 }
 
+struct LiveContextAncestry {
+    parent_edges: HashMap<AdrId, AdrId>,
+    parent_children: HashMap<AdrId, Vec<AdrId>>,
+    roots: HashSet<AdrId>,
+}
+
+impl LiveContextAncestry {
+    fn from_records(records: &[AdrRecord]) -> Self {
+        let live: HashSet<_> = records
+            .iter()
+            .filter(|r| {
+                !r.is_stale()
+                    && matches!(
+                        r.status(),
+                        Some(Status::Accepted | Status::Draft | Status::Proposed)
+                    )
+            })
+            .map(AdrRecord::id)
+            .collect();
+        let mut parent_edges = compute_parent_edges(records);
+        parent_edges.retain(|child, _| live.contains(child));
+        let parent_children = compute_parent_children(records);
+        let roots = records
+            .iter()
+            .filter(|r| r.is_root() && live.contains(r.id()))
+            .map(|r| r.id().clone())
+            .collect();
+        Self {
+            parent_edges,
+            parent_children,
+            roots,
+        }
+    }
+}
+
 impl<'a> EligibleContext<'a> {
     fn eligible_ids(&self) -> impl Iterator<Item = &'a AdrId> + '_ {
         self.records.keys().copied()
@@ -37,9 +72,10 @@ impl<'a> EligibleContext<'a> {
 /// `foundation = true` domain ADRs.
 ///
 /// Assignment walks the parent-edge tree (structural parent = first
-/// `References:` target) upward, cycle-safe, to a root. Non-Accepted
-/// parents are advisory waypoints only. Cycle members and non-terminating
-/// chains land in Unclaimed.
+/// `References:` target) upward, cycle-safe, to a live root. Draft and
+/// Proposed parents are advisory waypoints only. Stale, terminal and
+/// unknown-status parents sever ancestry; their eligible descendants,
+/// cycle members and non-terminating chains land in Unclaimed.
 ///
 /// Emission: per root (deterministic order), walk children downward and
 /// emit eligible rules assigned to that root; secondary citations don't
@@ -138,16 +174,8 @@ fn build_context_groups(
     eligible_context: &EligibleContext<'_>,
     record_by_id: &CorpusIndex<'_>,
 ) -> Vec<RootGroup> {
-    let parent_edges = compute_parent_edges(records);
-    let parent_children = compute_parent_children(records);
-
-    let root_index: HashSet<AdrId> = records
-        .iter()
-        .filter(|r| r.is_root() && !r.is_stale())
-        .map(|r| r.id().clone())
-        .collect();
-
-    let assignment = assign_roots(eligible_context, &root_index, &parent_edges);
+    let ancestry = LiveContextAncestry::from_records(records);
+    let assignment = assign_roots(eligible_context, &ancestry.roots, &ancestry.parent_edges);
 
     let foundation_set: HashSet<&str> = eligible_context
         .foundation_prefixes
@@ -163,7 +191,7 @@ fn build_context_groups(
     for root_id in &context_roots {
         let mut rules = collect_root_rules(
             root_id,
-            &parent_children,
+            &ancestry.parent_children,
             &assignment,
             eligible_context,
             &mut claimed,
@@ -715,6 +743,82 @@ description = "test"
             1,
             "CHE-0002 must appear in Unclaimed exactly once"
         );
+    }
+
+    #[test]
+    fn lifecycle_ancestry_preserves_every_eligible_rule() {
+        for status in [
+            Some(Status::Accepted),
+            Some(Status::Draft),
+            Some(Status::Proposed),
+            Some(Status::Rejected),
+            Some(Status::Deprecated),
+            Some(Status::SupersededBy(make_id("CHE", 9))),
+            Some(Status::Invalid("unknown".into())),
+            None,
+        ] {
+            for stale in [false, true] {
+                for waypoint_is_root in [false, true] {
+                    let root =
+                        make_record("CHE", 1, vec![], vec![], vec![(RelVerb::Root, "CHE", 1)]);
+                    let mut waypoint = make_record(
+                        "CHE",
+                        2,
+                        vec![],
+                        vec![],
+                        if waypoint_is_root {
+                            vec![(RelVerb::Root, "CHE", 2)]
+                        } else {
+                            vec![(RelVerb::References, "CHE", 1)]
+                        },
+                    );
+                    *waypoint.status_mut() = status.clone();
+                    *waypoint.is_stale_mut() = stale;
+                    let mut leaf = make_record(
+                        "CHE",
+                        3,
+                        vec![],
+                        vec![
+                            ("R1", 1, "Callers MUST validate."),
+                            ("R2", 5, "Callers SHOULD retry."),
+                            ("R3", 12, "Callers MAY cache."),
+                        ],
+                        vec![(RelVerb::References, "CHE", 2)],
+                    );
+                    leaf.set_tier(Some(Tier::S));
+                    let groups =
+                        context_grouped("example-core", &[root, waypoint, leaf], &make_config())
+                            .unwrap();
+                    let live = !stale
+                        && matches!(
+                            status,
+                            Some(Status::Accepted | Status::Draft | Status::Proposed)
+                        );
+                    let expected_root = if live {
+                        GroupRoot::Adr(make_id("CHE", if waypoint_is_root { 2 } else { 1 }))
+                    } else {
+                        GroupRoot::Unclaimed
+                    };
+                    let actual: Vec<_> = groups
+                        .iter()
+                        .flat_map(|g| {
+                            g.rules.iter().map(move |r| {
+                                (&g.root, r.rule_id.as_str(), r.layer, r.text.as_str())
+                            })
+                        })
+                        .collect();
+                    assert_eq!(
+                        actual,
+                        vec![
+                            (&expected_root, "R1", 1, "Callers MUST validate."),
+                            (&expected_root, "R2", 5, "Callers SHOULD retry."),
+                            (&expected_root, "R3", 12, "Callers MAY cache."),
+                        ],
+                        "status={status:?}, stale={stale}, root={waypoint_is_root}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

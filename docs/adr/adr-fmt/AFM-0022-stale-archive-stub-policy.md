@@ -1,7 +1,7 @@
 # AFM-0022. Stale Archive Stub Policy
 
 Date: 2026-05-01
-Last-reviewed: 2026-05-02
+Last-reviewed: 2026-09-06
 Tier: B
 Status: Accepted
 
@@ -11,25 +11,18 @@ References: AFM-0003, AFM-0008, AFM-0009
 
 ## Context
 
-The stale archive (`docs/adr/stale/`) holds ADRs that have been
-superseded, deprecated, or retired. Keeping full bodies creates two
-problems. First, stale bodies decay: AFM-0014 still described the
-six-mode CLI surface including the removed flag after AFM-0021
-superseded it, so a reader encountered claims that contradict the
-current tool. Second, lint surface accumulates — template rules fire
-on stale prose, References from stale ADRs pollute the citation
-graph, and reviewers must mentally filter "is this still
-true?" on every retired document. Git history is the authoritative
-record of what an ADR said when it was authoritative; the working
-copy should answer "this decision exists, here is
-who replaced it, here is why it was retired" — nothing more.
+Retired bodies can look authoritative while describing removed behavior.
+Stubs keep identity, disposition and lineage visible without reissuing obsolete
+rules; full rationale remains in git history. AFM-0003:R1 is the first-parent
+constraint because stub validation remains advisory. AFM-0008:R3 preserves
+identity, and AFM-0009:R3 constrains replacement lineage.
 
 ## Decision
 
 Stale ADRs reduce to a stub: the preamble fields, an optional
 `## Related` section restricted to `Supersedes:` lineage edges,
 and a `## Retirement` section. All other body content is deleted
-in the same commit that moves the ADR to stale. A new advisory
+in the same commit that moves the ADR to stale. Advisory
 lint rule (S007) enforces the stub structure positively, and
 T007/T008/T009/T010/T016 skip stale ADRs so compliant stubs
 remain lint-clean.
@@ -55,15 +48,13 @@ parses or validates the retirement-block contents.
 
 ## Consequences
 
-The stale archive stays small, lint-clean, and accurate by
-omission. Authors moving an ADR to stale follow a fixed
-transformation: strip three sections, strip `References:`, write
-the retirement narrative. Readers consulting a stale ADR see only
-what is still true (this decision was retired, this is its
-successor) and reach for git history when they need the full
-historical reasoning. The trade-off is that the working copy no
-longer answers "what did this ADR originally decide?" — but stale
-ADRs are by definition non-authoritative, so that question
-properly belongs to the version-control archive. S007 is advisory
-(per AFM-0003): a non-compliant stale ADR produces warnings but
-does not block any workflow, matching the rest of the lint surface.
+- Easier: readers see disposition rather than obsolete rules posing as authority.
+- Harder: historical decisions require git access; retirement needs a deliberate
+  body reduction and lineage check.
+- Risks: a structurally valid stub may still contain misleading retirement prose;
+  external warning gates may block non-compliant archives.
+
+Source evidence: `src/rules/template.rs:475–620` checks lifecycle and S007
+structure, not the truth of retirement narrative. `src/nav.rs:149–160`
+excludes stale-origin parent edges. This source review does not recover or
+revalidate every historical decision.

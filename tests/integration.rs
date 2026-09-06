@@ -1637,8 +1637,10 @@ fn context_end_to_end_output_format() {
         "missing crate name in preamble:\n{stdout}"
     );
     assert!(
-        stdout.contains("Follow every rule without exception"),
-        "missing mandate in preamble:\n{stdout}"
+        stdout.contains(
+            "Preserve each rule's stated MUST, SHOULD or MAY strength and its conditions."
+        ),
+        "missing normative-strength instruction in preamble:\n{stdout}"
     );
 
     let com_pos = stdout
@@ -2909,6 +2911,44 @@ fn malformed_marker_does_not_silently_lint_ancestor_corpus() {
         .stderr(predicate::str::contains("adr-fmt.toml"));
 }
 
+#[cfg(unix)]
+#[test]
+fn dangling_marker_never_selects_ancestor_corpus() {
+    let dir = setup_corpus(MINIMAL_CONFIG, &[]);
+    let nested = dir.path().join("docs/adr/test");
+    std::os::unix::fs::symlink("missing.toml", nested.join("adr-fmt.toml"))
+        .expect("create dangling marker");
+    for args in [
+        vec![],
+        vec!["--lint"],
+        vec!["--tree"],
+        vec!["--refs", "TST-0001"],
+        vec!["--context", "test-core"],
+    ] {
+        adr_fmt()
+            .current_dir(&nested)
+            .args(args)
+            .assert()
+            .failure()
+            .stdout("")
+            .stderr(predicate::str::contains("adr-fmt.toml"));
+    }
+}
+
+#[test]
+fn directory_marker_never_selects_ancestor_corpus() {
+    let dir = setup_corpus(MINIMAL_CONFIG, &[]);
+    let nested = dir.path().join("docs/adr/test");
+    fs::create_dir(nested.join("adr-fmt.toml")).expect("create directory marker");
+    adr_fmt()
+        .current_dir(&nested)
+        .arg("--lint")
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains("not a regular file"));
+}
+
 #[test]
 fn default_mode_with_broken_config_reports_error_not_setup_guide() {
     let dir = TempDir::new().expect("create tempdir");
@@ -3364,6 +3404,57 @@ fn refs_on_genuinely_absent_target_still_reports_not_found() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("TST-9999 not found"));
+}
+
+#[test]
+fn retrieval_rejects_incomplete_parser_findings_without_stdout() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            ("TST-0005-unparseable-h1.md", UNPARSEABLE_H1_ADR),
+        ],
+    );
+    for args in [
+        ["--refs", "TST-0001"],
+        ["--context", "test-core"],
+        ["--tree", "TST"],
+    ] {
+        adr_fmt_in(&dir)
+            .args(args)
+            .assert()
+            .failure()
+            .stdout("")
+            .stderr(predicate::str::contains("retrieval incomplete"));
+    }
+    adr_fmt_in(&dir)
+        .arg("--lint")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("P002"));
+}
+
+#[test]
+fn retrieval_rejects_duplicate_ids_without_stdout() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-valid-test-adr.md", VALID_ADR),
+            ("TST-0001-duplicate.md", VALID_ADR),
+        ],
+    );
+    for args in [
+        ["--refs", "TST-0001"],
+        ["--context", "test-core"],
+        ["--tree", "TST"],
+    ] {
+        adr_fmt_in(&dir)
+            .args(args)
+            .assert()
+            .failure()
+            .stdout("")
+            .stderr(predicate::str::contains("retrieval incomplete"));
+    }
 }
 
 fn t015_config(min_words: u64) -> String {

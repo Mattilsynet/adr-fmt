@@ -38,9 +38,9 @@
 //! list above is published so the guard is not mistaken for a complete
 //! bypass check. Closing the class needs semantic resolution over a
 //! compiled crate, or `Diagnostic`'s fields made non-public so direct
-//! construction is unconstructible. The latter is the durable fix and is
-//! deferred to v0.2 behind AFM-0026:R3 (bead `adr-fmt-qzl6`, F4), which
-//! also retires this guard.
+//! construction outside the defining module is unavailable. AFM-0026:R3
+//! requires a successor ADR for that migration; no release or retirement of
+//! this guard is scheduled (bead `adr-fmt-qzl6`, F4).
 //!
 //! # Trusted base
 //!
@@ -551,6 +551,97 @@ fn naming_registry_descriptions_match_afm_0008() {
                 "{id}'s governance description must state {requirement} (missing `{keyword}`); \
                  got: {description}"
             );
+        }
+    }
+}
+
+#[test]
+fn generated_authority_adopts_six_techniques_without_semantic_guarantees() {
+    let stdout = governance_output();
+    for required in [
+        "AUTHOR AND REVIEW OBLIGATIONS",
+        "standalone action, object and scope",
+        "Read the exact cited rule",
+        "--context example-core",
+        "+ becomes easier:",
+        "Evidence freshness and entailment",
+        "Acceptance and supersession",
+        "Deterministic checks",
+        "--max-warning-docs 0",
+        "not a clean verdict",
+    ] {
+        assert!(
+            stdout.contains(required),
+            "missing adopted guidance: {required}"
+        );
+    }
+    assert!(
+        !stdout.contains("Example: Root: CHE-0001 | References:")
+            && !stdout.contains("exploiting LLM primacy bias"),
+        "examples must obey relationships and avoid unmeasured efficacy claims"
+    );
+}
+
+#[test]
+fn generated_examples_lint_and_retrieve_as_a_complete_corpus() {
+    let dir = TempDir::new().expect("tempdir");
+    let config = PARITY_CONFIG
+        .replace("TST", "CHE")
+        .replace("crates = []", "crates = [\"example-core\"]");
+    fs::write(dir.path().join("adr-fmt.toml"), config).expect("write config");
+    let corpus = dir.path().join("docs/adr/test");
+    fs::create_dir_all(&corpus).expect("create corpus");
+    let governance = governance_output();
+    let empty = TempDir::new().expect("empty workspace");
+    let setup = Command::new(env!("CARGO_BIN_EXE_adr-fmt"))
+        .current_dir(empty.path())
+        .output()
+        .expect("render setup");
+    assert!(setup.status.success(), "setup must render: {setup:?}");
+    let setup = String::from_utf8(setup.stdout).expect("utf8");
+    for rendered in [&governance, &setup] {
+        let examples = rendered
+            .split_once("  BEGIN EXAMPLES\n")
+            .expect("generated complete examples start")
+            .1
+            .split_once("  END EXAMPLES")
+            .expect("generated complete examples end")
+            .0;
+        let docs = examples
+            .lines()
+            .map(|line| line.strip_prefix("     ").unwrap_or(line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (root, child) = docs.split_once("# CHE-0002.").expect("two example ADRs");
+        fs::write(corpus.join("CHE-0001-visible-input.md"), root).expect("write root");
+        fs::write(
+            corpus.join("CHE-0002-result-format.md"),
+            format!("# CHE-0002.{child}"),
+        )
+        .expect("write child");
+        let lint = Command::new(env!("CARGO_BIN_EXE_adr-fmt"))
+            .current_dir(dir.path())
+            .arg("--lint")
+            .output()
+            .expect("lint examples");
+        assert!(lint.status.success(), "example lint must run: {lint:?}");
+        assert_eq!(
+            String::from_utf8(lint.stdout).expect("utf8").trim(),
+            "## Diagnostics: 0 warning(s) across 2 ADR(s)",
+            "generated examples must satisfy real grammar and budgets"
+        );
+        let context = Command::new(env!("CARGO_BIN_EXE_adr-fmt"))
+            .current_dir(dir.path())
+            .args(["--context", "example-core"])
+            .output()
+            .expect("retrieve examples");
+        assert!(
+            context.status.success(),
+            "example retrieval must run: {context:?}"
+        );
+        let text = String::from_utf8(context.stdout).expect("utf8");
+        for id in ["CHE-0001:R1:L5", "CHE-0002:R1:L5"] {
+            assert!(text.contains(id), "example retrieval omitted {id}");
         }
     }
 }

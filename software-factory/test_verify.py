@@ -32,6 +32,21 @@ class RecordTests(unittest.TestCase):
         self.reject_context(self.context.replace("### FSEC-0001.",
                             "- Extra valid rule. [FCOM-0005:R4:L5]\n\n### FSEC-0001."))
 
+    def test_preamble_authority_is_exact(self):
+        for original, replacement in [
+            ("These decision rules apply to crate `factory-service`.",
+             "These rules are mandatory constraints for all code in crate `factory-service`."),
+            ("Preserve each rule's stated MUST, SHOULD or MAY strength and its conditions.",
+             "Follow every rule without exception."),
+        ]:
+            with self.subTest(replacement=replacement):
+                self.assertIn(original, self.context)
+                self.reject_context(self.context.replace(original, replacement))
+
+    def test_clean_context_is_accepted(self):
+        with patch.object(VERIFY, "run", return_value=self.context):
+            VERIFY.check_profile(ROOT, "factory-service", {"FRST", "FFLO"})
+
     def test_wrong_layer(self):
         self.reject_context(self.context.replace("FCOM-0005:R1:L5", "FCOM-0005:R1:L6"))
 

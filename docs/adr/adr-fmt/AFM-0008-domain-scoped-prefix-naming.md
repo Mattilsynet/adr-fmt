@@ -1,7 +1,7 @@
 # AFM-0008. Domain-Scoped Prefix Naming Convention
 
 Date: 2026-04-27
-Last-reviewed: 2026-09-05
+Last-reviewed: 2026-09-06
 Tier: S
 Status: Accepted
 
@@ -11,19 +11,11 @@ References: AFM-0001
 
 ## Context
 
-A growing ADR corpus requires a naming scheme providing global
-uniqueness (unambiguous cross-domain references), domain affinity
-(identifier reveals which domain without consulting an index), and
-sortable ordering (filesystem sorting matches creation order). The
-`PREFIX-NNNN` scheme satisfies all three: a 2–4 letter uppercase
-domain code plus a zero-padded four-digit sequence number. Filename
-extends this with a kebab-case slug for human-readable context in
-directory listings and git logs. Domains partition the corpus by
-rate of change and audience: Ground (epistemic foundations), Common
-(cross-cutting principles), Rust (platform), Security (qualities),
-domain-specific (architecture). Each domain has a distinct rate of
-change; a decision spanning two domains at equal weight triggers a
-scoping discussion and may produce a boundary ADR with cross-references.
+AFM-0001:R2 assigns domain registration to configuration; naming specializes
+that registry, so it is the first-parent constraint. A configured prefix
+identifies a domain and a four-digit number identifies a decision within it.
+Kebab slugs add readable context. Numeric sorting is not proof of creation
+chronology; authors still own non-recycling allocation and domain boundaries.
 
 ## Decision
 
@@ -48,11 +40,13 @@ R5 [5]: Scope link integrity to targets carrying a configured
 
 ## Consequences
 
-Cross-domain references are unambiguous (`References: GEN-0007`
-identifies exactly one ADR). Directory listings sort chronologically
-within each domain. Adding a new domain requires only a config
-entry — no code changes. The 9,999 ADR-per-domain limit is
-sufficient for any realistic project. A corpus extracted from a
-larger one keeps its inbound citations to the domains it left
-behind without those citations reading as defects; registering such
-a domain in `adr-fmt.toml` brings its targets back under R5.
+- Easier: configured prefixes scope resolution; new domains need configuration,
+  not a hard-coded naming branch.
+- Harder: authors coordinate permanent numbers and maintain registrations.
+- Risks: foreign-prefix silence is not proof of target existence or entailment;
+  four-digit capacity is finite, not a universal adequacy claim.
+
+Source evidence: `src/rules/naming.rs:17–97` checks filenames and titles;
+`src/rules/links.rs:93–143` distinguishes governed absence from foreign links;
+`adr-fmt.toml:23–33` registers AFM. These checks do not reconstruct historical
+number allocation or independently verify foreign governance.

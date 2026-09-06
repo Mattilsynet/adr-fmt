@@ -1,7 +1,7 @@
 # AFM-0001. Single Source of Truth Architecture for ADR Governance
 
 Date: 2026-04-27
-Last-reviewed: 2026-09-05
+Last-reviewed: 2026-09-06
 Tier: S
 Status: Accepted
 
@@ -11,14 +11,12 @@ Root: AFM-0001
 
 ## Context
 
-ADR governance faces a consistency problem: rules in prose drift
-from rules enforced by tooling. A governance document says "use
-kebab-case slugs" but nothing prevents violations. A template file
-shows structure but cannot enforce cross-file link integrity,
-lifecycle consistency, or naming conventions. Three approaches
-exist: prose-only governance (drift inevitable), template-only
-governance (cannot enforce cross-file invariants), and code-as-SSOT
-where the validation tool is the specification.
+ADR governance needs one source for mechanically checkable structure and
+configuration, while rationale and semantic review remain judgment. This is
+the root decision because it establishes that division of authority rather
+than specializing another local rule. Generated guidance can expose checks;
+it cannot establish that prose is sufficient, evidence entails an obligation,
+or a parent is architecturally appropriate.
 
 ## Decision
 
@@ -31,7 +29,7 @@ R1 [5]: Bind all invariant rules to the `adr-fmt` binary: template
 R2 [5]: Set `adr-fmt.toml` as the owner of configurable aspects:
   domain definitions, crate mappings, stale directory path, and rule
   parameter overrides
-R3 [5]: Emit `--guidelines` output as the generated reference
+R3 [5]: Emit default-mode guidelines as the generated reference
   document combining code invariants from `adr-fmt` and
   `adr-fmt.toml` configuration into a single authoritative output
 R4 [5]: Express every enforceable rule as a validation check in
@@ -43,7 +41,7 @@ R5 [5]: Record rationale and judgment guidance in ADR Context and
 R6 [5]: Classify a rule as invariant when violating it produces an
   inconsistent corpus regardless of project context and map it as
   configurable otherwise — apply this classification to every new rule
-R7 [5]: Locate the R2 marker by walking from the current directory
+R7 [5]: Locate the `adr-fmt.toml` marker by walking from the current directory
   (canonicalized where possible) toward the filesystem root, testing
   each ancestor for a regular `adr-fmt.toml` file and binding the
   nearest fit as the marker directory; report the corpus absent when
@@ -57,20 +55,14 @@ R8 [5]: Judge a candidate marker fit only when it parses, its
 
 ## Consequences
 
-No rule exists in prose alone — if it cannot be a validation check,
-it belongs in the judgment layer (R4). The `--guidelines` flag
-eliminates a separate writing guide that would drift. Adding
-invariant rules requires code changes, a rule catalog entry, and
-an AFM-domain ADR. The architecture is self-referential: `adr-fmt`
-validates its own domain's ADRs. Per R5, rationale and judgment
-that previously lived in the standalone `GOVERNANCE.md` document
-have migrated to ADR narrative sections — specifically:
-parent-edge tree mechanics → AFM-0020; cross-domain overlap
-resolution → COM-0038; tier-classification rationale → AFM-0011
-Context; domain-prefix rationale → AFM-0008 Context; quick-start
-and contributor onboarding → `adr-fmt --guidelines` setup output.
-The standalone governance document is retired in favor of the
-discovered `adr-fmt.toml` marker plus per-ADR narrative prose. R7's
-nearest-fit rule lets a nested project shadow an outer corpus, while
-R8 keeps an unrelated `adr-fmt.toml` on the path from capturing the
-walk and refuses to silently skip a marker that is merely broken.
+- Easier: `adr-fmt` without flags emits configured governance or setup
+  guidance; authors need no independently maintained template.
+- Harder: invariant changes require code, catalog and guidance maintenance;
+  semantic sufficiency still requires review under AFM-0001:R4.
+- Risks: nearest-fit discovery may intentionally skip unsuitable configs;
+  present unusable markers must not masquerade as absence (AFM-0039:R1).
+
+Source evidence: `src/lib.rs:397–427,484–574` selects guidance and markers;
+`src/guidelines.rs:414–477` renders structure and catalog entries.
+`tests/guidelines_parity.rs` checks mechanical parity, not judgment quality
+or foreign-policy entailment. No authoring-effectiveness measurement is claimed.

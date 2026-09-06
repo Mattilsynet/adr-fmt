@@ -11,7 +11,7 @@ Root: FSTO-0001
 
 ## Context
 
-Storage guarantees become ambiguous when acknowledged writes, durable state and derived reads share one vocabulary.
+Storage guarantees become ambiguous when acknowledged writes, durable state and derived reads share one vocabulary. This independent root defines storage-contract vocabulary and selection obligations without depending on a recovery implementation. Neither source lineage nor the storage profile imposes a backend parent.
 
 ## Decision
 
@@ -23,4 +23,10 @@ R3 [5]: Storage selection MUST justify its failure model and recovery objectives
 
 ## Consequences
 
-Adopters choose storage semantics explicitly instead of inheriting upstream event-store or deployment assumptions.
++ becomes easier: comparing acknowledgment, durability and read-consistency promises.
+
+− becomes harder: selecting storage requires explicit failure models and recovery objectives.
+
+risks/migration: a cache or successful acknowledgment can be mistaken for a stronger durability guarantee; no event-store topology or backend is inherited.
+
+Evidence: [SOURCES](../../../SOURCES.md#repository-families) records storage lineage and excluded formats/topologies. R1–R3 require adopter authority, crash and read-consistency contracts; source mapping and lint do not test durable writes or recovery.

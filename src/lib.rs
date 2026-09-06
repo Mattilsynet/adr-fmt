@@ -289,6 +289,14 @@ fn dispatch_mode(
 ) -> Result<(), RunError> {
     match mode {
         Mode::Guidelines => Ok(()),
+        Mode::Refs(_) | Mode::Context(_) | Mode::Tree(_) if !parse_diagnostics.is_empty() => {
+            eprintln!("error: retrieval incomplete: corpus could not be parsed completely");
+            eprint!(
+                "{}",
+                output::render_diagnostics(&parse_diagnostics, all_records.len(), 0)
+            );
+            Err(RunError::Infrastructure)
+        }
         Mode::Refs(adr_id_str) => {
             let Some(target_id) = parse_adr_id(adr_id_str) else {
                 eprintln!(
@@ -365,7 +373,7 @@ fn report_duplicate_id(
         return Ok(());
     }
     eprintln!(
-        "error: duplicate ADR id {} — {} and {} both claim it (AFM-0008:R3 requires a permanent, globally unambiguous id)",
+        "error: retrieval incomplete: duplicate ADR id {} — {} and {} both claim it (AFM-0008:R3 requires a permanent, globally unambiguous id)",
         dup.id,
         dup.paths[0].display(),
         dup.paths[1].display(),
@@ -480,7 +488,17 @@ fn discover_marker() -> Result<ConfigDiscovery, String> {
     let mut dir = canon_cwd.as_path();
     loop {
         let candidate = dir.join("adr-fmt.toml");
-        if candidate.is_file() {
+        let present = match std::fs::symlink_metadata(&candidate) {
+            Ok(_) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Err(e) => return Err(format!("cannot inspect {}: {e}", candidate.display())),
+        };
+        if present {
+            let metadata = std::fs::metadata(&candidate)
+                .map_err(|e| format!("cannot resolve {}: {e}", candidate.display()))?;
+            if !metadata.is_file() {
+                return Err(format!("{} is not a regular file", candidate.display()));
+            }
             match try_marker(dir)? {
                 MarkerVerdict::Ready { marker_dir, config } => {
                     return Ok(ConfigDiscovery::Ready { marker_dir, config });

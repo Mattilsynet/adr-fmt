@@ -13,6 +13,8 @@ Root: FGND-0001
 
 Reusable direction must survive incomplete knowledge without granting unlimited discretion to its executor.
 
+This root defines the work brief's authority boundary, independently of how feedback or policy maintenance is organized. No other decision supplies a required parent.
+
 ## Decision
 
 Intent and boundaries constrain decisions; mechanisms remain local unless essential to the objective.
@@ -23,4 +25,8 @@ R3 [3]: Competing objectives MUST have an explicit priority so local adaptation 
 
 ## Consequences
 
-Teams can adapt implementation without treating uncertainty as permission to expand authority or scope.
++ becomes easier: local adaptation stays tied to an identifiable purpose and owner.
+− becomes harder: preparing briefs and identifying falsifiable assumptions requires explicit reasoning.
+risks/migration: a well-formed brief does not establish that its assumptions are true.
+
+Evidence: [SOURCES.md](../../../SOURCES.md), Repository families, maps the ground-policy synthesis. Review a work brief against R1–R3; no executed-work outcome is established by that mapping or corpus lint.

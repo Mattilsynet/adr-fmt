@@ -48,6 +48,14 @@ if ! output="$(eval "$lint_cmd" 2>&1)"; then
     exit 2
 fi
 
+case "$output" in
+    *'Validation incomplete:'*)
+        printf '%s\n' "$output" >&2
+        printf '%s\n' 'adr-lint-gate: validation incomplete; no verdict' >&2
+        exit 2
+        ;;
+esac
+
 header_count="$(printf '%s\n' "$output" | grep -c '^## Diagnostics:' || true)"
 
 if [ "$header_count" -eq 0 ]; then

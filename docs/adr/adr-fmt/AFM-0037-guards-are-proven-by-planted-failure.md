@@ -18,16 +18,13 @@ rendered governance outputs byte for byte;
 `tests/param_order_determinism.rs` falsifies ordering across twenty
 spawned processes.
 
-Each was built from scratch, and each arrived independently at the
-same habits: prove the guard by planting a violation that compiles,
-claim only the invariant the mechanism reaches, and fail loudly when
-the guard's own inputs go empty. The habits are practised and
-unwritten, so every new guard re-derives them, and the proposal to
-delete the goldens as duplicating the rule registry keeps returning.
+AFM-0035:R4 is the constraining parent: executable meaning evidence is useful
+only if the check can detect the targeted violation. Guard proof adds that
+failure observation without claiming semantic name resolution from syntax.
 
 ## Decision
 
-Ratify the practice the existing guards already follow.
+Require failure evidence and explicit scope for executable guards.
 
 R1 [5]: A guard MUST NOT land or change without a recorded four-step
   proof — plant a violation, observe the failure, revert, observe
@@ -47,8 +44,8 @@ R4 [5]: A guard MUST fail rather than pass when its own inputs are
   unreadable. Silent emptiness is a false clean, not a pass
 
 R5 [5]: A rendered-output golden MUST NOT be removed as redundant
-  with the registry it renders. Measured: a catalog identifier typo
-  leaves the parity guard green and only the byte pin fails
+  with the registry it renders; rule-identifier parity does not establish
+  byte-for-byte output stability
 
 R6 [5]: Regenerating a golden MUST NOT be a passing path. The
   regenerating run rewrites and then fails, so no single command can
@@ -70,15 +67,13 @@ R8 [5]: An `AFM-NNNN` citation in an assertion, panic or expect
 
 ## Consequences
 
-A guard's cost is stated up front: it is finished not when it is
-green, but when its failure has been seen and written down. That is
-one extra plant-fail-revert cycle per guard, and it is the cycle that
-separates a guard from a decoration. R1 extends AFM-0035:R4 from
-meaning-preserving changes to the guards themselves.
++ becomes easier: reviewers can inspect evidence that a guard detects its target.
+− becomes harder: guard changes require a recorded plant/fail/revert/clean cycle.
+risks/migration: syntax checks establish citation existence, not entailment or
+  complete construction control.
 
-R3 keeps the corpus honest about `syn`, which gives syntax and not
-name resolution.
-
-One gap stays open and unguarded: nothing checks that a cited rule
-still says what the citing comment claims. That is entailment, and
-`syn` gives syntax.
+Evidence: `src/guidelines_golden.rs:87–119` rejects regeneration-as-success and
+compares bytes; `tests/guidelines_parity.rs:20–52` discloses bypasses and its
+trusted base. Citation suites are `tests/adr_citation_existence.rs` and
+`tests/adr_message_citations.rs`. This documentation pass changes no guard logic
+and claims no fresh planted-failure proof.

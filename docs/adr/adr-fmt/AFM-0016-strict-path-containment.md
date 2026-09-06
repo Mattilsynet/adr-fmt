@@ -1,7 +1,7 @@
 # AFM-0016. Strict Path Containment for Config-Supplied Directories
 
 Date: 2026-04-29
-Last-reviewed: 2026-08-13
+Last-reviewed: 2026-09-06
 Tier: B
 Status: Accepted
 
@@ -11,23 +11,18 @@ References: AFM-0003
 
 ## Context
 
-`adr-fmt` reads `adr-fmt.toml` and joins its `domains[].directory`
-and `stale.directory` strings to the ADR root before walking the
-filesystem. A malicious or buggy config could supply an absolute
-path, a `..` traversal, or a symlink target that escapes the corpus,
-inducing the tool to read arbitrary files when run against an
-untrusted repository or pull request. Three containment strategies
-were evaluated: lexical-only checks (cheap but blind to symlinks),
-warn-only canonicalization (allows shared archives but weakens the
-guarantee), and strict canonical containment. Strict canonical
-containment was chosen because the threat surface includes CI
-runners that process untrusted ADR contributions.
+Configured corpus, domain and stale paths must not escape their containing
+root through absolute paths, parent traversal or symlinks. AFM-0003:R1 is
+the constraining parent because containment failure uses the infrastructure
+channel rather than advisory approval. Lexical checks alone cannot detect
+symlink escape. This policy addresses untrusted configuration, not a peer
+process mutating paths concurrently with reads.
 
 ## Decision
 
 Reject any config-supplied directory string that fails strict
 containment, treating violations as infrastructure errors per
-AFM-0003 R1.
+AFM-0003:R1.
 
 R1 [5]: Validate every config-supplied directory through
   `containment::contained_join` or `contained_join_optional` in
@@ -41,22 +36,23 @@ R3 [5]: Canonicalize the joined target via `std::fs::canonicalize`
   and verify it descends from the canonicalized ADR root via
   `Path::starts_with`; reject mismatches as
   `ContainmentError::EscapesRoot`
-R4 [5]: Surface containment failures via `eprintln!` plus
-  `process::exit(1)` in `src/main.rs` so they
-  share the AFM-0003 infrastructure-error channel
-R5 [5]: Canonicalize the user-supplied `cli.adr_directory` and the
-  walk-up result of `resolve_adr_root_optional` so subsequent
-  containment checks operate against a stable, symlink-resolved root
+R4 [5]: Surface containment failures on stderr in the library and return
+   an infrastructure error for `src/main.rs` to map to exit 1,
+   preserving the AFM-0003:R1 infrastructure-error channel
+R5 [5]: Canonicalize the selected walk-up marker directory and resolve
+   its configured corpus root through `resolve_corpus_root` so subsequent
+   containment checks use a symlink-resolved root without a CLI path override
 
 ## Consequences
 
-Malicious configs pointing domains at `/etc` or `../../` abort
-before any read; symlink-escaping farms inside the root are also
-rejected. The policy disallows shared ADR archives stitched via
-out-of-tree symlinks — affected teams must vendor the files.
-Canonicalization requires the target to exist, so
-`contained_join_optional` returns `None` for not-yet-created
-directories like a missing `stale/`. Containment is checked once
-at startup; concurrent attackers on the same filesystem are out
-of scope (the threat model is a malicious config, not a malicious
-peer process).
+- Easier: one lexical/canonical pipeline rejects escaping configured paths.
+- Harder: shared archives cannot be joined through out-of-tree symlinks.
+- Risks: validation is not race-free containment; concurrent filesystem mutation
+  remains outside the threat model. Optional absence differs from probe failure.
+
+Source evidence: `src/containment.rs:111–198` validates joins;
+`src/config.rs:252–268` resolves the corpus root;
+`src/lib.rs:568–591` canonicalizes the marker and discovers domains.
+These source checks do not demonstrate resistance to concurrent attackers or
+establish a filesystem deadline. Unsuitable-marker fallback remains governed
+by AFM-0001:R8, not silently strengthened here.

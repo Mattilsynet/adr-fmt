@@ -1,7 +1,7 @@
 # AFM-0012. Per-Rule Meadows Layer Annotation
 
 Date: 2026-04-28
-Last-reviewed: 2026-05-02
+Last-reviewed: 2026-09-06
 Tier: S
 Status: Accepted
 
@@ -11,16 +11,11 @@ References: AFM-0011, GND-0005, GND-0008
 
 ## Context
 
-AFM-0011 established tier classification at the ADR level. Individual
-rules within an ADR often target a different leverage layer than the
-ADR's overall tier — an S-tier governance ADR might enforce via
-layer 5 (structural, B-tier). The old format (`- **R1**: text`)
-carried no per-rule metadata, making this invisible.
-
-Options: (1) per-rule layer annotation `R1 [5]: text` — clean,
-enables tension analysis; (2) separate metadata table — drift-prone;
-(3) inherit ADR tier — lossy. Option 1 chosen: layer is a property
-of the intervention, not the decision.
+AFM-0011:R3 supplies the tier mapping used to interpret each rule's layer,
+so it is the constraining parent. A rule's intervention can differ from its
+ADR's overall tier; inline annotation preserves that distinction without a
+second metadata table. GND-0005 and GND-0008 are retained foreign citations,
+not locally verified entailment evidence.
 
 ## Decision
 
@@ -42,23 +37,20 @@ R4 [7]: Hold tension between an ADR's tier and its rules'
   adr_tier.rank()` (rule operates at higher leverage than the ADR
   tier warrants — asymmetric bound); equal or lower leverage passes
   silently; the layer annotation is the load-bearing input for any
-  future tier-tension diagnostic in `--lint`
+   tier-tension diagnostic in `--lint`
 R5 [6]: Render rules with layer suffix in `--context` output using
   the global identifier format `[PREFIX-NNNN:RN:LN]` — apply to
   every rule extracted by `adr-fmt --context`
 
 ## Consequences
 
-- **Tension visibility.** S-tier ADRs with layer-5 rules carry
-  tension derivable as `|0–2|` — governance enforced structurally.
-  Under the asymmetric rule (R4), such rules pass because the rule
-  layer rank (2) is not less than the ADR tier rank (0). Expected,
-  not defect. As of AFM-0021 no viewer mode renders this; the
-  property is derivable from the persisted annotation for any future
-  lint-stage diagnostic.
-- **No dual-format.** Old `- **R1**: text` no longer parses. All 12
-  files migrated atomically.
-- **Layer ≠ tier.** Layer = intervention type; tier = significance.
-  Orthogonal classifications providing richer architectural insight.
-- **R0 removed.** ADRs without tagged rules produce empty vec + T016
-  warning.
+- Easier: a rule carries its intervention layer through extraction.
+- Harder: authors choose both ADR tier and rule layer; inherited classification
+  cannot replace either judgment.
+- Risks: valid numeric tags do not establish semantic correctness; higher-leverage
+  tension is advisory, while equal/lower leverage passes T019.
+
+Source evidence: `src/parser.rs:1041–1143` extracts tags and continuations;
+`src/rules/template.rs:795–899` checks missing rules, ranges, IDs and tension;
+`src/context.rs:337–354` preserves all eligible layers. Legacy bullet rules
+are not an alternate tagged format. These checks do not prove annotation quality.

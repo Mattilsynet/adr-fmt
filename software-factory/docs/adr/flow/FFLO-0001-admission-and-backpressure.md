@@ -11,7 +11,7 @@ Root: FFLO-0001
 
 ## Context
 
-Queues merely relocate overload unless admission accounts for upstream waiters and downstream capacity.
+Queues merely relocate overload unless admission accounts for upstream waiters and downstream capacity. This independent root governs the admission boundary rather than telemetry or scheduling implementation. Its applicability does not depend on adopting a particular queue or executor as parent authority.
 
 ## Decision
 
@@ -23,4 +23,10 @@ R3 [5]: Shaping and batching MUST preserve required ordering; retries MUST consu
 
 ## Consequences
 
-Overload becomes a visible protocol outcome rather than hidden memory growth or indefinite waiting.
++ becomes easier: exposing overload as a protocol outcome before retaining work.
+
+− becomes harder: capacity reservations must compose across producers, waiters and retries.
+
+risks/migration: rejecting or dropping work can violate application semantics unless the adopter chooses the protocol and budgets; no universal limits are supplied.
+
+Evidence: [SOURCES](../../../SOURCES.md#coverage-and-conflict-review) separates admission from aggregate accounting. Review R1–R3 through admission ownership, saturation and retry tests; corpus membership checks do not measure retained memory or prove overload safety.

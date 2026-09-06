@@ -1,7 +1,7 @@
 # AFM-0020. Parent-Edge Tree Model
 
 Date: 2026-05-01
-Last-reviewed: 2026-09-05
+Last-reviewed: 2026-09-06
 Tier: B
 Status: Accepted
 
@@ -11,13 +11,11 @@ References: AFM-0009, AFM-0001
 
 ## Context
 
-Every ADR (other than a Root) needs an unambiguous answer to "under
-which decision does this one live?" Without that answer, `--context`
-cannot scope rules to a crate, `--tree` collapses into a flat list,
-and reviewers cannot distinguish decisions a new ADR builds on from
-ones it merely cites. This ADR pins the mechanical rule and the
-diagnostics surface that enforces it. It absorbs the parent-edge
-specification previously held in GOVERNANCE.md §5.
+AFM-0009:R2 separates roots from branches and is the constraining parent;
+this decision chooses one References target as structural parent while
+preserving other citations. Configuration selects crate obligations; ancestry
+groups them rather than defining their semantic applicability. Reviewers must
+still distinguish genuine constraints from incidental citations.
 
 ## Decision
 
@@ -83,14 +81,13 @@ parent's `Status:` line rather than reading silence as approval.
 
 ## Consequences
 
-Reordering `References:` re-parents the ADR; the first reference is
-load-bearing. Migration from "Root first" to "specialized parent
-first" is per-domain and manual: run `--lint`, fix L015 by
-reordering, repeat. Some ADRs keep a Root first when both refs are
-body-prose direct constraints — exceptions below.
+- Easier: a single ordered reference determines structural placement.
+- Harder: reference reordering changes parentage and needs semantic review.
+- Risks: heuristics cannot prove parent suitability; terminal or unknown
+  ancestry must not be mistaken for a live root. Retired ADRs grant no
+  current exception to reference-ordering guidance.
 
-### L015 known exceptions
-
-| ADR | Root | Co-cited | Rationale |
-|-----|------|----------|-----------|
-| AFM-0014 | AFM-0001 | AFM-0003 | Stderr seam constrained by exit-code semantics |
+Source evidence: `src/nav.rs:71–173` constructs parent projections;
+`src/context.rs:172–244,337–364` groups eligible rules with an unclaimed
+fallback. These are graph mechanics, not proof of architectural entailment.
+AFM-0039:R6 preserves eligible descendants when non-live ancestry is severed.

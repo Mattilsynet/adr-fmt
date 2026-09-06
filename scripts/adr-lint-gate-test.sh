@@ -66,6 +66,7 @@ expect "max in-range threshold"       0 "printf '%s\n' '$clean_output'"     set 
 expect "oversized parsed count"       2 "printf '%s\n' '$huge_output'"      set   "8"
 expect "two headers clean then over"  2 "printf '%s\n%s\n' '$clean_output' '$over_output'" set "8"
 expect "two headers over then clean"  2 "printf '%s\n%s\n' '$over_output' '$clean_output'" set "8"
+expect "incomplete validation is no verdict" 2 "printf '%s\n%s\n' '## Diagnostics: 1 warning(s) across 2 ADR(s)' 'Validation incomplete: duplicate ADR IDs prevent rule checks; totals cover parser and duplicate-ID findings only.'" set "8"
 
 printf '\nadr-lint-gate-test: %s case(s), %s failure(s)\n' "$cases" "$failures"
 [ "$failures" -eq 0 ]

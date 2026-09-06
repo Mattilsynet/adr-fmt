@@ -15,12 +15,14 @@ Large diagnostic streams make individual repairs difficult to identify.
 Limiting the scan instead of the presentation would hide corpus health and
 allow threshold gates to pass despite findings. Source identity must also
 survive failed parsing and native paths whose display strings collide.
+AFM-0036:R4 is the constraining parent: observable diagnostic-output changes
+need a recorded version transition; AFM-0003:R1 keeps findings advisory.
 
 ## Decision
 
-R1 [5]: Version 0.2.0 changes lint output to show detailed warnings for one
-  offending document by default, while preserving whole-corpus scanning and
-  the existing public library signatures and diagnostic fields
+R1 [5]: Lint output MUST show detailed warnings for one offending document
+  by default, while preserving whole-corpus scanning and the existing public
+  library signatures and diagnostic fields
 
 R2 [5]: The lint-only `--max-warning-docs N` option accepts bare unsigned
   decimal integers fitting usize; zero suppresses document detail only,
@@ -44,8 +46,13 @@ R6 [5]: Bound selection metadata by observed diagnostics rather than the
 
 ## Consequences
 
-This is the limited successor recording the diagnostic-output break required
-by AFM-0036, not a whole-ADR replacement under AFM-0029. Other contract
-surfaces and the compiler floor remain in force. Consumers needing more
-document details must request a larger limit; enforcement consumers retain
-the truthful header instead of inferring health from visible bullets.
++ becomes easier: bounded document detail keeps total findings visible.
+− becomes harder: consumers needing more detail must request a larger limit.
+risks/migration: document count is not a byte, memory or deadline bound; successful
+  lint exit is not a clean verdict.
+
+This limited successor records the 0.2.0 diagnostic-output break under
+AFM-0036:R4, not whole replacement; the policy remains in the 0.3.x series.
+Evidence: `src/output.rs:131–210` counts public findings before suppression;
+`src/lib.rs:354–373` discloses incomplete duplicate-ID validation. No absolute
+resource or diagnostic-completeness guarantee follows for skipped rule checks.

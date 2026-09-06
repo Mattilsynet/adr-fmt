@@ -13,6 +13,8 @@ Root: FGND-0003
 
 Accumulated directives become conflicting authority unless ownership, applicability and retirement remain visible to their consumers.
 
+This root governs policy maintenance itself, separately from work execution and feedback. Its applicability does not depend on a fabricated parent relationship.
+
 ## Decision
 
 Policies are maintained contracts with explicit applicability, evidence surfaces and a responsible lifecycle owner.
@@ -23,4 +25,8 @@ R3 [3]: Owners MUST review policies when contrary evidence appears and update cu
 
 ## Consequences
 
-Policy adoption incurs maintenance obligations, but obsolete instructions no longer silently compete with current authority.
++ becomes easier: consumers can identify policy scope, owners and obsolete authority.
+− becomes harder: adoption creates continuing review and retirement work.
+risks/migration: Accepted distribution status does not appoint an adopter's owner or demonstrate that obsolete policies were removed.
+
+Evidence: [README.md](../../../README.md), Adopt into a fresh repository, describes explicit adoption; [adr-fmt.toml](../../../adr-fmt.toml) separates core foundations from optional profiles. Review ownership and disposition records against R1–R3. Configuration and lint establish neither ownership nor retirement truth.

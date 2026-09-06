@@ -1,7 +1,7 @@
 # AFM-0033. Preamble Date Format Contract
 
 Date: 2026-09-05
-Last-reviewed: 2026-09-05
+Last-reviewed: 2026-09-06
 Tier: B
 Status: Accepted
 
@@ -11,17 +11,12 @@ References: AFM-0003, AFM-0017, AFM-0032
 
 ## Context
 
-`Date:` and `Last-reviewed:` are checked for presence by T002 and T003,
-whose catalog descriptions have always read `(YYYY-MM-DD)`. Nothing
-enforced that parenthesis. `Date: banana`, `Last-reviewed: never` and
-`Date: 2026-13-45` each produced zero diagnostics, so the format the
-guidance advertised and the format the tool accepted were different
-formats, and no ADR said which one governed.
-
-The defect class worth catching is a transposed digit. `2062-04-25` and
-`0226-04-25` are shape-valid, sort wrongly, and read as plausible until
-someone computes a review interval from them. A calendar check alone
-does not catch either, so the contract needs a year bound as well.
+Presence, calendar validity and accessor meaning are separate contracts.
+AFM-0003:R2 is the constraining parent: invalid dates produce advisory warnings,
+not parse failure. T002/T003 own absence; T023 owns malformed present values.
+The inclusive 2000–2100 range catches some year mistakes, not every transposition:
+`2062-04-25` remains valid. AFM-0032:R5 pins accessor shape while this decision
+keeps validity knowledge crate-private.
 
 ## Decision
 
@@ -44,9 +39,10 @@ R3 [5]: `T023` MUST NOT subsume T002 or T003. An absent field is a
   for one field
 
 R4 [5]: The parsed verdict MUST NOT reach the pinned public accessors.
-  `date()` and `last_reviewed()` MUST keep returning the file's own
-  text byte for byte at every verdict, and the verdict MUST be exposed
-  only through crate-private accessors
+  `date()` and `last_reviewed()` MUST preserve parser-supplied field text
+  byte for byte at every verdict, without undoing preamble trimming or
+  empty-value handling; the verdict MUST be exposed only through
+  crate-private accessors
 
 R5 [5]: Date validation MUST be implemented with the standard library
   only. Month lengths, Gregorian leap years and a bounded year range
@@ -55,14 +51,14 @@ R5 [5]: Date validation MUST be implemented with the standard library
 
 ## Consequences
 
-The advertised format becomes the enforced format, and the T002/T003
-descriptions stop over-claiming. Every ADR in the corpus already
-satisfies R1, so ratification changes no existing count and the rule
-starts life with no backlog to clear.
++ becomes easier: authors distinguish absent fields from invalid dates without
+  losing the retained value.
+− becomes harder: standard-library calendar arithmetic needs maintained tests.
+risks/migration: an in-range date can still be historically wrong; diagnostics
+  are observable even though raw accessors keep their meaning.
 
-R4 keeps this change invisible to `adr-srv`. The accessors AFM-0032:R5
-pins are unchanged in signature and in meaning, so the validity verdict
-is a crate-internal fact that no consumer can observe or come to depend
-on. R5's cost is that leap-year arithmetic is written here rather than
-depended upon; the bounded range makes that arithmetic small enough
-that the trade favours the narrower dependency surface.
+Evidence: `src/model.rs:1243–1301,2244–2311` separates raw values and verdicts;
+`src/parser.rs:569–581` trims preamble values and ignores empty values;
+`src/rules/template.rs:241–276` emits presence or validity diagnostics.
+Constructor tests do not prove literal file-whitespace preservation or downstream
+consumer compatibility.

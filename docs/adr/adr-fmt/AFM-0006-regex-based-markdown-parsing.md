@@ -1,7 +1,7 @@
 # AFM-0006. Regex-Based Markdown Parsing Over AST Parsing
 
 Date: 2026-04-27
-Last-reviewed: 2026-04-29
+Last-reviewed: 2026-09-06
 Tier: D
 Status: Accepted
 
@@ -11,12 +11,11 @@ References: AFM-0004
 
 ## Context
 
-`adr-fmt` must extract structural information from markdown:
-titles, metadata, section headings, relationships, prose. ADR
-files use a constrained subset — ATX headings, fenced code blocks,
-`Key: Value` metadata. A full AST parser adds dependency weight
-without unlocking needed capabilities. Lexical token validation
-(e.g. ADR ID shape) is a separate concern from markdown structure.
+AFM-0004:R1 defines the structure this parser must extract, making it the
+constraining parent. ADRs use ATX headings, fences and `Key: Value` metadata;
+line-oriented extraction is sufficient for that limited contract. Fixed-shape
+token validation is separate from markdown structure, and full Markdown
+interpretation is not promised.
 
 ## Decision
 
@@ -36,9 +35,10 @@ R4 [12]: Reassess if ADRs require tables or structure complex
 
 ## Consequences
 
-The `regex` crate is the only structural parsing dependency. Every
-markdown extraction rule is a visible regex pattern. Fixed-shape
-token validators are byte-level for clarity. ADR authors must
-follow the constrained markdown subset; unrecognized headings
-produce missing-section warnings. New structural elements need one
-regex plus one extraction branch.
+- Easier: line-oriented extraction keeps the supported subset inspectable.
+- Harder: authors cannot rely on full Markdown structure recognition.
+- Risks: new syntax can create ambiguity; reassess under AFM-0006:R4.
+
+Source evidence: `src/parser.rs:427–542,1041–1143` shows extraction and
+Decision termination at the next H2. These source pointers do not establish
+full Markdown equivalence, a performance bound or semantic validity.
