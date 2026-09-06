@@ -25,9 +25,6 @@
 //! unset. Any value other than exactly `1` is rejected rather than treated
 //! as "on", so an inherited `UPDATE_GOLDEN=0` cannot quietly disarm the
 //! pin. Review the resulting diff: it is the whole point of the pin.
-//!
-//! There is no CLI flag for regeneration — the binary's CLI surface is
-//! frozen for v0.1 by AFM-0001:R1.
 
 use std::fs;
 use std::path::PathBuf;
