@@ -18,8 +18,8 @@ pin, so a surface nobody thought to pin sits outside it by accident
 rather than by decision. The binary's CLI, its exit codes and its
 rendered output are in that position: AFM-0026:R5 forbids widening
 past a CLI shape that nothing pins. `rust-toolchain.toml` pins channel
-1.98.0 as a build toolchain and `Cargo.toml` declares no
-`rust-version`, so consumers are promised no minimum compiler.
+1.98.0 and `Cargo.toml` declares `rust-version = "1.98"`: one compiler
+floor stated twice, with nothing requiring the two to agree.
 
 ## Decision
 
@@ -48,10 +48,10 @@ R4 [5]: While the version is 0.1.x every release MUST be non-breaking
   version to move to 0.2.0 and a successor ADR naming what broke, on
   the terms AFM-0029:R2 sets for recording it
 
-R5 [5]: The channel `rust-toolchain.toml` pins is the MSRV floor.
-  Publishing this crate MUST add a `Cargo.toml` `rust-version` equal
-  to that channel; until then no MSRV is published and none is owed.
-  Raising the floor is breaking under R3 and obliges R4's bump
+R5 [5]: The `rust-toolchain.toml` channel and the `Cargo.toml`
+  `rust-version` state one MSRV floor and MUST be equal; both are
+  1.98. Raising that floor is breaking under R3 and obliges R4's
+  version bump
 
 ## Consequences
 
@@ -61,5 +61,6 @@ asserting membership on its own authority. R3 costs the most: it makes
 the rendered output and the exit codes contract surface, so a wording
 change to the guidelines rendering is a 0.2.0 matter rather than a
 patch — which is already how the byte-level golden pin treats those
-bytes. R5 leaves the crate unpublished and owing no MSRV; adding
-`rust-version` is the act that converts the build pin into a promise.
+bytes. R5 binds the build pin and the published floor to one another,
+so raising the toolchain channel is a consumer-visible break rather
+than a build detail.
