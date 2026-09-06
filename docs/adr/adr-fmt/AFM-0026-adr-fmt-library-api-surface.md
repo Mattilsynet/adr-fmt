@@ -119,10 +119,11 @@ R8 [5]: Second break recorded under R6: `ContainmentError::MetadataFailed`
 
 R9 [7]: Items in the R1 set MUST NOT name a third-party crate's type or
   trait in a public signature, a trait bound, an `impl Trait` return, or
-  field shape reachable per R7, which couples this crate's semver to
-  theirs. Implementing such a trait for a local type is exempt. Sole
-  coupling, widenable only by ADR: `toml::Value` in
-  `config::RuleConfig::params`, reached via `Config::rules`.
+  field shape reachable per R7. Implementing such a trait for a local
+  type is exempt. `tests/public_surface_coupling.rs` pins the couplings
+  its syntactic walk reaches: `toml::Value` in
+  `config::RuleConfig::params`, via `Config::rules`. Widening requires an
+  ADR.
 
 R10 [5]: `run` MUST return `Result<(), RunError>`, and `RunError` MUST
   implement Display, Debug and `std::error::Error` per AFM-0028:R4. Its
