@@ -65,8 +65,8 @@ R8 [5]: An `AFM-NNNN` citation in an assertion, panic or expect
   message argument under `src/` or `tests/` MUST name a live ADR; each
   rule id in a recognized suffix form MUST exist as a rule line.
   Argument position discriminates: conditions and operands are data;
-  attribute streams stay out of reach; bodies the guard cannot parse
-  fail closed, under R4's floors
+  attribute streams stay out of reach; recognized message macro bodies
+  fail closed on parse failure, under R4's floors
 
 ## Consequences
 
