@@ -1,21 +1,14 @@
-//! Typed rule catalog — the single place a diagnostic's id and its
-//! human-readable description are stated.
+//! Typed rule catalog: one source for diagnostic IDs and descriptions.
 //!
-//! AFM-0004:R2 [L5] requires governance guidance be generated from the
-//! same code structures that perform validation.
+//! AFM-0004:R2 [L5] requires guidance generated from validation structures.
 //!
-//! Both sides read these entries: validators take their rule id from
-//! `RuleEntry::id`, and `guidelines.rs` renders the registry sections from
-//! the section slices below. Deleting an entry breaks the validator that
-//! emits it, which makes the coupling a compile error rather than a
-//! convention.
+//! Validators use `RuleEntry::id`; `guidelines.rs` renders these section
+//! slices. Deleting an entry breaks its emitting validator at compile time.
 //!
-//! `RuleEntry::diagnostic` decides severity; the renderer formats that
-//! same field, keeping IDs, severity, and human-readable text together.
+//! `RuleEntry::diagnostic` decides severity; rendering uses the same field.
 //!
-//! Crate-private by construction (AFM-0026:R2). Nothing here is exported
-//! at the crate root; doing so would be a new public item under
-//! AFM-0026:R5 and would require an ADR.
+//! Crate-private (AFM-0026:R2), with no root exports. Exporting requires
+//! an ADR under AFM-0026:R5.
 
 use std::path::Path;
 
@@ -362,13 +355,11 @@ pub(crate) const L023: RuleEntry = wrapped(
 
 /// T020 as the LINK RULES section states it.
 ///
-/// The same diagnostic is described twice in governance output, in
-/// different words: the template section stresses which verbs count, this
-/// one is a one-line restatement. Both wordings are pinned here rather than
-/// in the renderer so the divergence is visible in one place, and this one
-/// borrows canonical `T020` rather than declaring a second entry for it.
-/// Unifying the two wordings would change generated governance output and is
-/// not this crate's decision to take.
+/// Governance describes T020 twice: the template wording emphasizes counted
+/// verbs; this one summarizes. Both wordings live here, not in the renderer,
+/// making divergence visible. This borrows canonical `T020`, not a second
+/// entry. Unifying the wordings changes generated governance output and is
+/// not this crate's decision.
 pub(crate) const T020_LINK_SUMMARY: RuleRendering = RuleRendering::Alternate {
     entry: &T020,
     summary: "Reference load — tier-scaled max on References: count",

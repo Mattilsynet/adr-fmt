@@ -134,17 +134,14 @@ pub fn contained_join(root: &Path, segment: &str) -> Result<PathBuf, Containment
     Ok(canonical_target)
 }
 
-/// Join `segment` to `root` after lexical checks; canonicalize
-/// only if the target exists. Returns `Ok(None)` only when the
-/// existence probe fails with [`std::io::ErrorKind::NotFound`] —
-/// absence is never inferred from any other IO failure.
+/// Join `segment` to `root` after lexical checks; canonicalize existing targets.
+/// Only [`std::io::ErrorKind::NotFound`] from the existence probe yields
+/// `Ok(None)`; other IO failures never imply absence.
 ///
-/// The probe does not follow symlinks, so a dangling symlink is a
-/// present-but-unresolvable entry ([`ContainmentError::TargetCanonicalizeFailed`]),
-/// not an absent one.
+/// The probe does not follow symlinks: dangling symlinks produce
+/// [`ContainmentError::TargetCanonicalizeFailed`], not absence.
 ///
-/// Used for paths that are optional at runtime (e.g., the stale
-/// directory may not exist in a fresh repo).
+/// Supports optional paths, e.g., a fresh repo's missing stale directory.
 ///
 /// # Errors
 ///

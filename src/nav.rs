@@ -1,7 +1,4 @@
-//! Computed children index — inverts forward links to produce a
-//! reverse-link index on demand.
-//!
-//! Used by `--refs` mode for reverse-reference resolution.
+//! Computed children index: inverts forward links on demand.
 //!
 //! Two distinct projections are exported:
 //!
@@ -70,18 +67,14 @@ pub fn compute_children(records: &[AdrRecord]) -> HashMap<AdrId, Vec<ChildEntry>
 
 /// Compute the parent-edge map for the structural tree projection.
 ///
-/// For each non-root ADR, the parent edge is the **first `References:`
-/// target in document order**. Verbs other than `References` are never
-/// parent edges:
-/// - `Root` is structural metadata, not an edge to a parent.
-/// - `Supersedes` points to a retired ADR — not a structural parent.
-/// - Legacy and reverse verbs are excluded.
+/// Each non-root ADR's parent is its **first `References:` target in
+/// document order**. Excludes `Root` (structural metadata), `Supersedes`
+/// (retirement linkage), legacy and reverse verbs.
 ///
-/// Returns `child_id → parent_id`. Roots and ADRs without any
-/// `References:` target are absent from the map (orphans / roots).
+/// Returns `child_id → parent_id`, omitting roots and ADRs without references.
 ///
-/// Cycles in the parent edge map are not detected here — callers
-/// must guard traversal with a visited set (see L013 / context).
+/// Does not detect cycles: callers must traverse with a visited set
+/// (see L013 / context).
 #[must_use]
 pub fn compute_parent_edges(records: &[AdrRecord]) -> HashMap<AdrId, AdrId> {
     parent_edges_of(records.iter())
@@ -174,20 +167,18 @@ impl ActiveTree {
 
 /// Walk the parent chain upward from `start`, collecting visited IDs.
 ///
-/// Returns `Ok(root_id)` if the chain reaches an ADR with no parent
-/// edge (a root, or an ADR with no `References:`). Returns
-/// `Err(visited)` if a cycle is detected — `visited` contains the
-/// IDs traversed in walk order, terminating with the last node
-/// inserted before the cycle closure was observed. The cycle is
-/// closed by the parent-edge from one of the listed entries back
-/// to another listed entry. For a degenerate self-cycle (an ADR
-/// whose parent edge points to itself), `visited` contains the
-/// single entry `[start]`.
+/// Returns `Ok(root_id)` on reaching an ADR without a parent edge
+/// (root or missing `References:`).
 ///
 /// `parent_edges` is the map produced by [`compute_parent_edges`].
 ///
-/// This is the cycle-safe primitive for `--context` parent-chain
-/// assignment and L013 cycle detection.
+/// Cycle-safe primitive for `--context` assignment and L013 detection.
+///
+/// # Errors
+///
+/// Returns `Err(visited)` on cycles: IDs in walk order, excluding the
+/// repeated closing node. A listed entry's parent points back to another
+/// listed entry; self-cycles return `[start]`.
 pub fn walk_parent_chain<S: std::hash::BuildHasher>(
     start: &AdrId,
     parent_edges: &HashMap<AdrId, AdrId, S>,

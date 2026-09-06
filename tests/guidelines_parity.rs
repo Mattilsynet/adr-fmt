@@ -1,12 +1,12 @@
-//! Bidirectional parity: directly constructed diagnostics versus registry IDs
-//! rendered by the real binary, not source strings.
+//! Bidirectional parity: constructed diagnostics versus binary-rendered registry
+//! IDs, not source strings.
 //!
-//! The `syn` AST guard rejects `Diagnostic` literals, `warning`/`error`
+//! The `syn` guard rejects `Diagnostic` literals, `warning`/`error`
 //! references (called or not, whitespace-independent), and preceding single-hop
 //! `use`/`type` aliases. It performs no type resolution or macro expansion.
 //!
-//! Known compiling bypasses: `<Diagnostic>::warning`, macro invocations,
-//! and forward alias chains. Closing these requires semantic resolution or
+//! Compiling bypasses: `<Diagnostic>::warning`, macros,
+//! forward alias chains. Closing these requires semantic resolution or
 //! private fields; AFM-0026:R3 requires a successor ADR for that migration.
 //!
 //! Trusted base: `report.rs` defines `Diagnostic`; `rules/catalog.rs` supplies

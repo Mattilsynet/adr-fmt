@@ -510,14 +510,10 @@ impl AdrRecord {
     /// True when no non-empty `Status:` preamble value was parsed and a
     /// legacy `## Status` heading exists.
     ///
-    /// This is the historical v0.1 predicate, pinned bit-for-bit by
-    /// AFM-0032:R5. It does **not** establish that the file physically
-    /// lacks a `Status:` field: a literal empty `Status:` line parses to
-    /// no value, so the predicate holds for a file that carries the
-    /// field. Nor does it assert that a status value was read from the
-    /// legacy section — an empty legacy section returns `true` while
-    /// [`AdrRecord::status`] is `None`. A value was sourced from the
-    /// legacy section exactly when this returns `true` and
+    /// Historical v0.1 predicate, pinned bit-for-bit by AFM-0032:R5.
+    /// An empty `Status:` field counts as no value, not physical absence.
+    /// An empty legacy section yields `true` with [`AdrRecord::status`] `None`.
+    /// Legacy provenance holds exactly when this returns `true` and
     /// [`AdrRecord::status`] is `Some`.
     #[must_use]
     pub fn status_from_section(&self) -> bool {
@@ -990,16 +986,12 @@ impl Tier {
 
     /// Fixed legacy default minimum word count per tier.
     ///
-    /// This table does NOT reflect configured T015 enforcement. Actual
-    /// enforcement scales the configured `T015.min_words` base by
-    /// [`Tier::factor`], so a corpus that sets that parameter enforces
-    /// minima this table does not reproduce. The values here are not a
-    /// factor curve either: S/A/B are `10 * factor`, but C and D both
-    /// flatten to 7, so no base reproduces the table.
+    /// NOT configured T015 enforcement, which scales `T015.min_words` by
+    /// [`Tier::factor`]. Nor is this a factor curve: S/A/B are `10 * factor`,
+    /// but C/D flatten to 7; no base reproduces this table.
     ///
-    /// Callers that need the minimum a corpus actually enforces MUST
-    /// derive it from the configured base times [`Tier::factor`], and
-    /// MUST NOT read it from this function.
+    /// Callers needing enforced minima MUST multiply the configured base by
+    /// [`Tier::factor`], and MUST NOT use this function.
     #[must_use]
     pub fn min_words(self) -> u64 {
         match self {
@@ -1495,9 +1487,8 @@ impl fmt::Display for RelVerb {
 
 /// Parse a strict ADR ID like `CHE-0042`.
 ///
-/// Accepts exactly `^[A-Z]{2,4}-[0-9]{4}$` — uppercase ASCII prefix
-/// of 2–4 letters, dash, exactly 4 digits, nothing else. No
-/// whitespace trimming; callers must pass clean input.
+/// Accepts exactly `^[A-Z]{2,4}-[0-9]{4}$`: 2–4 uppercase ASCII letters,
+/// dash, four digits. No whitespace trimming.
 ///
 /// Returns `None` for any deviation: lowercase, non-ASCII, wrong
 /// digit count, trailing text, leading/trailing whitespace.
@@ -1505,10 +1496,8 @@ impl fmt::Display for RelVerb {
 /// Use [`parse_adr_id_from_filename_stem`] when the input is an
 /// ADR filename stem like `CHE-0042-slug-words`.
 ///
-/// Grammar and construction are delegated to [`AdrId::try_from`],
-/// which validates byte-level rather than by regex per AFM-0006 R1
-/// (regex is reserved for markdown structural extraction; lexical
-/// token validation may use byte checks).
+/// [`AdrId::try_from`] validates and constructs using byte checks per
+/// AFM-0006 R1: regex handles markdown structure, byte checks lexical tokens.
 #[must_use]
 pub fn parse_adr_id(s: &str) -> Option<AdrId> {
     AdrId::try_from(s).ok()
@@ -1516,21 +1505,16 @@ pub fn parse_adr_id(s: &str) -> Option<AdrId> {
 
 /// Parse an ADR ID from a filename stem like `CHE-0042-some-slug`.
 ///
-/// Matches `^[A-Z]{2,4}-[0-9]{4}(?:-|$)` at the start of the stem
-/// and ignores everything after the trailing dash. Returns `None`
-/// if the stem does not begin with a strict ID followed by either
-/// a dash or end-of-string.
+/// Matches `^[A-Z]{2,4}-[0-9]{4}(?:-|$)` initially, ignoring the slug
+/// after the dash. Returns `None` unless a strict ID precedes a dash or
+/// end-of-string.
 ///
-/// Specifically rejects `CHE-00012-foo` (5 digits before the dash)
-/// and `CHE-0001x` (no dash separator after digits) — both of
-/// which a naive prefix-match would silently accept.
+/// Rejects `CHE-00012-foo` (five digits) and `CHE-0001x` (missing separator).
 ///
-/// The stem is the filename with `.md` already stripped by the
-/// caller. Whitespace is not trimmed.
+/// Caller strips `.md`; whitespace is not trimmed.
 ///
-/// See AFM-0006 R1 for the byte-level validation rationale. Only the
-/// slug boundary is matched here; the prefix and number are validated
-/// by [`AdrId::try_new`].
+/// Per AFM-0006 R1, byte checks validate the slug boundary here;
+/// [`AdrId::try_new`] validates prefix and number.
 #[must_use]
 pub fn parse_adr_id_from_filename_stem(stem: &str) -> Option<AdrId> {
     let (prefix, rest) = stem.split_once('-')?;
