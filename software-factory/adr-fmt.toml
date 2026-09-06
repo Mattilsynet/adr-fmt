@@ -1,0 +1,69 @@
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+[[domains]]
+prefix = "FGND"
+name = "Factory Ground"
+directory = "ground"
+description = "Intent, feedback and policy lifecycle."
+crates = ["factory-core"]
+foundation = true
+
+[[domains]]
+prefix = "FCOM"
+name = "Factory Common"
+directory = "common"
+description = "Boundaries, state, evolution, ownership and evidence."
+crates = []
+foundation = true
+
+[[domains]]
+prefix = "FSEC"
+name = "Factory Security"
+directory = "security"
+description = "Trust, confidentiality, resource accounting and dependency intake."
+crates = []
+foundation = true
+
+[[domains]]
+prefix = "FRST"
+name = "Factory Rust"
+directory = "rust"
+description = "Optional Rust toolchain and API discipline."
+crates = ["factory-rust", "factory-service", "factory-static"]
+foundation = false
+
+[[domains]]
+prefix = "FFLO"
+name = "Factory Flow"
+directory = "flow"
+description = "Optional queued-work admission, measurement and progress."
+crates = ["factory-flow", "factory-service"]
+foundation = false
+
+[[domains]]
+prefix = "FSTO"
+name = "Factory Storage"
+directory = "storage"
+description = "Optional durable-state authority and recovery."
+crates = ["factory-storage"]
+foundation = false
+
+[[domains]]
+prefix = "FSTA"
+name = "Factory Static Allocation"
+directory = "static"
+description = "Optional scoped no-allocation envelope and work evidence."
+crates = ["factory-static"]
+foundation = false
+
+[[domains]]
+prefix = "FAGT"
+name = "Factory Agent Delivery"
+directory = "agents"
+description = "Optional delegated delivery and durable review evidence."
+crates = ["factory-agents"]
+foundation = false
