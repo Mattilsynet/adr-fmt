@@ -4,6 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use syn::visit::Visit;
 
+mod common;
+use common::rust_sources;
+
 const CITATION_SITE_FLOOR: usize = 46;
 
 const RULE_REFERENCE_FLOOR: usize = 33;
@@ -12,17 +15,6 @@ const LIVE_ADR_FLOOR: usize = 27;
 
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).expect("source directory is readable") {
-        let path = entry.expect("readable directory entry").path();
-        if path.is_dir() {
-            rust_sources(&path, out);
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
-            out.push(path);
-        }
-    }
 }
 
 fn markdown_files(dir: &Path) -> Vec<PathBuf> {
@@ -266,7 +258,7 @@ impl Scan {
         let mut counts = [0usize; 2];
         for (slot, tree) in ["src", "tests"].into_iter().enumerate() {
             let mut files = Vec::new();
-            rust_sources(&root.join(tree), &mut files);
+            rust_sources(&root.join(tree), &mut files).expect("source directory is readable");
             files.sort();
             counts[slot] = files.len();
             for file in &files {

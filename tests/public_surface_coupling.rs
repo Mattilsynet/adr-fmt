@@ -2,6 +2,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod common;
+use common::rust_sources;
+
 const R1_SET: [(&str, &str); 23] = [
     ("config", "Config"),
     ("config", "LoadError"),
@@ -69,17 +72,6 @@ fn dependency_crates() -> BTreeSet<String> {
         deps.len()
     );
     deps
-}
-
-fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).expect("src directory is readable") {
-        let path = entry.expect("readable directory entry").path();
-        if path.is_dir() {
-            rust_sources(&path, out);
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
-            out.push(path);
-        }
-    }
 }
 
 fn parse(file: &Path) -> syn::File {
@@ -391,7 +383,7 @@ impl Walk {
         let deps = dependency_crates();
         let src = manifest_dir().join("src");
         let mut files = Vec::new();
-        rust_sources(&src, &mut files);
+        rust_sources(&src, &mut files).expect("src directory is readable");
         files.sort();
 
         let mut modules = BTreeMap::new();

@@ -53,7 +53,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+mod common;
+use common::rust_sources;
 use std::process::Command;
 
 use syn::visit::Visit;
@@ -108,17 +111,6 @@ fn is_rule_id(token: &str) -> bool {
                 && tail.is_ascii_lowercase()
         }
         _ => false,
-    }
-}
-
-fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).expect("src directory is readable") {
-        let path = entry.expect("readable directory entry").path();
-        if path.is_dir() {
-            rust_sources(&path, out);
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
-            out.push(path);
-        }
     }
 }
 
@@ -357,7 +349,7 @@ fn directly_constructed_rule_ids() -> BTreeSet<String> {
     let catalog = catalog_entries();
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
-    rust_sources(&src_root, &mut files);
+    rust_sources(&src_root, &mut files).expect("src directory is readable");
     files.sort();
 
     let mut ids = BTreeSet::new();
