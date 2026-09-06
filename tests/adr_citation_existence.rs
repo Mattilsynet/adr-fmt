@@ -1,180 +1,17 @@
-use regex::Regex;
-use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
 use syn::visit::Visit;
 
 mod common;
-use common::rust_sources;
+use common::{
+    Citation, Corpus, Patterns, extract_citations, manifest_dir, rust_sources,
+    unresolved_citation_findings,
+};
 
 const CITATION_SITE_FLOOR: usize = 46;
 
 const RULE_REFERENCE_FLOOR: usize = 33;
 
 const LIVE_ADR_FLOOR: usize = 27;
-
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn markdown_files(dir: &Path) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = fs::read_dir(dir)
-        .expect("ADR directory is readable")
-        .map(|entry| entry.expect("readable directory entry").path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
-        .collect();
-    out.sort();
-    out
-}
-
-struct Corpus {
-    live: BTreeMap<String, BTreeSet<u32>>,
-    stale: BTreeSet<String>,
-}
-
-impl Corpus {
-    fn load() -> Self {
-        let root = manifest_dir().join("docs").join("adr");
-        let id_re = Regex::new(r"^(AFM-\d{4})").expect("ADR filename pattern compiles");
-        let rule_re = Regex::new(r"(?m)^R(\d+)\b").expect("corpus rule-line pattern compiles");
-
-        let mut live = BTreeMap::new();
-        for path in markdown_files(&root.join("adr-fmt")) {
-            let name = path
-                .file_name()
-                .expect("ADR file has a name")
-                .to_string_lossy()
-                .into_owned();
-            let Some(id) = id_re.captures(&name) else {
-                continue;
-            };
-            let text = fs::read_to_string(&path).expect("ADR file is readable");
-            let rules = rule_re
-                .captures_iter(&text)
-                .map(|caps| caps[1].parse::<u32>().expect("rule digits fit a u32"))
-                .collect();
-            live.insert(id[1].to_owned(), rules);
-        }
-
-        let mut stale = BTreeSet::new();
-        for path in markdown_files(&root.join("stale")) {
-            let name = path
-                .file_name()
-                .expect("ADR file has a name")
-                .to_string_lossy()
-                .into_owned();
-            if let Some(id) = id_re.captures(&name) {
-                stale.insert(id[1].to_owned());
-            }
-        }
-
-        Self { live, stale }
-    }
-}
-
-struct Citation {
-    site: String,
-    adr: String,
-    rules: BTreeSet<u32>,
-    text: String,
-}
-
-struct Patterns {
-    adr: Regex,
-    suffix: Regex,
-    more: Regex,
-    residual: Regex,
-    malformed: Regex,
-    continuation: Regex,
-}
-
-impl Patterns {
-    fn new() -> Self {
-        Self {
-            adr: Regex::new(r"AFM-\d{4}").expect("citation pattern compiles"),
-            suffix: Regex::new(r"^[: ]R(\d+)((?:\s*(?:,|/|-|\x{2013}|and)\s*R\d+)*)")
-                .expect("rule-suffix pattern compiles"),
-            more: Regex::new(r"\s*(,|/|-|\x{2013}|and)\s*R(\d+)")
-                .expect("multi-rule pattern compiles"),
-            residual: Regex::new(r"^\s*(?:,|;|/|&|-|\x{2013}|and)\s*R?\d")
-                .expect("residual rule pattern compiles"),
-            malformed: Regex::new(r"^[: ]R").expect("malformed suffix pattern compiles"),
-            continuation: Regex::new(r"^\s*R\d").expect("continuation pattern compiles"),
-        }
-    }
-}
-
-struct Extracted {
-    citations: Vec<(String, BTreeSet<u32>)>,
-    trailing_bare_adr: bool,
-}
-
-fn extract_doc_text(text: &str, patterns: &Patterns) -> Result<Extracted, String> {
-    let body = text.trim_end();
-    let mut citations = Vec::new();
-    let mut trailing_bare_adr = false;
-
-    for caps in patterns.adr.captures_iter(body) {
-        let whole = caps.get(0).expect("match zero always exists");
-        let rest = &body[whole.end()..];
-        let mut rules = BTreeSet::new();
-
-        let consumed = if let Some(tail) = patterns.suffix.captures(rest) {
-            let first: u32 = tail[1]
-                .parse()
-                .map_err(|_| format!("rule id `R{}` does not fit a u32", &tail[1]))?;
-            rules.insert(first);
-            let mut previous = first;
-            for extra in patterns.more.captures_iter(&tail[2]) {
-                let next: u32 = extra[2]
-                    .parse()
-                    .map_err(|_| format!("rule id `R{}` does not fit a u32", &extra[2]))?;
-                if matches!(&extra[1], "-" | "\u{2013}") {
-                    rules.extend(previous.min(next)..=previous.max(next));
-                } else {
-                    rules.insert(next);
-                }
-                previous = next;
-            }
-            tail.get(0).expect("match zero always exists").end()
-        } else {
-            if patterns.malformed.is_match(rest) {
-                return Err(format!(
-                    "`{}` is followed by `{}`, which opens a rule reference this guard cannot \
-                     parse. A rule id it cannot read is a rule id it cannot check, and reporting \
-                     it clean would be a false clean. AFM-0037:R4 forbids passing on unreadable \
-                     input",
-                    &caps[0],
-                    rest.chars().take(16).collect::<String>()
-                ));
-            }
-            trailing_bare_adr = rest.is_empty();
-            0
-        };
-
-        let remainder = &rest[consumed..];
-        if patterns.residual.is_match(remainder) {
-            return Err(format!(
-                "`{}` carries a rule suffix followed by `{}`, which looks like a further rule \
-                 reference in a form this guard does not parse. Verifying part of a citation and \
-                 silently dropping the rest is a false clean. AFM-0037:R4 forbids passing on \
-                 unreadable input",
-                &caps[0],
-                remainder.chars().take(16).collect::<String>()
-            ));
-        }
-
-        if consumed > 0 {
-            trailing_bare_adr = false;
-        }
-        citations.push((caps[0].to_owned(), rules));
-    }
-
-    Ok(Extracted {
-        citations,
-        trailing_bare_adr,
-    })
-}
 
 struct DocScan<'a> {
     site: &'a str,
@@ -225,7 +62,7 @@ impl<'ast> Visit<'ast> for DocScan<'_> {
                     text.trim().chars().take(16).collect::<String>()
                 );
             }
-            let extracted = extract_doc_text(&text, self.patterns)
+            let extracted = extract_citations(&text, self.patterns)
                 .unwrap_or_else(|e| panic!("{}: {e}: {}", self.site, text.trim()));
             for (adr, rules) in extracted.citations {
                 self.out.push(Citation {
@@ -329,32 +166,7 @@ fn doc_attribute_citations_resolve_to_a_live_corpus_rule() {
          second floor is what notices a suffix parser that quietly stops matching"
     );
 
-    let mut findings = Vec::new();
-    for citation in &scan.citations {
-        let Some(rules) = corpus.live.get(&citation.adr) else {
-            if corpus.stale.contains(&citation.adr) {
-                findings.push(format!(
-                    "{}: cites {}, which is retired to docs/adr/stale/. Per AFM-0022 a stale \
-                     ADR is a non-authoritative pointer and carries no binding rule: {}",
-                    citation.site, citation.adr, citation.text
-                ));
-            } else {
-                findings.push(format!(
-                    "{}: cites {}, which is no ADR in this corpus, live or stale: {}",
-                    citation.site, citation.adr, citation.text
-                ));
-            }
-            continue;
-        };
-        for rule in &citation.rules {
-            if !rules.contains(rule) {
-                findings.push(format!(
-                    "{}: cites {}:R{rule}, but {} declares no rule R{rule}; it declares {:?}: {}",
-                    citation.site, citation.adr, citation.adr, rules, citation.text
-                ));
-            }
-        }
-    }
+    let findings = unresolved_citation_findings(&scan.citations, &corpus);
 
     assert!(
         findings.is_empty(),
@@ -364,7 +176,7 @@ fn doc_attribute_citations_resolve_to_a_live_corpus_rule() {
 }
 
 fn rules_of(text: &str) -> Vec<(String, Vec<u32>)> {
-    extract_doc_text(text, &Patterns::new())
+    extract_citations(text, &Patterns::new())
         .expect("doc text parses")
         .citations
         .into_iter()
@@ -373,7 +185,7 @@ fn rules_of(text: &str) -> Vec<(String, Vec<u32>)> {
 }
 
 fn rejection(text: &str) -> String {
-    extract_doc_text(text, &Patterns::new())
+    extract_citations(text, &Patterns::new())
         .err()
         .unwrap_or_else(|| panic!("expected `{text}` to be rejected, but it parsed"))
 }
@@ -454,18 +266,18 @@ fn rule_suffix_forms_the_parser_cannot_read_are_rejected_rather_than_dropped() {
 fn a_citation_left_open_at_the_end_of_a_doc_line_is_flagged_for_the_wrap_check() {
     let patterns = Patterns::new();
     assert!(
-        extract_doc_text(" see AFM-0016", &patterns)
+        extract_citations(" see AFM-0016", &patterns)
             .expect("parses")
             .trailing_bare_adr,
         "a doc line ending in a bare ADR id is where a wrapped citation can hide"
     );
     assert!(
-        !extract_doc_text(" see AFM-0016 R1", &patterns)
+        !extract_citations(" see AFM-0016 R1", &patterns)
             .expect("parses")
             .trailing_bare_adr
     );
     assert!(
-        !extract_doc_text(" see AFM-0016 alone.", &patterns)
+        !extract_citations(" see AFM-0016 alone.", &patterns)
             .expect("parses")
             .trailing_bare_adr
     );
