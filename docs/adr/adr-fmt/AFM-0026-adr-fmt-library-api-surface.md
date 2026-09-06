@@ -58,16 +58,17 @@ root, with all underlying modules private (CHE-0030:R1), the binary's
 CLI shape unchanged, and the library forbidden from
 calling `std::process::exit`.
 
-R1 [5]: The library exposes exactly these items at the crate root via
-  flat `pub use` per CHE-0030:R1; underlying modules are private, and
-  internal reorganisation is non-breaking:
+R1 [5]: The crate root exposes exactly these items via
+  flat `pub use` per CHE-0030:R1; modules are private, and
+  reorganisation is non-breaking:
   `config::{Config, LoadError, load_quiet, resolve_corpus_root, ResolveCorpusError}`,
   `containment::{ContainmentError, contained_join, contained_join_optional}`,
   `model::{AdrRecord, DomainDir, AdrId, AdrIdError, Tier, Status, Relationship, RelVerb, parse_adr_id}`,
   `parser::{parse_domain, parse_stale, ParseOutcome, ParseError}`,
-  `report::{Diagnostic, Severity}`.
-  `config::load` is intentionally absent; adding it requires a
-  current-consumer justification per COM-0013:R1.
+  `report::{Diagnostic, Severity}`,
+  and defined in `lib.rs`: `run`, `RunError` (R10).
+  `config::load` is intentionally absent; adding it requires
+  COM-0013:R1 justification.
 
 R2 [5]: Modules `context`, `nav`, `output`, `refs`, `rules`,
   `guidelines`, and `index` are crate-private. They are implementation
@@ -122,6 +123,13 @@ R9 [7]: Items in the R1 set MUST NOT name a third-party crate's type or
   theirs. Implementing such a trait for a local type is exempt. Sole
   coupling, widenable only by ADR: `toml::Value` in
   `config::RuleConfig::params`, reached via `Config::rules`.
+
+R10 [5]: `run` MUST return `Result<(), RunError>`, and `RunError` MUST
+  implement Display, Debug and `std::error::Error` per AFM-0028:R4. Its
+  pinned meaning per AFM-0035:R1: `run` returns to its caller and MUST
+  NOT terminate the process, and `src/main.rs` alone maps the result
+  onto the AFM-0003:R1 exit codes. Pinning `run` does not make R2's
+  private modules nameable, and R7 transitivity stops at `RunError`.
 
 ## Consequences
 

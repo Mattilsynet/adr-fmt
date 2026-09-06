@@ -106,25 +106,56 @@ impl Cli {
     }
 }
 
-/// Library entry-point: parse `args` as the CLI, dispatch, return the exit code.
+/// Why a [`run`] invocation did not complete.
+///
+/// The variants classify the failure; the human-readable detail has
+/// already been written to stderr by the time `run` returns. Mapping a
+/// variant onto a process exit code is `src/main.rs`'s job alone
+/// (AFM-0026:R4), so this type deliberately carries no exit code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunError {
+    /// The command line was not usable — an unknown flag, a missing
+    /// value, or a violated exclusivity group.
+    Usage,
+    /// The environment prevented the run: no usable `adr-fmt.toml`, an
+    /// unreadable corpus, an unresolvable ADR id, or a failed write.
+    Infrastructure,
+}
+
+impl std::fmt::Display for RunError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Usage => f.write_str("invalid command-line arguments"),
+            Self::Infrastructure => f.write_str("adr-fmt could not complete the run"),
+        }
+    }
+}
+
+impl std::error::Error for RunError {}
+
+/// Library entry-point: parse `args` as the CLI, dispatch, and return.
 ///
 /// The binary [`main`] is a thin wrapper around this function. Future
 /// library consumers (e.g. `adr-srv`) call lower-level modules directly
 /// (`parser`, `rules`, `nav`); `run` exists primarily to keep the binary
 /// surface a one-liner and to provide a top-level smoke-testable entry.
 ///
-/// Dispatch failures are reported by writing to stderr and returning a
-/// non-zero exit code, preserving AFM-0001 CLI behaviour bit-for-bit.
-/// A CLI parse failure is rendered the same way clap would render it —
-/// usage errors to stderr, `--help` and `--version` to stdout — and its
-/// clap-assigned code is returned rather than applied: this function
-/// never terminates the calling process, because per AFM-0026:R4
-/// `src/main.rs` is the only authorised exit site. `--help` and
-/// `--version` return `0` as AFM-0003:R1 successes when their output is
-/// rendered; if rendering itself fails, that is an infrastructure
-/// failure and `1` is returned rather than a false success.
-#[must_use]
-pub fn run<I, T>(args: I) -> i32
+/// Failure detail is written to stderr and classified by [`RunError`],
+/// preserving AFM-0001 CLI behaviour bit-for-bit. A CLI parse failure is
+/// rendered the same way clap would render it — usage errors to stderr,
+/// `--help` and `--version` to stdout. This function never terminates
+/// the calling process: per AFM-0026:R4 `src/main.rs` is the only
+/// authorised exit site, and per AFM-0003:R1 it is the only site that
+/// turns this result into an exit code. `--help` and `--version` are
+/// successes once their output is rendered; a rendering failure is an
+/// infrastructure failure rather than a false success.
+///
+/// # Errors
+///
+/// Returns [`RunError::Usage`] when `args` do not parse as the CLI, and
+/// [`RunError::Infrastructure`] when configuration discovery, corpus
+/// scanning, id resolution, or output writing fails.
+pub fn run<I, T>(args: I) -> Result<(), RunError>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -133,10 +164,11 @@ where
         Ok(cli) => cli,
         Err(err) => {
             return match err.print() {
-                Ok(()) => err.exit_code(),
+                Ok(()) if err.exit_code() == 0 => Ok(()),
+                Ok(()) => Err(RunError::Usage),
                 Err(io_err) => {
                     eprintln!("error: failed to render the CLI message: {io_err}");
-                    1
+                    Err(RunError::Infrastructure)
                 }
             };
         }
@@ -147,7 +179,7 @@ where
         Ok(d) => d,
         Err(msg) => {
             eprintln!("error: {msg}");
-            return 1;
+            return Err(RunError::Infrastructure);
         }
     };
 
@@ -166,14 +198,14 @@ where
                 "       refusing to fall back to a parent corpus — that would lint a \
                  different corpus and report success"
             );
-            return 1;
+            return Err(RunError::Infrastructure);
         }
         ConfigDiscovery::Absent => {
             eprintln!(
                 "error: no adr-fmt.toml with a valid [corpus] table found in any parent directory"
             );
             eprintln!("       run from the workspace root, or create adr-fmt.toml there");
-            return 1;
+            return Err(RunError::Infrastructure);
         }
     };
 
@@ -183,7 +215,7 @@ where
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: {e}");
-            return 1;
+            return Err(RunError::Infrastructure);
         }
     };
 
@@ -191,7 +223,7 @@ where
         Ok(dirs) => dirs,
         Err(e) => {
             eprintln!("error: {e}");
-            return 1;
+            return Err(RunError::Infrastructure);
         }
     };
 
@@ -200,14 +232,14 @@ where
             "error: no domain directories found in {}",
             adr_root.display()
         );
-        return 1;
+        return Err(RunError::Infrastructure);
     }
 
     let mut scan = match scan_corpus(&adr_root, &config, &domain_dirs) {
         Ok(scan) => scan,
         Err(e) => {
             eprintln!("error: {e}");
-            return 1;
+            return Err(RunError::Infrastructure);
         }
     };
     let parse_diagnostics = scan.take_diagnostics();
@@ -242,37 +274,37 @@ fn dispatch_mode(
     domain_dirs: &[DomainDir],
     index: &index::CorpusIndex<'_>,
     parse_diagnostics: Vec<report::Diagnostic>,
-) -> i32 {
+) -> Result<(), RunError> {
     match mode {
-        Mode::Guidelines => 0,
+        Mode::Guidelines => Ok(()),
         Mode::Refs(adr_id_str) => {
             let Some(target_id) = parse_adr_id(adr_id_str) else {
                 eprintln!(
                     "error: {} is not a valid ADR ID (expected PREFIX-NNNN)",
                     adr_id_str.escape_debug()
                 );
-                return 1;
+                return Err(RunError::Infrastructure);
             };
             let report = match refs::find_refs(&target_id, index) {
                 Ok(r) => r,
                 Err(e) => {
                     eprintln!("error: {e}");
-                    return 1;
+                    return Err(RunError::Infrastructure);
                 }
             };
             print!("{}", output::render_refs(&report));
-            0
+            Ok(())
         }
         Mode::Context(crate_name) => {
             let groups = match context::context_grouped(crate_name, all_records, config, index) {
                 Ok(g) => g,
                 Err(e) => {
                     eprintln!("error: {e}");
-                    return 1;
+                    return Err(RunError::Infrastructure);
                 }
             };
             print!("{}", output::render_root_groups(crate_name, &groups));
-            0
+            Ok(())
         }
         Mode::Tree(domain_filter) => {
             print!(
@@ -285,7 +317,7 @@ fn dispatch_mode(
                     index
                 )
             );
-            0
+            Ok(())
         }
         Mode::Lint => {
             let mut diagnostics = parse_diagnostics;
@@ -294,7 +326,7 @@ fn dispatch_mode(
                 "{}",
                 output::render_diagnostics(&diagnostics, all_records.len())
             );
-            0
+            Ok(())
         }
     }
 }
@@ -304,12 +336,12 @@ fn report_duplicate_id(
     parse_diagnostics: Vec<report::Diagnostic>,
     record_count: usize,
     dup: &index::DuplicateId,
-) -> i32 {
+) -> Result<(), RunError> {
     if lint_mode {
         let mut diagnostics = parse_diagnostics;
         diagnostics.push(duplicate_id_diagnostic(dup));
         print!("{}", output::render_diagnostics(&diagnostics, record_count));
-        return 0;
+        return Ok(());
     }
     eprintln!(
         "error: duplicate ADR id {} — {} and {} both claim it (AFM-0008:R3 requires a permanent, globally unambiguous id)",
@@ -317,7 +349,7 @@ fn report_duplicate_id(
         dup.paths[0].display(),
         dup.paths[1].display(),
     );
-    1
+    Err(RunError::Infrastructure)
 }
 
 fn duplicate_id_diagnostic(dup: &index::DuplicateId) -> report::Diagnostic {
@@ -333,11 +365,11 @@ fn duplicate_id_diagnostic(dup: &index::DuplicateId) -> report::Diagnostic {
     )
 }
 
-fn run_default_mode(discovery: ConfigDiscovery) -> i32 {
+fn run_default_mode(discovery: ConfigDiscovery) -> Result<(), RunError> {
     match discovery {
         ConfigDiscovery::Ready { marker_dir, config } => {
             match config::resolve_corpus_root(&marker_dir, &config.corpus) {
-                Ok(_) => exit_code_for_write(guidelines::print_governance(
+                Ok(_) => outcome_for_write(guidelines::print_governance(
                     &mut std::io::stdout().lock(),
                     &config,
                 )),
@@ -346,7 +378,7 @@ fn run_default_mode(discovery: ConfigDiscovery) -> i32 {
                     eprintln!(
                         "       the config was found but is not usable; fix it rather than re-running setup"
                     );
-                    1
+                    Err(RunError::Infrastructure)
                 }
             }
         }
@@ -359,20 +391,20 @@ fn run_default_mode(discovery: ConfigDiscovery) -> i32 {
                 "       adr-fmt found this config but cannot use it, so it will not fall back \
                  to a parent corpus"
             );
-            1
+            Err(RunError::Infrastructure)
         }
         ConfigDiscovery::Absent => {
-            exit_code_for_write(guidelines::print_setup_guide(&mut std::io::stdout().lock()))
+            outcome_for_write(guidelines::print_setup_guide(&mut std::io::stdout().lock()))
         }
     }
 }
 
-fn exit_code_for_write(result: std::io::Result<()>) -> i32 {
+fn outcome_for_write(result: std::io::Result<()>) -> Result<(), RunError> {
     match result {
-        Ok(()) => 0,
+        Ok(()) => Ok(()),
         Err(e) => {
             eprintln!("error: failed writing guidelines to stdout: {e}");
-            1
+            Err(RunError::Infrastructure)
         }
     }
 }

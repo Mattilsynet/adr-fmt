@@ -984,6 +984,22 @@ fn refs_empty_for_isolated_target() {
 }
 
 #[test]
+fn main_maps_the_typed_run_result_onto_the_pinned_exit_codes() {
+    let dir = setup_corpus(MINIMAL_CONFIG, &[("TST-0001-valid-test-adr.md", VALID_ADR)]);
+
+    adr_fmt_in(&dir).args(["--lint"]).assert().code(0);
+    adr_fmt_in(&dir).args(["--help"]).assert().code(0);
+    adr_fmt_in(&dir)
+        .args(["--refs", "INVALID"])
+        .assert()
+        .code(1);
+    adr_fmt_in(&dir)
+        .args(["--no-such-flag-exists"])
+        .assert()
+        .code(2);
+}
+
+#[test]
 fn refs_invalid_id_exits_nonzero() {
     let dir = setup_corpus(MINIMAL_CONFIG, &[("TST-0001-valid-test-adr.md", VALID_ADR)]);
 
