@@ -1,9 +1,7 @@
 //! Smoke + API probe tests pinning the lib surface.
 //!
-//! `run_default_mode_via_lib_api_returns_zero` proves `adr_fmt::run` is
-//! callable from a library consumer. `lib_api_modules_resolve` is a
-//! compile-time probe that every item in the Q2 public-API set (see bd
-//! adr-fmt-d7ao) resolves under its re-exported crate-root path.
+//! Probes ensure `adr_fmt::run` is callable and public API items resolve
+//! through their crate-root re-exports.
 //!
 //! The `--help` / `--version` / infrastructure-failure termination
 //! guards run out-of-process: an in-process assertion cannot bite,

@@ -14,6 +14,18 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  doc-budget:
+    name: doc budget (80 advisory, 120 enforced)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: 1.98.0
+      - run: cargo +1.98.0 install --git https://github.com/acje/comment-free --rev b10cb64295a4ff19115644d42165fc4252677328 --locked comment-free
+      - run: python3 scripts/doc-budget-gate-test.py
+      - run: python3 scripts/doc-budget-gate.py
+
   build-test-lint:
     name: build, test, lint
     runs-on: ubuntu-latest

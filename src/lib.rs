@@ -1,9 +1,7 @@
 //! ADR template and link-integrity validator — library surface.
 //!
-//! Ships as both a binary (`adr-fmt`) and a library (`adr_fmt`); the
-//! binary is a thin wrapper over [`run`] so downstream consumers
-//! (e.g. `adr-srv`) can reuse parsing, linting, and navigation
-//! without spawning a subprocess.
+//! Binary `adr-fmt` wraps [`run`]; library `adr_fmt` provides parsing,
+//! linting, and navigation without subprocesses.
 //!
 //! # Modes
 //!
@@ -25,8 +23,7 @@
 //! shape unchanged for v0.1 per AFM-0026:R5; AFM-0036:R3 and R4 set
 //! the bar a change must clear. Library API follows
 //! AFM-0026 / CHE-0030: modules private, minimum re-export set for
-//! `adr-srv` via a flat `pub use` block (oracle summary bd
-//! `adr-fmt-d7ao`).
+//! `adr-srv` via a flat `pub use` block.
 
 #![forbid(unsafe_code)]
 
@@ -152,20 +149,11 @@ impl std::error::Error for RunError {}
 
 /// Library entry-point: parse `args` as the CLI, dispatch, and return.
 ///
-/// The binary [`main`] is a thin wrapper around this function. Future
-/// library consumers (e.g. `adr-srv`) call lower-level modules directly
-/// (`parser`, `rules`, `nav`); `run` exists primarily to keep the binary
-/// surface a one-liner and to provide a top-level smoke-testable entry.
-///
-/// Failure detail is written to stderr and classified by [`RunError`],
-/// preserving AFM-0001 CLI behaviour bit-for-bit. A CLI parse failure is
-/// rendered the same way clap would render it — usage errors to stderr,
-/// `--help` and `--version` to stdout. This function never terminates
-/// the calling process: per AFM-0026:R4 `src/main.rs` is the only
-/// authorised exit site, and per AFM-0003:R1 it is the only site that
-/// turns this result into an exit code. `--help` and `--version` are
-/// successes once their output is rendered; a rendering failure is an
-/// infrastructure failure rather than a false success.
+/// Preserves AFM-0001 CLI behaviour: failures render to stderr and are
+/// classified by [`RunError`]; `--help` and `--version` render to stdout
+/// and succeed unless rendering fails. Never terminates the caller:
+/// AFM-0026:R4 reserves process termination for `src/main.rs`, which alone
+/// maps results to exit codes per AFM-0003:R1.
 ///
 /// # Errors
 ///

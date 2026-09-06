@@ -31,6 +31,30 @@ cargo fmt --all -- --check
 - `cargo deny check` and `cargo audit` are supply-chain gates; run
   before publishing or bumping dependencies.
 
+## Rustdoc budget gate
+
+Run the same checks locally and in CI:
+
+```
+python3 scripts/doc-budget-gate-test.py
+python3 scripts/doc-budget-gate.py
+```
+
+Requires Python 3 stdlib and comment-free 0.2.0, canonically installed with:
+
+```
+cargo +1.98.0 install --git https://github.com/acje/comment-free --rev b10cb64295a4ff19115644d42165fc4252677328 --locked comment-free
+```
+
+The read-only gate scans the repository twice: 80 prose words is advisory;
+120 is enforced. Fenced code is excluded by the tool. Summary-only output
+retains full findings/undecided/error totals without unbounded detail output.
+Exit 0 means decided within the enforced budget, 1 means over 120, and 2
+means no verdict (undecided, tool failure, empty scope, or unsupported or
+inconsistent v3 protocol). Diagnostics are preserved. No rewrite mode runs.
+Macro-generated docs without spelled `doc` tokens remain outside detection;
+this is not proof of semantic documentation coverage or process-memory bounds.
+
 ## Delivery
 
 `main` is protected (PR required). Changes land via a feature branch and

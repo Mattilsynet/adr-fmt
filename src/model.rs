@@ -21,24 +21,14 @@ pub struct DomainDir {
 ///
 /// # Invariants (enforced by construction)
 ///
-/// Every `RuleId` renders as `R` followed by a non-empty run of decimal
-/// digits — exactly the image of the pinned `^R(\d+)\s*\[(\d+)\]:`
-/// parser regex (AFM-0012:R2). "Decimal digit" means whatever that
-/// pinned regex means by `\d`: the `regex` crate's default Unicode
-/// semantics, i.e. any character in general category `Nd`, not just
-/// `0`–`9`. [`RuleId::from_digits`] therefore validates with the same
-/// crate and the same `\d`, so the accept language of the constructor
-/// and the capture language of the parser cannot drift apart.
+/// Renders as `R` followed by non-empty decimal digits, matching the pinned
+/// `^R(\d+)\s*\[(\d+)\]:` parser (AFM-0012:R2). [`RuleId::from_digits`]
+/// validates using the same `regex` crate Unicode `\d` semantics: general
+/// category `Nd`, including non-ASCII digits.
 ///
-/// The digit run is stored as text and is *not* narrowed to a
-/// fixed-width integer: the pinned regex is unbounded, so a rule number
-/// too large for any integer type is admissible input and must remain
-/// representable, as is one whose digits are not ASCII.
-///
-/// The field is private and the only construction path is
-/// [`RuleId::from_digits`], which rejects an empty or non-digit run with
-/// [`RuleIdError`]. An empty, unprefixed, or non-numeric rule identifier
-/// therefore has no constructor and cannot exist.
+/// Digits remain unbounded text, never narrowed to a fixed-width integer.
+/// The field is private; the sole constructor [`RuleId::from_digits`]
+/// rejects empty or non-digit runs with [`RuleIdError`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RuleId {
     rendered: String,

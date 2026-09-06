@@ -1,55 +1,17 @@
-//! Bidirectional parity guard between the diagnostics adr-fmt constructs
-//! DIRECTLY and the rule registry its governance output renders.
+//! Bidirectional parity: directly constructed diagnostics versus registry IDs
+//! rendered by the real binary, not source strings.
 //!
-//! The rendered side is read from the real binary's stdout, never from
-//! source text: a source-scanning guard is satisfied by an id appearing in
-//! a comment or a test string and so fails open.
+//! The `syn` AST guard rejects `Diagnostic` literals, `warning`/`error`
+//! references (called or not, whitespace-independent), and preceding single-hop
+//! `use`/`type` aliases. It performs no type resolution or macro expansion.
 //!
-//! # What this guard enforces
+//! Known compiling bypasses: `<Diagnostic>::warning`, macro invocations,
+//! and forward alias chains. Closing these requires semantic resolution or
+//! private fields; AFM-0026:R3 requires a successor ADR for that migration.
 //!
-//! The implemented side parses each file with `syn` and walks the AST. It
-//! rejects, and has been proven by planted compiling violations to reject:
-//!
-//! - a `Diagnostic { .. }` struct literal, under any formatting;
-//! - `Diagnostic::warning` / `::error` named as a value, called or not;
-//! - the same with interior whitespace (`Diagnostic :: warning`), which is
-//!   gone before a check runs because the input is parsed, not scanned;
-//! - a single-hop local alias, whether `use report::Diagnostic as Diag` or
-//!   `type D = Diagnostic`, declared before its use site.
-//!
-//! # What this guard does NOT enforce
-//!
-//! `syn` parses tokens. It does not resolve types and does not expand
-//! macros, so this is pattern-matching over spellings, NOT Rust name
-//! resolution. Each of the following compiles with zero errors and passes
-//! this guard — measured, not assumed:
-//!
-//! - `<Diagnostic>::warning(..)` — a qualified path. The `ExprPath` carries
-//!   a `QSelf` and its path holds only the `warning` segment, so the
-//!   owner-segment check cannot fire.
-//! - construction hidden in a macro invocation. The tokens live in an
-//!   `ExprMacro` this visitor never parses.
-//! - a forward alias chain (`type E = D; type D = Diagnostic; E { .. }`).
-//!   Spellings are collected in one pass, so `E` is visited before `D` is
-//!   known.
-//!
-//! These are not oversights awaiting one more match arm. Adding an arm per
-//! spelling is what produced four consecutive false-clean guards here; the
-//! list above is published so the guard is not mistaken for a complete
-//! bypass check. Closing the class needs semantic resolution over a
-//! compiled crate, or `Diagnostic`'s fields made non-public so direct
-//! construction outside the defining module is unavailable. AFM-0026:R3
-//! requires a successor ADR for that migration; no release or retirement of
-//! this guard is scheduled (bead `adr-fmt-qzl6`, F4).
-//!
-//! # Trusted base
-//!
-//! Two files are exempt because they ARE the canonical construction path:
-//! `report.rs`, which defines `Diagnostic`, and `rules/catalog.rs`, whose
-//! `RuleEntry::diagnostic` is the crate's only intended severity decision.
-//! Each exemption asserts the file still plays that role, so it cannot
-//! silently follow the code elsewhere; neither asserts uniqueness WITHIN
-//! the file. A bypass inside those two files is trust, not enforcement.
+//! Trusted base: `report.rs` defines `Diagnostic`; `rules/catalog.rs` supplies
+//! `RuleEntry::diagnostic`, the intended severity decision. Exemptions assert
+//! those roles, not within-file uniqueness; internal bypasses remain trusted.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
