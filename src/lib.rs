@@ -1,7 +1,7 @@
-//! ADR template and link-integrity validator — library surface.
+//! ADR template and link-integrity validator library.
 //!
-//! Binary `adr-fmt` wraps [`run`]; library `adr_fmt` provides parsing,
-//! linting, and navigation without subprocesses.
+//! Binary `adr-fmt` wraps [`run`]; `adr_fmt` parses, lints, and navigates
+//! without subprocesses.
 //!
 //! # Modes
 //!
@@ -13,17 +13,15 @@
 //! adr-fmt --tree [DOMAIN]     # domain tree overview
 //! ```
 //!
-//! Corpus discovery walks up from CWD for an `adr-fmt.toml` with a
-//! valid `[corpus]` table; no CLI override (SSOT per AFM-0001).
+//! Discovery walks upward from CWD for a fitting `adr-fmt.toml` with `[corpus]`;
+//! no CLI override (SSOT per AFM-0001).
 //!
-//! Exit codes: `0` — analysis complete (warnings only, or clean);
-//! `1` — infrastructure error or lint errors detected.
+//! Exits: `0` complete, including warnings; `1` infrastructure failure or
+//! incomplete retrieval; `2` usage error.
 //!
-//! The CLI surface is part of the v0.1 contract per AFM-0036:R2, its
-//! shape unchanged for v0.1 per AFM-0026:R5; AFM-0036:R3 and R4 set
-//! the bar a change must clear. Library API follows
-//! AFM-0026 / CHE-0030: modules private, minimum re-export set for
-//! `adr-srv` via a flat `pub use` block.
+//! CLI compatibility: AFM-0036:R2, AFM-0026:R5; changes follow AFM-0036:R3 and R4.
+//! Library API: AFM-0026 / CHE-0030; private modules, minimal flat
+//! `pub use` exports for `adr-srv`.
 
 #![forbid(unsafe_code)]
 
