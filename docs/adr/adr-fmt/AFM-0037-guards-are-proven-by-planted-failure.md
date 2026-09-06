@@ -61,6 +61,13 @@ R7 [5]: An `AFM-NNNN` citation in a literal Rust doc attribute under
   stay out of reach, and forms the guard detects but cannot read fail
   closed
 
+R8 [5]: An `AFM-NNNN` citation in an assertion, panic or expect
+  message argument under `src/` or `tests/` MUST name a live ADR, and
+  each rule id it carries MUST exist as a rule line. Argument position
+  discriminates, so conditions and operands are data; attribute
+  streams and unparsable macro bodies are residual and MUST be
+  declared, under R4's floors
+
 ## Consequences
 
 A guard's cost is stated up front: it is finished not when it is
