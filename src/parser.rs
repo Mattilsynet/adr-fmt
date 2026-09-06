@@ -25,7 +25,7 @@ use crate::rules::naming;
 #[derive(Debug, Default)]
 pub struct ParseOutcome {
     records: Vec<AdrRecord>,
-    diagnostics: Vec<Diagnostic>,
+    diagnostics: crate::report::DiagnosticBatch,
     parse_failures: Vec<FileParseFailure>,
 }
 
@@ -40,15 +40,31 @@ impl ParseOutcome {
         &self.diagnostics
     }
 
+    #[cfg(test)]
     pub(crate) fn into_parts(self) -> (Vec<AdrRecord>, Vec<Diagnostic>, Vec<FileParseFailure>) {
-        (self.records, self.diagnostics, self.parse_failures)
+        (
+            self.records,
+            self.diagnostics.into_diagnostics(),
+            self.parse_failures,
+        )
+    }
+
+    pub(crate) fn into_sourced_parts(
+        self,
+    ) -> (
+        Vec<AdrRecord>,
+        Vec<crate::report::SourcedDiagnostic>,
+        Vec<FileParseFailure>,
+    ) {
+        let diagnostics = self.diagnostics.into_sourced();
+        (self.records, diagnostics, self.parse_failures)
     }
 
     #[cfg(test)]
     pub(crate) fn test_new(records: Vec<AdrRecord>, parse_failures: Vec<FileParseFailure>) -> Self {
         Self {
             records,
-            diagnostics: Vec::new(),
+            diagnostics: crate::report::DiagnosticBatch::default(),
             parse_failures,
         }
     }
@@ -164,7 +180,10 @@ fn collect_domain_entries(
         let entry = match entry {
             Ok(entry) => entry,
             Err(e) => {
-                outcome.diagnostics.push(unreadable_entry(&dir.path, &e));
+                outcome.diagnostics.push(crate::report::SourcedDiagnostic {
+                    source: crate::report::DiagnosticSource::Global,
+                    diagnostic: unreadable_entry(&dir.path, &e),
+                });
                 continue;
             }
         };
@@ -177,7 +196,9 @@ fn collect_domain_entries(
         }
 
         let path = entry.path();
-        naming::check_file_name(&path, &known_prefixes, &mut outcome.diagnostics);
+        let mut naming_diagnostics = Vec::new();
+        naming::check_file_name(&path, &known_prefixes, &mut naming_diagnostics);
+        outcome.diagnostics.document(&path, naming_diagnostics);
 
         if !filename_re.is_match(&name) {
             continue;
@@ -220,17 +241,18 @@ fn absorb_file(outcome: &mut ParseOutcome, path: &Path, prefix: &str, is_stale: 
             diagnostics,
         }) => {
             outcome.records.push(*record);
-            outcome.diagnostics.extend(diagnostics);
+            outcome.diagnostics.document(path, diagnostics);
         }
         Ok(ParseFileOutcome::TitleMissing { diagnostics }) => {
             note_parse_failure(outcome, path, ParseFailureCause::TitleMissing);
-            outcome.diagnostics.extend(diagnostics);
+            outcome.diagnostics.document(path, diagnostics);
         }
         Err(e) => {
             let cause = ParseFailureCause::Unreadable(e);
-            outcome
-                .diagnostics
-                .push(catalog::P001.diagnostic(path, 0, cause.to_string()));
+            outcome.diagnostics.document(
+                path,
+                vec![catalog::P001.diagnostic(path, 0, cause.to_string())],
+            );
             note_parse_failure(outcome, path, cause);
         }
     }
@@ -301,7 +323,10 @@ fn collect_stale_entries(
         let entry = match entry {
             Ok(entry) => entry,
             Err(e) => {
-                outcome.diagnostics.push(unreadable_entry(stale_dir, &e));
+                outcome.diagnostics.push(crate::report::SourcedDiagnostic {
+                    source: crate::report::DiagnosticSource::Global,
+                    diagnostic: unreadable_entry(stale_dir, &e),
+                });
                 continue;
             }
         };
@@ -314,7 +339,9 @@ fn collect_stale_entries(
         }
 
         let path = entry.path();
-        naming::check_file_name(&path, &known_prefixes, &mut outcome.diagnostics);
+        let mut naming_diagnostics = Vec::new();
+        naming::check_file_name(&path, &known_prefixes, &mut naming_diagnostics);
+        outcome.diagnostics.document(&path, naming_diagnostics);
 
         for (prefix, re) in &prefixes {
             if re.is_match(&name) {
@@ -2373,6 +2400,46 @@ mod tests {
         _real: fs::ReadDir,
     ) -> impl Iterator<Item = std::io::Result<fs::DirEntry>> + use<> {
         std::iter::once(Err(std::io::Error::other("simulated entry failure")))
+    }
+
+    #[test]
+    fn warning_parser_provenance_keeps_file_looking_directory_global() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("CHE-0009-directory.md");
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("CHE-0001-bad.md"), "missing title").unwrap();
+        let domain = DomainDir {
+            path: path.clone(),
+            prefix: "CHE".into(),
+            name: "Test".into(),
+        };
+        let config: Config = toml::from_str("[corpus]\nroot = 'docs/adr'\n[stale]\ndirectory = 'stale'\n[[domains]]\nprefix = 'CHE'\nname = 'Test'\ndirectory = 'test'\ndescription = 'Test'\ncrates = []").unwrap();
+        for stale in [false, true] {
+            let entries =
+                fs::read_dir(&path)
+                    .unwrap()
+                    .chain(std::iter::once(Err(std::io::Error::other(
+                        "planted directory failure",
+                    ))));
+            let outcome = if stale {
+                collect_stale_entries(&path, &config, entries)
+            } else {
+                collect_domain_entries(&domain, entries)
+            };
+            assert_eq!(outcome.diagnostics().len(), 2);
+            let mut scan = crate::index::ScannedCorpus::test_of(outcome);
+            let diagnostics = scan.take_diagnostics();
+            assert_eq!(diagnostics.len(), 2);
+            for limit in [0, 1] {
+                let output = crate::output::render_diagnostics(&diagnostics, 0, limit);
+                assert!(
+                    output.contains("planted directory failure"),
+                    "global cannot consume a document slot: {output}"
+                );
+                assert!(output.contains("## Diagnostics: 2 warning(s) across 0 ADR(s)"));
+                assert_eq!(output.contains("CHE-0001-bad.md"), limit == 1);
+            }
+        }
     }
 
     #[test]

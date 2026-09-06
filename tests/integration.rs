@@ -545,6 +545,156 @@ fn valid_corpus_clean_output() {
 }
 
 #[test]
+fn warning_document_limit_counts_hidden_malformed_documents() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0002-second.md", "missing title"),
+            ("TST-0001-first.md", "missing title"),
+        ],
+    );
+    adr_fmt_in(&dir).arg("--lint").assert().success().stdout(
+        predicate::str::contains("## Diagnostics: 2 warning(s) across 0 ADR(s)")
+            .and(predicate::str::contains("TST-0001-first.md"))
+            .and(predicate::str::contains("TST-0002-second.md").not())
+            .and(predicate::str::contains("- P002: 2")),
+    );
+    for limit in ["0", "1", "2", &usize::MAX.to_string()] {
+        let output = adr_fmt_in(&dir)
+            .args(["--lint", "--max-warning-docs", limit])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("## Diagnostics: 2 warning(s) across 0 ADR(s)"));
+        assert_eq!(text.contains("TST-0001-first.md"), limit != "0");
+        assert_eq!(
+            text.contains("TST-0002-second.md"),
+            limit != "0" && limit != "1"
+        );
+    }
+}
+
+#[test]
+fn warning_document_limit_rejects_invalid_arguments() {
+    let dir = setup_corpus(MINIMAL_CONFIG, &[]);
+    for value in [
+        "",
+        "+1",
+        "-1",
+        "1.0",
+        " 1",
+        "1 ",
+        "abc",
+        "184467440737095516160",
+    ] {
+        adr_fmt_in(&dir)
+            .args(["--lint", &format!("--max-warning-docs={value}")])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("invalid value"));
+    }
+    adr_fmt_in(&dir)
+        .args(["--lint", "--max-warning-docs"])
+        .assert()
+        .failure();
+    adr_fmt_in(&dir)
+        .args(["--max-warning-docs", "1"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn warning_globals_survive_zero_and_one_document_limits() {
+    let config = MINIMAL_CONFIG.replace("min_words = 10", "min_words = \"bad\"");
+    let dir = setup_corpus(&config, &[("TST-0001-first.md", VALID_ADR)]);
+    for limit in ["0", "1"] {
+        adr_fmt_in(&dir)
+            .args(["--lint", "--max-warning-docs", limit])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                "adr-fmt.toml: [[rules]] id = \"T015\" parameter `min_words` is not usable",
+            ));
+    }
+}
+
+#[test]
+fn warning_duplicate_short_circuit_is_disclosed_at_zero() {
+    let dir = setup_corpus(
+        MINIMAL_CONFIG,
+        &[
+            ("TST-0001-first.md", VALID_ADR),
+            ("TST-0001-second.md", VALID_ADR),
+        ],
+    );
+    adr_fmt_in(&dir)
+        .args(["--lint", "--max-warning-docs", "0"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("- P004: 1")
+                .and(predicate::str::contains(
+                    "Validation incomplete: duplicate ADR IDs prevent rule checks",
+                ))
+                .and(predicate::str::contains("- **warning").not()),
+        );
+}
+
+#[test]
+fn warning_selection_ignores_clean_files_and_creation_order() {
+    let mut outputs = Vec::new();
+    for reverse in [false, true] {
+        let mut files = vec![
+            ("TST-0001-clean.md", VALID_ADR),
+            ("TST-0002-first.md", "missing title"),
+            ("TST-0003-last.md", "missing title"),
+        ];
+        if reverse {
+            files.reverse();
+        }
+        let dir = setup_corpus(MINIMAL_CONFIG, &files);
+        let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+        let text = String::from_utf8_lossy(&output.get_output().stdout).replace(
+            dir.path().canonicalize().unwrap().to_str().unwrap(),
+            "CORPUS",
+        );
+        assert!(text.contains("TST-0002-first.md") && !text.contains("TST-0003-last.md"));
+        outputs.push(text);
+    }
+    assert_eq!(outputs[0], outputs[1]);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn warning_document_limit_distinguishes_lossy_filename_collisions() {
+    use std::os::unix::ffi::OsStringExt;
+    let dir = setup_corpus(MINIMAL_CONFIG, &[]);
+    for byte in [0xfe, 0xff] {
+        let mut name = b"TST-0001-".to_vec();
+        name.push(byte);
+        name.extend_from_slice(b".md");
+        fs::write(
+            dir.path()
+                .join("docs/adr/test")
+                .join(std::ffi::OsString::from_vec(name)),
+            "malformed",
+        )
+        .unwrap();
+    }
+    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let text = String::from_utf8_lossy(&output.get_output().stdout);
+    assert_eq!(
+        text.matches("- **warning[N001]**").count(),
+        1,
+        "one native document, not both lossy-equal paths: {text}"
+    );
+    assert!(text.contains("- N001: 2"));
+}
+
+#[test]
 fn legacy_rule_declaration_emits_deprecation_warning() {
     let legacy_config = r#"
 [corpus]
@@ -3467,7 +3617,10 @@ fn s008_stale_with_nonterminal_status_is_diagnosed_for_each_status() {
         ],
     );
 
-    let output = adr_fmt_in(&dir).arg("--lint").assert().success();
+    let output = adr_fmt_in(&dir)
+        .args(["--lint", "--max-warning-docs", "3"])
+        .assert()
+        .success();
     let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
 
     assert_eq!(

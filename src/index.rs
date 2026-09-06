@@ -3,18 +3,18 @@ use std::path::PathBuf;
 
 use crate::model::{AdrId, AdrRecord};
 use crate::parser::{FileParseFailure, ParseOutcome};
-use crate::report::Diagnostic;
+use crate::report::SourcedDiagnostic;
 
 #[derive(Debug, Default)]
 pub struct ScannedCorpus {
     records: Vec<AdrRecord>,
-    diagnostics: Vec<Diagnostic>,
+    diagnostics: Vec<SourcedDiagnostic>,
     failures: Vec<FileParseFailure>,
 }
 
 impl ScannedCorpus {
     pub fn absorb(&mut self, outcome: ParseOutcome) {
-        let (records, diagnostics, failures) = outcome.into_parts();
+        let (records, diagnostics, failures) = outcome.into_sourced_parts();
         self.records.extend(records);
         self.diagnostics.extend(diagnostics);
         self.failures.extend(failures);
@@ -25,7 +25,7 @@ impl ScannedCorpus {
         &self.records
     }
 
-    pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
+    pub fn take_diagnostics(&mut self) -> Vec<SourcedDiagnostic> {
         std::mem::take(&mut self.diagnostics)
     }
 
