@@ -20,8 +20,10 @@ needs, items currently over-exposed, and the drift from CHE-0030. The
 predecessor mission (bd `adr-fmt-mvtu`; commits `ebe791f` T2 lift,
 `be0b552` Q2 trim) tightened the surface in-code; this ADR pins it.
 
-Three pressures shape the decision. AFM-0001:R1 freezes the binary CLI
-for v0.1; the library MUST NOT widen what the binary promises.
+Three pressures shape the decision. The binary's CLI is the surface
+users already depend on and stays unchanged for v0.1; no ADR pins a
+wider one, so the library widening past it would bind the crate to a
+surface nothing governs. That constraint lives in R5 of this ADR.
 SEC-0004:R3 and COM-0007:R4 prefer minimal default-private surfaces.
 COM-0013:R1+R4 forbids speculative complexity and prefers the more
 reversible design — flat `pub use` at the crate root is reversible
@@ -30,68 +32,21 @@ into a future `adr-fmt-core` split without consumer-side change.
 `adr-srv` is the sole intended consumer. Pinning a small surface now
 is cheaper than negotiating a wider one later.
 
-Amendment 2026-05-19 (Phase 2 v2 M1.3): R1 broadened to add
-`model::{Status, Relationship, RelVerb}`. The `adr-srv` scrape
-pipeline projects `AdrRecord`s into the `AdrIngested` event payload
-and names these three types directly. They were already public on
-`model`; the amendment moves them into the pinned crate-root re-export
-set so `adr-srv` does not name a private path. No new types.
+The R1 set's membership follows from its consumer, not from what
+`lib.rs` happens to expose. `adr-srv`'s scrape pipeline projects
+`AdrRecord`s into the `AdrIngested` event payload and names
+`model::{Status, Relationship, RelVerb}` directly, so those sit at the
+crate root rather than behind a private path. `ResolveCorpusError`,
+`ParseError` and `AdrIdError` are the `Err` of items already pinned —
+`config::resolve_corpus_root`, `parser::parse_domain`,
+`parser::parse_stale`, and `AdrId::try_new` with its `TryFrom<&str>`
+impl — and a consumer cannot call the pinned API without naming them,
+so pinning them records existing reality rather than widening the
+surface (AFM-0028:R4 error-type inheritance). `adr-srv` calling those
+functions is the current-consumer justification COM-0013:R1 requires
+for every member of the set. `index` is crate-private on R2's terms:
+it is an implementation detail of the binary's `run()` entry point.
 
-Amendment 2026-08-13 (M1 cleanup): R1 broadened to add
-`config::ResolveCorpusError` and `parser::ParseError`; R2 extended
-to name the `index` module in its crate-private enumeration. Both
-error types are the `Err` of `Result`s returned by functions already
-pinned in R1 (`config::resolve_corpus_root`, `parser::parse_domain`,
-`parser::parse_stale`); a consumer cannot call the pinned API without
-naming them, so this pins existing reality rather than widening the
-surface (per AFM-0029:R2 in-place amendment, AFM-0028:R4 error-type
-inheritance). `index` is a private module of the binary's `run()`
-entry point, matching the R2 enumeration's existing members. Current
-consumer: `adr-srv`, via the three functions above.
-
-Amendment 2026-09-02 (cluster-6 finding #8): R6 added to state the
-v0.1 stability of error-variant field shape explicitly — previously
-only implied by AFM-0028:R3's back-reference to R3 — and to record one
-break. `containment::ContainmentError::CanonicalizeFailed
-{ segment, reason }` erased which operand failed and flattened
-`std::io::ErrorKind` into arbitrary text, so a consumer could not
-distinguish `NotFound` from an indeterminate failure. Commit `8a34c4e`
-replaces it with `RootCanonicalizeFailed { segment, kind }` and
-`TargetCanonicalizeFailed { segment, kind }`, both carrying a typed
-`std::io::ErrorKind` (additive half landed in `e77ee78`). The removed
-variant had no consumer outside this crate. Recorded in place per
-AFM-0029:R2 — no Supersedes edge, no successor ADR, since this amends
-one rule rather than replacing the ADR.
-
-Amendment 2026-09-02 (SM-05 review finding N2): R7 added to state that
-R1's "exactly these items" pins the reachable field shape
-transitively, not only the named items — a consumer cannot use pinned
-`Config` without naming `DomainConfig`, reached through the public
-`Config::domains: Vec<DomainConfig>` — and to record one break.
-`config::DomainConfig::multi_root_rationale` was public, parsed, and
-inert: the warning it promised was never wired and no code read it.
-Commit `0642ad1` removes it. The TOML schema is unaffected (no
-`deny_unknown_fields`; no corpus `adr-fmt.toml` sets the key), but
-removing a public field of a reachable type is a Rust source break for
-struct literals and field access, so it is recorded here. Recorded in
-place per AFM-0029:R2 — no Supersedes edge, no successor ADR.
-
-Amendment 2026-09-02 (SM-06, opportunistic): R8 added to record a
-second break under R6, which already governs it — R6 cannot absorb the
-record without exceeding T016's 60-word limit.
-`containment::ContainmentError::MetadataFailed` carried a stringly
-`reason`, so a caller could not distinguish permission failure from a
-transient I/O error at the type level — the same defect R6's first
-recorded break named on the canonicalize path. Commit `b139537`
-removes it in favour of `MetadataProbeFailed`, which carries
-`std::io::ErrorKind`; the additive half landed in `01aaa7a`. Display
-still names only the relative segment, per AFM-0028:R2. Recorded in
-place per AFM-0029:R2 — no Supersedes edge, no successor ADR.
-
-`model::AdrIdError` belongs to the R1 set because it is the `Err` of
-`AdrId::try_new` and of the `TryFrom<&str>` impl, both reachable
-through the R1-pinned `AdrId`: a consumer cannot use the pinned
-constructor without naming it (AFM-0028:R4 error-type inheritance).
 R1 and R7 pin which items and fields are stable but are silent on
 whose types they are, so R9 governs semver coupling to third-party
 crates — `clap`, `regex`, `serde`, `toml` — in that same surface.
@@ -100,7 +55,7 @@ crates — `clap`, `regex`, `serde`, `toml` — in that same surface.
 
 Pin the `adr-fmt` library API to a flat re-export set at the crate
 root, with all underlying modules private (CHE-0030:R1), the binary's
-CLI shape unchanged (AFM-0001:R1), and the library forbidden from
+CLI shape unchanged, and the library forbidden from
 calling `std::process::exit`.
 
 R1 [5]: The library exposes exactly these items at the crate root via
@@ -135,11 +90,12 @@ R4 [5]: Library code MUST NOT call `std::process::exit`. Errors
   commit `ebe791f` against regression and reflects SEC-0004:R2
   (authority passed explicitly, never via global process state).
 
-R5 [7]: The library MUST NOT widen what the binary's CLI promises per
-  AFM-0001:R1 (frozen for v0.1). New public library items beyond the
-  R1 set require their own ADR with current-consumer justification
-  per COM-0013:R1. AFM-0006 (regex parsing) and AFM-0017 (P0xx
-  namespace) further pin the shape of items already exposed.
+R5 [7]: The library MUST NOT widen what the binary's CLI promises;
+  that CLI shape is unchanged for v0.1. New public library items
+  beyond the R1 set require their own ADR with current-consumer
+  justification per COM-0013:R1. AFM-0006 (regex parsing) and
+  AFM-0017 (P0xx namespace) further pin the shape of items already
+  exposed.
 
 R6 [5]: Variant field shape of public error types in the R1 set is
   v0.1-stable, the reading AFM-0028:R3 already assumes. New variants
