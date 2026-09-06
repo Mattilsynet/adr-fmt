@@ -54,11 +54,12 @@ R6 [5]: Regenerating a golden MUST NOT be a passing path. The
   regenerating run rewrites and then fails, so no single command can
   both change the expected output and report success
 
-R7 [5]: An ADR citation in a literal Rust doc attribute under `src/`
-  or `tests/` MUST name a live ADR, and each rule id in a recognized
-  suffix form MUST exist as a rule line. Existence only, never
-  entailment; string literals, identifiers and generated docs stay
-  out of reach, and unreadable forms fail closed
+R7 [5]: An `AFM-NNNN` citation in a literal Rust doc attribute under
+  `src/` or `tests/` MUST name a live ADR, and each rule id in a
+  recognized suffix form MUST exist as a rule line. Existence only,
+  never entailment; string literals, identifiers and generated docs
+  stay out of reach, and forms the guard detects but cannot read fail
+  closed
 
 ## Consequences
 
