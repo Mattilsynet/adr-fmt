@@ -315,7 +315,7 @@ fn doc_attribute_citations_resolve_to_a_live_corpus_rule() {
     assert!(
         scan.citations.len() >= CITATION_SITE_FLOOR,
         "extracted only {} doc-attribute citation(s); the floor is {CITATION_SITE_FLOOR}, the \
-         count measured on this corpus after removing the unsupported AFM-0021 claim from \
+         count measured on this corpus after removing the unsupported retired-ADR claim from \
          src/output.rs. Extraction that silently stops matching is indistinguishable from a \
          corpus with nothing to check, so a shortfall is a broken guard and not a clean tree",
         scan.citations.len()
