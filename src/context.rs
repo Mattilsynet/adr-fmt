@@ -77,9 +77,8 @@ impl<'a> EligibleContext<'a> {
 /// unknown-status parents sever ancestry; their eligible descendants,
 /// cycle members and non-terminating chains land in Unclaimed.
 ///
-/// Emission: per root (deterministic order), walk children downward and
-/// emit eligible rules assigned to that root; secondary citations don't
-/// pull extra subtrees.
+/// Emit assigned eligible rules deterministically by root; secondary
+/// citations don't pull extra subtrees.
 ///
 /// Returns `RootGroup`s: foundation roots first, then domain; an
 /// Unclaimed fallback group is appended for unreached eligible ADRs.

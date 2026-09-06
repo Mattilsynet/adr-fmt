@@ -2,24 +2,16 @@
 //! human-readable description are stated.
 //!
 //! AFM-0004:R2 [L5] requires governance guidance be generated from the
-//! same code structures that perform validation. Before this catalog the
-//! descriptions lived as string literals in `guidelines.rs` while the ids
-//! lived as string literals at the `Diagnostic` construction sites, so the
-//! two sides could drift apart silently — and did, three times on the
-//! record.
+//! same code structures that perform validation.
 //!
-//! Both sides now read these entries: validators take their rule id from
+//! Both sides read these entries: validators take their rule id from
 //! `RuleEntry::id`, and `guidelines.rs` renders the registry sections from
 //! the section slices below. Deleting an entry breaks the validator that
 //! emits it, which makes the coupling a compile error rather than a
 //! convention.
 //!
-//! Severity lives here too. It used to be a bare `Diagnostic::warning`
-//! choice made independently at each construction site, with no registry to
-//! read, which is why the T016 guidance could claim a rule was an error
-//! while the validator emitted a warning (adr-fmt-5qd). `RuleEntry::diagnostic`
-//! is now the only place in the crate that decides a diagnostic's severity,
-//! and the renderer states severity by formatting the same field.
+//! `RuleEntry::diagnostic` decides severity; the renderer formats that
+//! same field, keeping IDs, severity, and human-readable text together.
 //!
 //! Crate-private by construction (AFM-0026:R2). Nothing here is exported
 //! at the crate root; doing so would be a new public item under
