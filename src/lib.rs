@@ -21,7 +21,7 @@
 //! Exit codes: `0` — analysis complete (warnings only, or clean);
 //! `1` — infrastructure error or lint errors detected.
 //!
-//! CLI surface frozen for v0.1 per AFM-0001. Library API follows
+//! CLI surface frozen for v0.1 per AFM-0036:R2. Library API follows
 //! AFM-0026 / CHE-0030: modules private, minimum re-export set for
 //! `adr-srv` via a flat `pub use` block (oracle summary bd
 //! `adr-fmt-d7ao`).

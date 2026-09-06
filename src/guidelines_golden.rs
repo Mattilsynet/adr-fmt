@@ -27,7 +27,7 @@
 //! pin. Review the resulting diff: it is the whole point of the pin.
 //!
 //! There is no CLI flag for regeneration — the binary's CLI surface is
-//! frozen for v0.1 by AFM-0001:R1.
+//! frozen for v0.1 by AFM-0036:R2.
 
 use std::fs;
 use std::path::PathBuf;
