@@ -4,7 +4,7 @@
 //! using `◆`/`◇` markers and `---` separators.
 //! Optimized for LLM token efficiency.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
 
 use crate::config::Config;
@@ -12,7 +12,7 @@ use crate::index::CorpusIndex;
 use crate::model::{AdrId, AdrRecord, DomainDir, RelVerb, Status};
 use crate::nav::ActiveTree;
 use crate::refs::RefsReport;
-use crate::report::Diagnostic;
+use crate::report::{DiagnosticSource, SourcedDiagnostic};
 
 /// Read-only context shared across recursive tree-rendering calls.
 struct TreeContext<'a> {
@@ -128,17 +128,64 @@ fn render_status(status: Option<&Status>) -> String {
 
 /// Render diagnostics as Alternative 4 markdown blocks to stdout.
 #[must_use]
-pub fn render_diagnostics(diagnostics: &[Diagnostic], record_count: usize) -> String {
+pub fn render_diagnostics(
+    diagnostics: &[SourcedDiagnostic],
+    record_count: usize,
+    max_warning_docs: usize,
+) -> String {
     let mut out = String::new();
-
-    let mut warnings = 0u32;
-
-    for d in diagnostics {
-        if d.internal {
+    let mut public: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| !d.diagnostic.internal)
+        .collect();
+    public.sort_by(|a, b| {
+        (
+            &a.source,
+            &a.diagnostic.file,
+            a.diagnostic.line,
+            a.diagnostic.rule,
+            &a.diagnostic.message,
+        )
+            .cmp(&(
+                &b.source,
+                &b.diagnostic.file,
+                b.diagnostic.line,
+                b.diagnostic.rule,
+                &b.diagnostic.message,
+            ))
+    });
+    let mut kinds = BTreeMap::<&str, usize>::new();
+    let documents: BTreeSet<_> = public
+        .iter()
+        .filter_map(|d| match &d.source {
+            DiagnosticSource::Global => None,
+            DiagnosticSource::Document(path) => Some(path),
+        })
+        .collect();
+    let selected: BTreeSet<_> = documents.into_iter().take(max_warning_docs).collect();
+    writeln!(
+        out,
+        "## Diagnostics: {} warning(s) across {record_count} ADR(s)",
+        public.len()
+    )
+    .unwrap();
+    if public.is_empty() {
+        return out;
+    }
+    if !selected.is_empty()
+        || public
+            .iter()
+            .any(|item| matches!(item.source, DiagnosticSource::Global))
+    {
+        out.push('\n');
+    }
+    for sourced in public {
+        let d = &sourced.diagnostic;
+        *kinds.entry(d.rule).or_default() += 1;
+        if let DiagnosticSource::Document(path) = &sourced.source
+            && !selected.contains(path)
+        {
             continue;
-        }
-        match d.severity {
-            crate::report::Severity::Warning => warnings += 1,
         }
 
         let location = if d.line > 0 {
@@ -155,16 +202,9 @@ pub fn render_diagnostics(diagnostics: &[Diagnostic], record_count: usize) -> St
         .unwrap();
     }
 
-    if out.is_empty() {
-        writeln!(
-            out,
-            "## Diagnostics: 0 warning(s) across {record_count} ADR(s)"
-        )
-        .unwrap();
-    } else {
-        let header =
-            format!("## Diagnostics: {warnings} warning(s) across {record_count} ADR(s)\n\n");
-        out.insert_str(0, &header);
+    writeln!(out, "\n### Warning totals by kind").unwrap();
+    for (rule, count) in kinds {
+        writeln!(out, "- {rule}: {count}").unwrap();
     }
 
     out
@@ -746,7 +786,7 @@ mod tests {
 
     #[test]
     fn render_diagnostics_clean() {
-        let output = render_diagnostics(&[], 5);
+        let output = render_diagnostics(&[], 5, 1);
         assert!(output.contains("0 warning(s)"));
     }
 
@@ -757,9 +797,111 @@ mod tests {
             1,
             "missing title".into(),
         )];
-        let output = render_diagnostics(&diags, 1);
+        let diags = crate::report::document_diagnostics(std::path::Path::new("test.md"), diags);
+        let output = render_diagnostics(&diags, 1, 1);
         assert!(output.contains("1 warning(s)"));
         assert!(output.contains("T020"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn warning_native_paths_do_not_share_a_detail_slot() {
+        use std::os::unix::ffi::OsStringExt;
+        let paths: Vec<std::path::PathBuf> = [0xfe, 0xff]
+            .into_iter()
+            .map(|byte| std::ffi::OsString::from_vec(vec![byte]).into())
+            .collect();
+        let diagnostics: Vec<_> = paths
+            .iter()
+            .flat_map(|path| {
+                crate::report::document_diagnostics(
+                    path,
+                    vec![catalog::N001.diagnostic(path, 0, "bad name".into())],
+                )
+            })
+            .collect();
+        let output = render_diagnostics(&diagnostics, 0, 1);
+        assert_eq!(output.matches("- **warning[N001]**").count(), 1);
+    }
+
+    #[test]
+    fn warning_details_preserve_globals_all_selected_messages_and_public_totals() {
+        let mut internal =
+            catalog::N001.diagnostic(std::path::Path::new("a.md"), 0, "internal".into());
+        internal.internal = true;
+        let diagnostics = vec![
+            catalog::T020.diagnostic(std::path::Path::new("b.md"), 1, "hidden".into()),
+            catalog::P001.diagnostic(
+                std::path::Path::new("directory.md"),
+                0,
+                "global directory".into(),
+            ),
+            catalog::T015.diagnostic(
+                std::path::Path::new("adr-fmt.toml"),
+                0,
+                "global config".into(),
+            ),
+            catalog::T020.diagnostic(std::path::Path::new("a.md"), 2, "second".into()),
+            catalog::P002.diagnostic(std::path::Path::new("a.md"), 1, "first".into()),
+            internal,
+        ];
+        let diagnostics: Vec<_> = diagnostics
+            .into_iter()
+            .map(|diagnostic| {
+                let source = match diagnostic.file.as_str() {
+                    "directory.md" | "adr-fmt.toml" => DiagnosticSource::Global,
+                    path => DiagnosticSource::Document(path.into()),
+                };
+                SourcedDiagnostic { source, diagnostic }
+            })
+            .collect();
+        let output = render_diagnostics(&diagnostics, 2, 1);
+        assert!(output.starts_with("## Diagnostics: 5 warning(s) across 2 ADR(s)\n"));
+        assert!(output.contains("a.md:1: first\n- **warning[T020]** a.md:2: second"));
+        assert!(!output.contains("hidden"));
+        assert!(!output.contains("N001"));
+        assert!(output.ends_with("- P001: 1\n- P002: 1\n- T015: 1\n- T020: 2\n"));
+        let zero = render_diagnostics(&diagnostics, 2, 0);
+        assert_eq!(
+            zero,
+            "## Diagnostics: 5 warning(s) across 2 ADR(s)\n\n- **warning[T015]** adr-fmt.toml: global config\n- **warning[P001]** directory.md: global directory\n\n### Warning totals by kind\n- P001: 1\n- P002: 1\n- T015: 1\n- T020: 2\n"
+        );
+        let documents: Vec<_> = diagnostics
+            .into_iter()
+            .filter(|item| matches!(item.source, DiagnosticSource::Document(_)))
+            .collect();
+        assert_eq!(
+            render_diagnostics(&documents, 2, 0),
+            "## Diagnostics: 3 warning(s) across 2 ADR(s)\n\n### Warning totals by kind\n- P002: 1\n- T020: 2\n"
+        );
+        assert_eq!(
+            render_diagnostics(&[], 2, 0),
+            "## Diagnostics: 0 warning(s) across 2 ADR(s)\n"
+        );
+    }
+
+    #[test]
+    fn warning_globals_sort_by_file_before_line() {
+        let diagnostics = vec![
+            SourcedDiagnostic {
+                source: DiagnosticSource::Global,
+                diagnostic: catalog::P001.diagnostic(
+                    std::path::Path::new("z.md"),
+                    0,
+                    "first".into(),
+                ),
+            },
+            SourcedDiagnostic {
+                source: DiagnosticSource::Global,
+                diagnostic: catalog::P001.diagnostic(
+                    std::path::Path::new("a.md"),
+                    1,
+                    "second".into(),
+                ),
+            },
+        ];
+        let output = render_diagnostics(&diagnostics, 0, 0);
+        assert!(output.find("a.md").unwrap() < output.find("z.md").unwrap());
     }
 
     #[test]

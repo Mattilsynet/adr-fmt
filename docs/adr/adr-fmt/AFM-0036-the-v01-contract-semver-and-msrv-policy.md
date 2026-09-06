@@ -43,10 +43,11 @@ R3 [5]: A change is breaking when a conforming consumer can observe
   different rendered bytes, a previously accepted config key now
   rejected. AFM-0035:R1 is this rule applied to accessors
 
-R4 [5]: While the version is 0.1.x every release MUST be non-breaking
-  under R3, and additive change is permitted. A break requires the
-  version to move to 0.2.0 and a successor ADR naming what broke, on
-  the terms AFM-0029:R2 sets for recording it
+R4 [5]: Within each 0.y series every release MUST be non-breaking
+  under R3; additive change is permitted. A break moves the version
+  to 0.(y+1).0 and requires a successor ADR naming what broke, on
+  AFM-0029:R2's recording terms. The current series is 0.2.x;
+  AFM-0038 records its diagnostic-output contract
 
 R5 [5]: The `rust-toolchain.toml` channel and the `Cargo.toml`
   `rust-version` state one MSRV floor and MUST be equal; both are
@@ -59,7 +60,7 @@ The phrase has a referent. Each leaning ADR can cite R2 for what it
 claims membership of and R3 for what breaking it means, instead of
 asserting membership on its own authority. R3 costs the most: it makes
 the rendered output and the exit codes contract surface, so a wording
-change to the guidelines rendering is a 0.2.0 matter rather than a
+change to the guidelines rendering requires the next minor series rather than a
 patch — which is already how the byte-level golden pin treats those
 bytes. R5 binds the build pin and the published floor to one another,
 so raising the toolchain channel is a consumer-visible break rather

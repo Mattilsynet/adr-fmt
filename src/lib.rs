@@ -67,6 +67,10 @@ struct Cli {
     #[arg(long, group = "mode")]
     lint: bool,
 
+    #[arg(long, value_name = "N", requires = "lint", value_parser = parse_warning_docs,
+        help = "Show details for at most N offending documents (default: 1; 0: totals and globals only)")]
+    max_warning_docs: Option<usize>,
+
     /// List ADRs that cite the target via References or Supersedes
     #[arg(long, value_name = "ADR_ID", group = "mode")]
     refs: Option<String>,
@@ -82,7 +86,7 @@ struct Cli {
 
 enum Mode {
     Guidelines,
-    Lint,
+    Lint { max_warning_docs: usize },
     Refs(String),
     Context(String),
     Tree(Option<String>),
@@ -101,11 +105,22 @@ impl Cli {
                 Some(domain_filter)
             })
         } else if self.lint {
-            Mode::Lint
+            Mode::Lint {
+                max_warning_docs: self.max_warning_docs.unwrap_or(1),
+            }
         } else {
             Mode::Guidelines
         }
     }
+}
+
+fn parse_warning_docs(value: &str) -> Result<usize, String> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("expected a bare unsigned decimal integer".into());
+    }
+    value
+        .parse()
+        .map_err(|_| "document limit exceeds usize".into())
 }
 
 /// Why a [`run`] invocation did not complete.
@@ -250,12 +265,7 @@ where
     let index = match index::CorpusIndex::build(&scan) {
         Ok(idx) => idx,
         Err(dup) => {
-            return report_duplicate_id(
-                matches!(mode, Mode::Lint),
-                parse_diagnostics,
-                all_records.len(),
-                &dup,
-            );
+            return report_duplicate_id(&mode, parse_diagnostics, all_records.len(), &dup);
         }
     };
 
@@ -275,7 +285,7 @@ fn dispatch_mode(
     config: &Config,
     domain_dirs: &[DomainDir],
     index: &index::CorpusIndex<'_>,
-    parse_diagnostics: Vec<report::Diagnostic>,
+    parse_diagnostics: Vec<report::SourcedDiagnostic>,
 ) -> Result<(), RunError> {
     match mode {
         Mode::Guidelines => Ok(()),
@@ -321,12 +331,12 @@ fn dispatch_mode(
             );
             Ok(())
         }
-        Mode::Lint => {
+        Mode::Lint { max_warning_docs } => {
             let mut diagnostics = parse_diagnostics;
             diagnostics.extend(rules::run_all(all_records, config, index));
             print!(
                 "{}",
-                output::render_diagnostics(&diagnostics, all_records.len())
+                output::render_diagnostics(&diagnostics, all_records.len(), *max_warning_docs,)
             );
             Ok(())
         }
@@ -334,15 +344,24 @@ fn dispatch_mode(
 }
 
 fn report_duplicate_id(
-    lint_mode: bool,
-    parse_diagnostics: Vec<report::Diagnostic>,
+    mode: &Mode,
+    parse_diagnostics: Vec<report::SourcedDiagnostic>,
     record_count: usize,
     dup: &index::DuplicateId,
 ) -> Result<(), RunError> {
-    if lint_mode {
+    if let Mode::Lint { max_warning_docs } = mode {
         let mut diagnostics = parse_diagnostics;
-        diagnostics.push(duplicate_id_diagnostic(dup));
-        print!("{}", output::render_diagnostics(&diagnostics, record_count));
+        diagnostics.extend(report::document_diagnostics(
+            &dup.paths[0],
+            vec![duplicate_id_diagnostic(dup)],
+        ));
+        print!(
+            "{}",
+            output::render_diagnostics(&diagnostics, record_count, *max_warning_docs)
+        );
+        println!(
+            "\nValidation incomplete: duplicate ADR IDs prevent rule checks; totals cover parser and duplicate-ID findings only."
+        );
         return Ok(());
     }
     eprintln!(
@@ -570,7 +589,12 @@ mod mode_tests {
 
     #[test]
     fn lint_flag_maps_to_lint() {
-        assert!(matches!(mode_of(&["adr-fmt", "--lint"]), Mode::Lint));
+        assert!(matches!(
+            mode_of(&["adr-fmt", "--lint"]),
+            Mode::Lint {
+                max_warning_docs: 1
+            }
+        ));
     }
 
     #[test]

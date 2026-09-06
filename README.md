@@ -9,6 +9,7 @@ multi-domain ADR corpus.
 ```text
 adr-fmt                     # default: print governance guidelines
 adr-fmt --lint              # lint all ADRs
+adr-fmt --lint --max-warning-docs 5  # details for five offending documents
 adr-fmt --refs <ADR_ID>     # inbound references (References + Supersedes)
 adr-fmt --context <CRATE>   # decision rules for a crate
 adr-fmt --tree [DOMAIN]     # domain tree overview
@@ -27,6 +28,32 @@ warnings still exits `0`. Exit `1` is reserved for infrastructure
 failures and structural lint errors that prevent analysis. Treat
 warnings as signal for review, not as build-breakers.
 
+### Warning detail and totals (0.2.0)
+
+`--lint` scans the corpus and shows all diagnostics for the first offending
+document by native source-path order. `--max-warning-docs N` changes that
+document limit; `0` hides document details, not findings. Clean files consume
+no slots; malformed files do. Configuration and directory-level diagnostics
+remain visible at every limit. Within each source, details sort by line,
+rule ID and message.
+
+`N` must be a bare unsigned decimal integer fitting the platform's `usize`.
+Empty, missing, signed, whitespace-padded, nondecimal and overflowing values
+are usage errors. The explicit option requires `--lint`.
+
+The unchanged `## Diagnostics: N warning(s) across M ADR(s)` header counts
+all public diagnostics, including hidden documents; `M` counts parsed ADRs,
+not offending files. Non-clean output also includes `### Warning totals by
+kind` with nonzero `- RULE: COUNT` lines sorted by rule ID. Internal findings
+are excluded. Clean output is unchanged. The duplicate-ID short circuit
+still skips rule checks and explicitly reports incomplete validation; its
+totals cover only parser and duplicate-ID findings, not unexecuted checks.
+
+Neither exit zero nor absent detail means clean. Use the header count and
+`scripts/adr-lint-gate.sh` for threshold enforcement, never count detail
+bullets. The cap limits documents, not output bytes or scan memory: globals,
+messages and whole-corpus processing remain unbounded by `N`.
+
 ## Configuration
 
 For an additive, opt-in engineering baseline, see the
@@ -41,10 +68,9 @@ See this repository's own `adr-fmt.toml` for a worked example.
 
 Starting from an empty repository (no existing ADRs):
 
-1. **Install.** `cargo install --path .` (this checkout) or
-   `cargo install adr-fmt` once published, or build a release binary
-   with `cargo build --release` and copy `target/release/adr-fmt`
-   onto your `PATH`.
+1. **Install.** `cargo +1.98.0 install --git https://github.com/Mattilsynet/adr-fmt --locked adr-fmt`.
+   For development, build this checkout with `cargo build --locked` and
+   invoke `target/debug/adr-fmt` directly.
 
 2. **Pick an ADR root.** Conventional choice: `docs/adr/`.
 
@@ -72,9 +98,8 @@ Starting from an empty repository (no existing ADRs):
    Run `adr-fmt` (no flags) to print the governance reference, which
    includes the ADR template and the rule catalogue.
 
-6. **Validate.** `adr-fmt --lint` from anywhere inside the repository
-   should exit `0` once your ADR satisfies the template rules
-   (`T0xx`), link rules (`L0xx`), and lifecycle rules (`S0xx`).
+6. **Validate.** `adr-fmt --lint` from anywhere inside the repository.
+   Require the header to report zero warnings; exit `0` alone is advisory.
 
 The tool walks up from the current directory to find `adr-fmt.toml`,
 so step 6 works from any subdirectory.
@@ -111,10 +136,8 @@ project's `Cargo.lock` takes over and this one is ignored.
 
 ## Governance
 
-This tool's own design decisions are tracked in the originating
-monorepo (Mattilsynet/gh-report) under `docs/adr/adr-fmt/` (prefix
-`AFM`); this standalone repository does not yet carry its own ADR
-corpus.
+This tool's own design decisions live in `docs/adr/adr-fmt/` (prefix
+`AFM`). AFM-0038 records the 0.2.0 warning-output break under AFM-0036.
 
 ## License
 

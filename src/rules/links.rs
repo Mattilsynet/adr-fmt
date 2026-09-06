@@ -6,35 +6,61 @@ use crate::model::{AdrId, AdrRecord, CrossDomainParent, RelVerb, Relationship, S
 use crate::nav::{compute_parent_edges, walk_parent_chain};
 use crate::report::Diagnostic;
 
+#[cfg(test)]
 pub fn check(
     records: &[AdrRecord],
     by_id: &CorpusIndex<'_>,
     governed: GovernedPrefixes<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    for record in records {
-        check_root_references_coexistence(record, diags);
+    let mut sourced = Vec::new();
+    check_sourced(records, by_id, governed, &mut sourced);
+    diags.extend(sourced.into_iter().map(|item| item.diagnostic));
+}
 
+pub(crate) fn check_sourced(
+    records: &[AdrRecord],
+    by_id: &CorpusIndex<'_>,
+    governed: GovernedPrefixes<'_>,
+    sourced: &mut Vec<crate::report::SourcedDiagnostic>,
+) {
+    let parent_edges = compute_parent_edges(records);
+    let cycle_members = detect_cycle_members(&parent_edges);
+    for record in records {
+        let mut diags = Vec::new();
+        check_root_references_coexistence(record, &mut diags);
         for rel in record.relationships() {
             if rel.verb == RelVerb::Root {
-                check_root_self_reference(record, rel, diags);
+                check_root_self_reference(record, rel, &mut diags);
             }
+            check_legacy_verb(record, rel, &mut diags);
+            check_single_link(record, rel, by_id, governed, &mut diags);
         }
-
-        for rel in record.relationships() {
-            check_legacy_verb(record, rel, diags);
+        check_parent_cross_domain_consistency(record, by_id, &mut diags);
+        let single = std::slice::from_ref(record);
+        check_supersedes_consistency(single, by_id, &mut diags);
+        emit_cycle_diagnostics(single, &cycle_members, &mut diags);
+        if !should_skip_tree_record(record)
+            && !emit_missing_parent(record, &parent_edges, &mut diags)
+            && let Some(parent_id) = parent_edges.get(record.id())
+        {
+            let in_cycle = cycle_members.contains(record.id());
+            emit_cross_domain_parent(record, parent_id, by_id, in_cycle, &mut diags);
+            emit_parent_status_and_tier(record, parent_id, by_id, in_cycle, &mut diags);
+            emit_root_parent_candidate(record, parent_id, by_id, &mut diags);
         }
-
-        for rel in record.relationships() {
-            check_single_link(record, rel, by_id, governed, diags);
-        }
-
-        check_parent_cross_domain_consistency(record, by_id, diags);
+        emit_unreachable_chain_diagnostics(
+            single,
+            by_id,
+            &parent_edges,
+            &cycle_members,
+            &mut diags,
+        );
+        sourced.extend(crate::report::document_diagnostics(
+            record.file_path(),
+            diags,
+        ));
     }
-
-    check_supersedes_consistency(records, by_id, diags);
-
-    check_tree_structure(records, by_id, diags);
 }
 
 /// The domain prefixes this corpus governs, taken from the `[[domains]]`
@@ -308,38 +334,6 @@ fn check_root_references_coexistence(source: &AdrRecord, diags: &mut Vec<Diagnos
             ),
         ));
     }
-}
-
-fn check_tree_structure(
-    records: &[AdrRecord],
-    by_id: &CorpusIndex<'_>,
-    diags: &mut Vec<Diagnostic>,
-) {
-    let parent_edges = compute_parent_edges(records);
-
-    let cycle_members = detect_cycle_members(&parent_edges);
-    emit_cycle_diagnostics(records, &cycle_members, diags);
-
-    for record in records {
-        if should_skip_tree_record(record) {
-            continue;
-        }
-        if emit_missing_parent(record, &parent_edges, diags) {
-            continue;
-        }
-
-        let Some(parent_id) = parent_edges.get(record.id()) else {
-            continue;
-        };
-
-        let in_cycle = cycle_members.contains(record.id());
-
-        emit_cross_domain_parent(record, parent_id, by_id, in_cycle, diags);
-        emit_parent_status_and_tier(record, parent_id, by_id, in_cycle, diags);
-        emit_root_parent_candidate(record, parent_id, by_id, diags);
-    }
-
-    emit_unreachable_chain_diagnostics(records, by_id, &parent_edges, &cycle_members, diags);
 }
 
 fn should_skip_tree_record(record: &AdrRecord) -> bool {

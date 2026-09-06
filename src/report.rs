@@ -9,7 +9,72 @@
 //! diagnostic channel.
 
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum DiagnosticSource {
+    Global,
+    Document(PathBuf),
+}
+
+#[derive(Debug)]
+pub(crate) struct SourcedDiagnostic {
+    pub source: DiagnosticSource,
+    pub diagnostic: Diagnostic,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct DiagnosticBatch {
+    diagnostics: Vec<Diagnostic>,
+    sources: Vec<DiagnosticSource>,
+}
+
+impl DiagnosticBatch {
+    pub(crate) fn push(&mut self, item: SourcedDiagnostic) {
+        self.diagnostics.push(item.diagnostic);
+        self.sources.push(item.source);
+    }
+
+    pub(crate) fn document(&mut self, path: &Path, diagnostics: Vec<Diagnostic>) {
+        for item in document_diagnostics(path, diagnostics) {
+            self.push(item);
+        }
+    }
+
+    pub(crate) fn into_sourced(self) -> Vec<SourcedDiagnostic> {
+        self.sources
+            .into_iter()
+            .zip(self.diagnostics)
+            .map(|(source, diagnostic)| SourcedDiagnostic { source, diagnostic })
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn into_diagnostics(self) -> Vec<Diagnostic> {
+        self.diagnostics
+    }
+}
+
+impl std::ops::Deref for DiagnosticBatch {
+    type Target = [Diagnostic];
+
+    fn deref(&self) -> &Self::Target {
+        &self.diagnostics
+    }
+}
+
+pub(crate) fn document_diagnostics(
+    path: &Path,
+    diagnostics: Vec<Diagnostic>,
+) -> Vec<SourcedDiagnostic> {
+    diagnostics
+        .into_iter()
+        .map(|diagnostic| SourcedDiagnostic {
+            source: DiagnosticSource::Document(path.to_path_buf()),
+            diagnostic,
+        })
+        .collect()
+}
 
 /// Diagnostic severity. Only `Warning` is emitted today per AFM-0003
 /// advisory-only semantics. The enum is kept as a single-variant type
