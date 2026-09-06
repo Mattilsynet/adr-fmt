@@ -29,6 +29,10 @@ warnings as signal for review, not as build-breakers.
 
 ## Configuration
 
+For an additive, opt-in engineering baseline, see the
+[software-factory corpus](software-factory/README.md). Its nested configuration
+is independent of this tool's own AFM governance.
+
 `adr-fmt.toml` lives at the workspace root. It declares the corpus
 location, domains, the stale folder, and crate-to-domain mapping.
 See this repository's own `adr-fmt.toml` for a worked example.
