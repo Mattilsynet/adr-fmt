@@ -33,25 +33,26 @@ cargo fmt --all -- --check
 
 ## Rustdoc budget gate
 
-Run the same checks locally and in CI:
+Run the same native check from the repository root locally and in CI:
 
 ```
-python3 scripts/doc-budget-gate-test.py
-python3 scripts/doc-budget-gate.py
+comment-free --check-doc-budget --doc-advisory-words 80 --doc-max-words 120 --max-warning-files 0 .
 ```
 
-Requires Python 3 stdlib and comment-free 0.2.0, canonically installed with:
+Requires comment-free 0.2.0 at the canonical revision below:
 
 ```
-cargo +1.98.0 install --git https://github.com/acje/comment-free --rev b10cb64295a4ff19115644d42165fc4252677328 --locked comment-free
+cargo +1.98.0 install --git https://github.com/acje/comment-free --rev e45de7ef3b0fcd9a1ec299b9026b14fb5b0cf534 --locked comment-free
 ```
 
-The read-only gate scans the repository twice: 80 prose words is advisory;
-120 is enforced. Fenced code is excluded by the tool. Summary-only output
-retains full findings/undecided/error totals without unbounded detail output.
-Exit 0 means decided within the enforced budget, 1 means over 120, and 2
-means no verdict (undecided, tool failure, empty scope, or unsupported or
-inconsistent v3 protocol). Diagnostics are preserved. No rewrite mode runs.
+The read-only native gate recursively scans Rust sources under `.` with the
+tool's build/hidden pruning: 80 prose words is advisory; 120 is enforced.
+Fenced code is excluded by the tool. Summary-only output retains full totals
+while suppressing finding details; diagnostics remain visible.
+Native gate exits are 0 for pass, 1 for enforced breach, and 2 for
+unknown/error, including undecided payloads or empty scope. Policy and its
+implementation/tests/proofs belong upstream; repository checks establish
+integration only. No rewrite mode runs.
 Macro-generated docs without spelled `doc` tokens remain outside detection;
 this is not proof of semantic documentation coverage or process-memory bounds.
 
