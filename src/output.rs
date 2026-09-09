@@ -255,21 +255,17 @@ pub fn render_root_groups(crate_name: &str, groups: &[RootGroup]) -> String {
     out
 }
 
-/// Render the domain tree with box-drawing to stdout.
+/// Render domain trees with box-drawing for stdout.
 ///
-/// For each domain (filtered by `domain_filter` if set), renders the
-/// parent-edge tree(s) rooted at each Root-marked ADR in that domain.
-/// Children are determined by `compute_parent_children` and restricted
-/// to same-domain ADRs (cross-domain children appear in their own
-/// domain's tree). Stale ADRs are excluded from rendering but counted.
+/// Apply `domain_filter` when set; render each domain's Root-marked trees.
+/// `compute_parent_children` determines same-domain children; cross-domain
+/// children appear in their own domain. Stale ADRs are counted, not rendered.
 ///
-/// Each ADR line shows: `<glyphs> ID Title [Tier] STATUS [also: X, Y]`
-/// where `also: …` lists forward citations other than the structural
-/// parent (Supersedes/Refines/etc.).
+/// Lines show `<glyphs> ID Title [Tier] STATUS [also: X, Y]`;
+/// `also: …` lists non-parent forward citations (Supersedes/Refines/etc.).
 ///
-/// Per-domain orphan section lists ADRs in the domain that are not
-/// reachable from any root via parent-edge traversal (cycles or
-/// missing parent). These are rendered flat after the tree(s).
+/// Each domain's unreachable ADRs (cycles or missing parents) follow its
+/// trees in a flat orphan section.
 #[must_use]
 pub fn render_tree(
     records: &[AdrRecord],
@@ -660,11 +656,9 @@ fn format_also_references_full(record: &AdrRecord) -> String {
 /// 1. The `Parent-cross-domain:` preamble field is present, AND
 /// 2. The declared ID matches the record's first `References:` target.
 ///
-/// A mismatch is a misdeclaration (surfaced by L018, not here); a missing
-/// field on a cross-domain first-References is surfaced by L011. This
-/// helper returns `Some` only when the field and the structural parent
-/// edge agree, so callers can treat the result as "this ADR has a
-/// declared, structurally-honoured cross-domain parent."
+/// L018 reports mismatches; L011 reports missing declarations on cross-domain
+/// first references. This helper emits neither diagnostic: `Some` means the
+/// declaration agrees with the structural parent edge.
 #[must_use]
 pub fn validated_cross_domain_parent(record: &AdrRecord) -> Option<AdrId> {
     let declared = record.parent_cross_domain()?;

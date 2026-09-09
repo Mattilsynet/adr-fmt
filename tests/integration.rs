@@ -2574,18 +2574,16 @@ fn synthetic_corpus_clean_of_structural_defects() {
     }
 }
 
-/// `--tree` against the synthetic corpus must render every non-stale
-/// ADR somewhere — either as a node in a parent-edge tree OR in the
-/// per-domain orphan section (categorized as "no References", "chain
-/// ends at non-root", or "cycle"). No ADR may silently disappear.
+/// Synthetic-corpus `--tree` must render every non-stale ADR in a parent-edge
+/// tree or per-domain orphan section ("no References", "chain ends at non-root",
+/// or "cycle"). No ADR may silently disappear.
 ///
-/// Pin: count of `<PREFIX>-NNNN` ID occurrences in `--tree` stdout
-/// must be ≥ count of non-stale ADRs in the corpus. (≥ because
-/// `[also: …]` annotations and per-record orphan listings can
-/// repeat IDs; the pin is a lower bound.)
+/// Pin: distinct stdout `<PREFIX>-NNNN` IDs ≥ non-stale ADR count.
+/// `[also: …]` annotations and orphan listings can repeat IDs; duplicates
+/// count once. This lower bound does not prove per-ADR membership.
 ///
-/// Counting strategy: walk `docs/adr/` directly (excluding `stale/`)
-/// rather than parsing the lint summary, which is format-coupled.
+/// Count corpus files directly under `docs/adr/`, excluding `stale/`,
+/// avoiding lint-summary format coupling.
 #[test]
 fn synthetic_corpus_tree_covers_every_adr() {
     let dir = setup_cross_domain_tree_corpus();

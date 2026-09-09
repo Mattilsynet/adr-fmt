@@ -1,22 +1,13 @@
-//! Smoke + API probe tests pinning the lib surface.
+//! Library smoke/API probes: `adr_fmt::run` callable; root re-exports resolve.
 //!
-//! `run_default_mode_via_lib_api_returns_zero` proves `adr_fmt::run` is
-//! callable from a library consumer. `lib_api_modules_resolve` is a
-//! compile-time probe that every item in the Q2 public-API set (see bd
-//! adr-fmt-d7ao) resolves under its re-exported crate-root path.
+//! `--help`/`--version`/infrastructure-failure termination guards spawn ignored
+//! child probes in this executable: in-process assertions cannot survive
+//! `process::exit`. Parents require successful exit and a sentinel printed
+//! after `run` returns; non-zero exit or missing sentinel fails.
 //!
-//! The `--help` / `--version` / infrastructure-failure termination
-//! guards run out-of-process: an in-process assertion cannot bite,
-//! because `process::exit` inside `run` would terminate the test binary
-//! before the assertion executes. Each parent test spawns an
-//! `#[ignore]`d child probe in this same executable and requires a
-//! sentinel printed *after* `run` returns; a terminating `run` yields
-//! either a successful child with no sentinel or a non-zero child,
-//! both of which fail the parent.
-//!
-//! Modules `context`, `nav`, `output`, `refs`, `rules`, `guidelines` are
-//! private per CHE-0030 (Flat Public API via Private Modules); external
-//! consumers MUST NOT name those paths, so no probes exist for them.
+//! `context`, `nav`, `output`, `refs`, `rules`, `guidelines` are private
+//! per CHE-0030 (Flat Public API via Private Modules): consumers MUST NOT name
+//! them; no probes cover those paths.
 //!
 //! Binary regression coverage lives in `tests/integration.rs`.
 

@@ -31,6 +31,31 @@ cargo fmt --all -- --check
 - `cargo deny check` and `cargo audit` are supply-chain gates; run
   before publishing or bumping dependencies.
 
+## Rustdoc budget gate
+
+Run the same native check from the repository root locally and in CI:
+
+```
+comment-free --check-doc-budget --doc-advisory-words 80 --doc-max-words 120 --max-warning-files 0 .
+```
+
+Requires comment-free 0.2.0 at the canonical revision below:
+
+```
+cargo +1.98.0 install --git https://github.com/acje/comment-free --rev e45de7ef3b0fcd9a1ec299b9026b14fb5b0cf534 --locked comment-free
+```
+
+The read-only native gate recursively scans Rust sources under `.` with the
+tool's build/hidden pruning: 80 prose words is advisory; 120 is enforced.
+Fenced code is excluded by the tool. Summary-only output retains full totals
+while suppressing finding details; diagnostics remain visible.
+Native gate exits are 0 for pass, 1 for enforced breach, and 2 for
+unknown/error, including undecided payloads or empty scope. Policy and its
+implementation/tests/proofs belong upstream; repository checks establish
+integration only. No rewrite mode runs.
+Macro-generated docs without spelled `doc` tokens remain outside detection;
+this is not proof of semantic documentation coverage or process-memory bounds.
+
 ## Delivery
 
 `main` is protected (PR required). Changes land via a feature branch and

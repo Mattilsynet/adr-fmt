@@ -1,19 +1,15 @@
 //! Template compliance rules (T002–T022) and structure rules (S004–S008).
 //!
-//! T002–T005c: preamble metadata fields (Date, Last-reviewed, Tier,
-//! Status; T005c flags legacy `## Status` heading). T006 status value
-//! validity. T007–T010 required sections (active ADRs only). T011
-//! code-block size. T014 section ordering. T015 tier-scaled prose
-//! word-count range. T016 tagged-rule validation (tier-scaled count,
-//! 7–60 words each). T019 rule/ADR tier tension. T020 tier-scaled
-//! `References:` load. T022 omitted-MADR-template residue section
-//! names on active ADRs.
+//! T002–T005: Date/Last-reviewed/Tier/Status metadata; T005c: legacy `## Status`.
+//! T006: status validity. T007–T010: required active sections. T011: code-block
+//! size. T014: section order. T015: tier-scaled prose range. T016: tagged
+//! rules (tier-scaled count, 7–60 words each). T019: rule/ADR tier tension.
+//! T020: tier-scaled `References:` load. T022: omitted-MADR-section residue
+//! in active ADRs.
 //!
-//! S004/S005: stale ↔ Retirement-section presence mismatch. S006:
-//! terminal-status ADR not in the stale directory. S007: stale-stub
-//! structure per AFM-0022 — disallowed sections or non-lineage
-//! relationship verbs in stale stubs. S008: stale-directory ADR whose
-//! status is still live — the reverse direction of S006.
+//! S004/S005: stale/Retirement mismatch. S006: terminal ADR outside stale.
+//! S007: disallowed stale-stub sections or non-lineage verbs per AFM-0022.
+//! S008: live-status ADR inside stale (S006's reverse).
 
 use crate::rules::catalog;
 use std::path::Path;

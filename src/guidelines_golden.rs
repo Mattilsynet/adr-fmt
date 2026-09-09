@@ -1,10 +1,7 @@
 //! Byte-level golden pin on the two default-mode governance renderings.
 //!
-//! `tests/guidelines_parity.rs` gates rule-ID parity only: an N002/N003
-//! description swap, or wrong wording on any of the rules outside the
-//! N-family keyword anchors, passes it green. This pin compares the
-//! rendered bytes against a committed file, so any wording change becomes
-//! a reviewable diff instead of silent drift.
+//! Unlike rule-ID parity, this compares rendered bytes against committed
+//! files in `tests/golden/`, detecting wording changes and description swaps.
 //!
 //! `governance.txt` is rendered against this repository's own
 //! `adr-fmt.toml`; `setup_guide.txt` takes no config. Rendering happens
@@ -18,13 +15,8 @@
 //! cargo test                        # verifies; this is the run that may pass
 //! ```
 //!
-//! Regeneration is deliberately not a passing path. `UPDATE_GOLDEN=1`
-//! rewrites both golden files from the current renderer and then fails the
-//! run, so no single command can both mutate the expected output and report
-//! success; verification always requires a second run with the variable
-//! unset. Any value other than exactly `1` is rejected rather than treated
-//! as "on", so an inherited `UPDATE_GOLDEN=0` cannot quietly disarm the
-//! pin. Review the resulting diff: it is the whole point of the pin.
+//! `UPDATE_GOLDEN=1` rewrites goldens and fails; review the diff, then verify
+//! with a second run with the variable unset. Every other value is rejected.
 
 use std::fs;
 use std::path::PathBuf;

@@ -154,12 +154,8 @@ impl TryFrom<RawConfig> for Config {
     }
 }
 
-/// Load configuration from `adr-fmt.toml` in the marker directory,
-/// suppressing the legacy-rule deprecation warning.
-///
-/// `marker_dir` is the directory containing `adr-fmt.toml` (typically
-/// the workspace root). Used by walk-up discovery so warnings from
-/// skipped (non-selected) markers do not pollute stderr.
+/// Load `adr-fmt.toml` from `marker_dir` (typically the workspace root),
+/// suppressing legacy-rule deprecation warnings from skipped discovery markers.
 ///
 /// # Errors
 ///
@@ -168,10 +164,8 @@ impl TryFrom<RawConfig> for Config {
 /// Returns [`LoadError::NotAMarker`] when the file parses as TOML but
 /// declares no `[corpus]` table.
 /// Returns [`LoadError::DuplicateRuleId`] when the file declares the
-/// same `[[rules]] id` more than once. This applies to the quiet path
-/// too: a marker whose configuration is contradictory is broken, and
-/// discovery must stop at it rather than walk past it — the same
-/// treatment [`LoadError::Parse`] already gets.
+/// same `[[rules]] id` twice. Like [`LoadError::Parse`], this stops
+/// discovery even on the quiet path: contradictory markers cannot be skipped.
 pub fn load_quiet(marker_dir: &Path) -> Result<Config, LoadError> {
     load_inner_typed(marker_dir)
 }

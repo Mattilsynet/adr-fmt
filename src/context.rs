@@ -65,28 +65,18 @@ impl<'a> EligibleContext<'a> {
     }
 }
 
-/// Resolve decision rules applicable to a crate, grouped by root ADR subtree.
+/// Group crate-applicable rules deterministically by live root, foundation first.
+/// Include foundation ADRs; otherwise select domains listing `crate_name`,
+/// respecting populated per-ADR `crates` filters.
 ///
-/// Resolution: find domains listing `crate_name`; within those, filter to
-/// per-ADR `crates` when populated (else all domain ADRs); always include
-/// `foundation = true` domain ADRs.
-///
-/// Assignment walks the parent-edge tree (structural parent = first
-/// `References:` target) upward, cycle-safe, to a live root. Draft and
-/// Proposed parents are advisory waypoints only. Stale, terminal and
-/// unknown-status parents sever ancestry; their eligible descendants,
-/// cycle members and non-terminating chains land in Unclaimed.
-///
-/// Emission: per root (deterministic order), walk children downward and
-/// emit eligible rules assigned to that root; secondary citations don't
-/// pull extra subtrees.
-///
-/// Returns `RootGroup`s: foundation roots first, then domain; an
-/// Unclaimed fallback group is appended for unreached eligible ADRs.
+/// Walk first-`References:` parents cycle-safely. Draft/Proposed are advisory
+/// waypoints; stale, terminal, or unknown-status parents sever ancestry.
+/// Eligible descendants of severed ancestry, cycle members, and non-terminating
+/// chains enter the final Unclaimed group. Secondary citations add no subtrees.
 ///
 /// # Errors
 ///
-/// Returns an error if `crate_name` is not found in any domain's crate list.
+/// Returns an error when no domain lists `crate_name`.
 pub fn context_grouped(
     crate_name: &str,
     records: &[AdrRecord],
