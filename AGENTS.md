@@ -5,14 +5,53 @@ and the Rust no-`//`-comments house style live in the global
 `~/.config/opencode/AGENTS.md` — not repeated here. opencode is the only
 agent surface for this repo.
 
-## What this repo is
+## Section 1: Canonical Fleet Doctrine
 
-A single-crate Rust binary (+ library `adr_fmt`): a read-only ADR
-template and link-integrity validator. It discovers `adr-fmt.toml` by
-walking up from cwd, then lints/inspects an ADR corpus. See `README.md`
-for modes, bootstrap, and usage.
+### OODA Loop Roles
+- **Copernicus** (Observe): Raw evidence gathering from environment, code, and external specs. Pure sensor; produces no hypotheses.
+- **Feynman** (Orient): Produces ranked hypotheses with falsifiers; stress-tests against concrete examples.
+- **Moltke** (Decide): Standing mission commander. Emits executable mission contracts, sets intent, boundaries, and abort criteria.
+- **Hopper** (Act): Executes missions using Kent Beck TDD (red-green-refactor) with verify-before-claim discipline.
+- **Linus** (Review): Mandatory pre-merge Rust reviewer for idiom conformance, type safety, unsafe soundness, and supply chain.
+- **Hamilton** (Assurance): Architectural alignment and assurance reviewer running during CI wait windows.
+- **Gardener** (GC): Post-mission cleanup specialist; reclaims transient scaffolding and closes completed mission beads.
 
-- House Style: `attended-app` (as mapped in `sf-sdlc.toml`).
+### Priority Hierarchy
+Tradeoffs strictly resolve in this five-tier priority order:
+1. **Maintainability**: Pure trunk development, small deployable increments, minimal cognitive overhead, low complexity.
+2. **Correctness by design**: Make illegal states unrepresentable via types, explicit state machines, and private invariant constructors.
+3. **Response times**: Latency-sensitive read paths and prompt fact propagation across boundaries.
+4. **Energy efficiency in code**: Minimize redundant polling, hot loops, unnecessary serialization, and idle CPU/memory burn.
+5. **Features**: New functionality ranks last and must never compromise the higher tiers.
+
+### Non-Interactive Shell Commands & Bash Hygiene
+Subagents execute non-interactively. Commands that prompt for user confirmation stall execution indefinitely.
+- Always use non-interactive and force flags: `cp -f`, `rm -f`, `rm -rf`.
+- Streaming and batch mode: use `--batch`, `-y`, or `--quiet` where available.
+- Stream separation: machine-readable findings route to `stdout`; diagnostics and logs route to `stderr`.
+
+### Zero Plain Comments
+In Rust source (`*.rs`), plain comments (`//` or `/* */`) are forbidden.
+- Rationale belongs in commit messages, ADRs, or bead descriptions.
+- Use `///` or `//!` contract doc-comments only when defining public API documentation (with required `# Errors`, `# Panics`, `# Safety` sections).
+- Suppress lints with `#[expect(lint, reason = "...")]` rather than plain comments.
+
+### Doctrine: "Make tools fast to iterate fast"
+Developer and verification tooling must be compiled, ultra-fast Rust binaries operating directly on ASTs and files rather than slow interpreted wrappers or token-heavy in-context simulation. Fast tools enable high-frequency local feedback loops (INNER cadence) without friction.
+
+### Doctrine: "Zero compliance theatre"
+High-assurance testing techniques—such as property-based testing (proptest), fuzzing (cargo-fuzz), formal model checking, or fault injection—must be applied purposefully at critical serialization, concurrency, and storage boundaries (high-risk seams), not sprayed ubiquitously as box-ticking ceremony. Where type invariants and deterministic unit tests suffice, do not add compliance overhead.
+
+## Section 2: Target-Specific Profile
+
+### Target Classification & Entrypoint
+- Target class: `attended-app` (as mapped in `sf-sdlc.toml`).
+- Real entrypoint: `src/main.rs`.
+- Canonical verification entrypoint: `scripts/verify.sh`
+- A single-crate Rust binary (+ library `adr_fmt`): a read-only ADR
+  template and link-integrity validator. It discovers `adr-fmt.toml` by
+  walking up from cwd, then lints/inspects an ADR corpus. See `README.md`
+  for modes, bootstrap, and usage.
 - Exit codes adhere strictly to the fleet tri-state taxonomy:
   - `0`: clean pass / compliant / all assertions verified.
   - `1`: domain defect / violation / finding flagged.
@@ -21,8 +60,7 @@ for modes, bootstrap, and usage.
   stream to `stdout`; operational telemetry, diagnostic logs, and error traces
   route to `stderr`.
 
-## Verification tiers (three-tier cadence)
-
+### Verification Cadences (Three-Tier Cadence)
 Verification is strictly tier-scoped. A claim is backed by the tier whose scope
 matches the claim: sub-missions are backed by MID; epics and releases are backed
 by BOUNDARY.
@@ -65,20 +103,19 @@ by BOUNDARY.
   `rustfmt.toml` or `clippy.toml`.
 - `rust-toolchain.toml` pins channel 1.98 (clippy + rustfmt). Use it,
   don't bump without cause.
-- `cargo deny check` and `cargo audit` are supply-chain gates; run
-  before publishing or bumping dependencies.
 
-## Rustdoc budget gate
+### Supply Chain Gates
+`cargo deny check` and `cargo audit` are supply-chain gates; run
+before publishing or bumping dependencies.
 
+### Rustdoc Budget Gate
 Run the same native check from the repository root locally and in CI:
-
-```
+```sh
 comment-free --check-doc-budget --doc-advisory-words 80 --doc-max-words 120 --max-warning-files 0 .
 ```
 
 Requires comment-free 0.2.0 at the canonical revision below:
-
-```
+```sh
 cargo +1.98.0 install --git https://github.com/acje/comment-free --rev e45de7ef3b0fcd9a1ec299b9026b14fb5b0cf534 --locked comment-free
 ```
 
@@ -93,13 +130,30 @@ integration only. No rewrite mode runs.
 Macro-generated docs without spelled `doc` tokens remain outside detection;
 this is not proof of semantic documentation coverage or process-memory bounds.
 
-## Delivery
+### TigerStyle Construction-Path Inventory
+Invariant-bearing domain types must enforce "illegal states unrepresentable"
+by design. For each changed constrained type, review all construction routes:
+1. Public fields / struct literals (reject if fields allow inconsistent mutation).
+2. Constructors & builders (`new()`, `builder()`).
+3. `Default::default()` (must yield a valid domain state or be omitted).
+4. Conversions (`From`, `TryFrom`).
+5. Serde deserialization (custom validation if raw wire data could bypass invariants).
+6. Mutation routes (setters, `DerefMut`).
 
+Independent booleans remain valid booleans; genuine optionality remains `Option`.
+Do not invent artificial domain restrictions where none exist.
+
+### Closed Error Enum Policy (C4.5/C4.6)
+Public error enums MUST NOT carry `#[non_exhaustive]`. Variant sets are complete
+within a major semver line, making unhandled error states unrepresentable at
+compile time. Enforced mechanically via `non-exhaustive-check` from the canonical
+`tripwires` repository.
+
+### Delivery
 `main` is protected (PR required). Changes land via a feature branch and
 a pull request — never a direct push to `main`.
 
-## Governance
-
+### Governance
 This repo carries its own ADR corpus at `docs/adr/adr-fmt/` (prefix
 `AFM`, 29 Accepted), with 10 retired stubs in `docs/adr/stale/`
 (39 ADRs total). Start with [the corpus guide](docs/adr/README.md).
@@ -113,7 +167,7 @@ before changing behaviour they govern. Read them with `adr-fmt --tree`
 health has its own locally-runnable gate — run it before handing off
 work that touches `docs/adr/`:
 
-```
+```sh
 scripts/adr-lint-gate.sh
 ```
 
@@ -133,13 +187,7 @@ or more than 9 digits — is **no verdict: exit 2**, never a pass. An
 explicitly empty `ADR_LINT_MAX_WARNINGS=''` is a malformed value, not
 "unset"; only a genuinely unset variable falls back to the default 8.
 
-Measured 2026-09-06 with `cargo run -q --locked -- --lint
---max-warning-docs 10`: `## Diagnostics: 3 warning(s) across 39 ADR(s)`
-and exit 0. Remaining advisories are L016 × 1 and T020 × 2;
-the gate threshold remains 8. Exit 0 from lint is not a clean verdict.
-
-## ADR writing style
-
+### ADR Writing Style
 An ADR is a projection of the current state, stating only what is true
 now. Overwrite superseded text in place rather than annotating it — git
 already holds the prior state.
@@ -157,15 +205,4 @@ sentence* get the current state right?
 This governs prose **inside** a document. Corpus-level supersession is
 unchanged and stays in the structured fields — `Status:` and
 `Supersedes:`, which `adr-fmt --refs` reads — never as prose archaeology
-in `## Context` or `## Decision`. Whether the corpus itself becomes
-mutable rather than immutable-plus-supersession is a separate governance
-question this rule does not decide.
-
-## Non-Interactive Shell Execution & Bash Hygiene
-
-Subagents run non-interactively. Any command that could trigger an interactive
-y/n prompt stalls execution indefinitely.
-- Use explicit non-interactive flags: `cp -f`, `rm -f`, `rm -rf`.
-- Git operations: use non-interactive commands; no interactive rebase (`git rebase -i`).
-- Tooling CLI options: accept batch flags (`--batch`, `-y`, `--quiet`).
-
+in `## Context` or `## Decision`.
