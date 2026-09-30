@@ -440,7 +440,7 @@ description = "test"
     ) -> AdrRecord {
         let id = make_id(prefix, num);
         let mut record = AdrRecord::test_sentinel();
-        *record.id_mut() = id.clone();
+        *record.id_mut() = id;
         *record.file_path_mut() = PathBuf::from(format!("{prefix}-{num:04}-test.md"));
         *record.title_mut() = Some(format!("Test {prefix}-{num:04}"));
         *record.title_line_mut() = 1;
@@ -1374,12 +1374,7 @@ description = "test"
 
         let config = make_config();
 
-        let groups_a = context_grouped(
-            "example-core",
-            &[r1.clone(), r4.clone(), r2.clone()],
-            &config,
-        )
-        .unwrap();
+        let groups_a = context_grouped("example-core", &[r1, r4, r2], &config).unwrap();
         let r1b = make_record(
             "CHE",
             1,

@@ -1,3 +1,5 @@
+#![allow(clippy::wildcard_enum_match_arm)]
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
