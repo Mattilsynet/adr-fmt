@@ -21,8 +21,8 @@ pub fn run_all(
     let domain_prefixes: Vec<&str> = config.domains.iter().map(|d| d.prefix.as_str()).collect();
 
     let budgets = template::Budgets::resolve(config, &mut diagnostics);
-    let mut sourced: Vec<_> = diagnostics
-        .drain(..)
+    let mut sourced: Vec<_> = std::mem::take(&mut diagnostics)
+        .into_iter()
         .map(|diagnostic| SourcedDiagnostic {
             source: DiagnosticSource::Global,
             diagnostic,

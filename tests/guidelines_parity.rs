@@ -13,6 +13,8 @@
 //! `RuleEntry::diagnostic`, the intended severity decision. Exemptions assert
 //! those roles, not within-file uniqueness; internal bypasses remain trusted.
 
+#![allow(clippy::wildcard_enum_match_arm)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;

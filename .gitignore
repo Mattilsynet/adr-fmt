@@ -1,3 +1,6 @@
 /target
 .ooda/
 .beads*
+*.pem
+graphify-out/
+.DS_Store

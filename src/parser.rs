@@ -1048,10 +1048,11 @@ fn extract_tagged_rules(path: &Path, scan: &RuleScanLines<'_>) -> RuleExtraction
 
     let mut i = 0;
     while i < scanned.len() {
+        let current_line = scanned[i];
         let RuleScanLine::Outside {
             line_no,
             text: line,
-        } = scanned[i]
+        } = current_line
         else {
             i += 1;
             continue;
