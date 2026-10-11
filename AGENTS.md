@@ -101,7 +101,7 @@ by BOUNDARY.
   warnings.
 - `rustfmt` runs on **stable defaults only** — do not add a
   `rustfmt.toml` or `clippy.toml`.
-- `rust-toolchain.toml` pins channel 1.98 (clippy + rustfmt). Use it,
+- `rust-toolchain.toml` pins channel 1.99 (clippy + rustfmt). Use it,
   don't bump without cause.
 
 ### Supply Chain Gates
@@ -116,7 +116,7 @@ comment-free --check-doc-budget --doc-advisory-words 80 --doc-max-words 120 --ma
 
 Requires comment-free 0.2.0 at the canonical revision below:
 ```sh
-cargo +1.98.0 install --git https://github.com/acje/comment-free --rev e45de7ef3b0fcd9a1ec299b9026b14fb5b0cf534 --locked comment-free
+cargo +1.99.0 install --git https://github.com/acje/comment-free --rev e45de7ef3b0fcd9a1ec299b9026b14fb5b0cf534 --locked comment-free
 ```
 
 The read-only native gate recursively scans Rust sources under `.` with the

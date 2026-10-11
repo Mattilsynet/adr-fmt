@@ -82,7 +82,7 @@ See this repository's own `adr-fmt.toml` for a worked example.
 
 Starting from an empty repository (no existing ADRs):
 
-1. **Install.** `cargo +1.98.0 install --git https://github.com/Mattilsynet/adr-fmt --locked adr-fmt`.
+1. **Install.** `cargo +1.99.0 install --git https://github.com/Mattilsynet/adr-fmt --locked adr-fmt`.
    For development, build this checkout with `cargo build --locked` and
    invoke `target/debug/adr-fmt` directly.
 
