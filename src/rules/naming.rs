@@ -24,8 +24,7 @@ static KEBAB_PATTERN: LazyLock<Regex> =
 pub fn check_file_name(path: &Path, domain_prefixes: &[&str], diags: &mut Vec<Diagnostic>) {
     let file_name = path
         .file_name()
-        .map(|f| f.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|f| f.to_string_lossy().into_owned());
 
     let stem = file_name.strip_suffix(".md").unwrap_or(&file_name);
     let parsed = parse_adr_id_from_filename_stem(stem);

@@ -48,7 +48,7 @@ AFM-0036:R2–R4 defines compatibility; AFM-0039 records this transition.
 | Context preamble | No unconditional “without exception” mandate | Preserve each rule's strength and conditions in consuming prompts |
 | Context ancestry | Terminal, stale and unknown-status nodes cannot anchor live ancestry; Draft/Proposed remain waypoints | Expect eligible descendants without a live root in Unclaimed, with all their rules retained |
 | Generated output | Governance/setup bytes publish all six conventions and coherent examples | Update golden consumers deliberately; use no arguments, not a nonexistent `--guidelines` flag |
-| Package identity | Cargo package version is 0.3.0 | Update version-sensitive consumers; the compiler floor stays 1.98 |
+| Package identity | Cargo package version is 0.3.0 | Update version-sensitive consumers; the compiler floor stays 1.100 |
 
 Unchanged: lint findings remain advisory exit 0; CLI usage errors exit 2;
 public exports, diagnostic fields, parsed-rule compatibility representation,
