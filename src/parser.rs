@@ -1600,14 +1600,14 @@ mod tests {
     fn find_crates_field_empty() {
         let lines = vec!["# CHE-0042. Title", "", "Crates:", "", "## Status"];
         let crates = find_crates_field(&lines);
-        assert!(crates.is_empty());
+        assert!(crates.is_empty(), "unexpected crates");
     }
 
     #[test]
     fn find_crates_field_absent() {
         let lines = vec!["# CHE-0042. Title", "", "Date: 2026-04-25", "", "## Status"];
         let crates = find_crates_field(&lines);
-        assert!(crates.is_empty());
+        assert!(crates.is_empty(), "unexpected crates");
     }
 
     #[test]

@@ -408,7 +408,7 @@ crates = ["example-core", "example-gateway"]
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.domains.len(), 2);
         assert_eq!(config.domains[0].prefix, "COM");
-        assert!(config.domains[0].crates.is_empty());
+        assert!(config.domains[0].crates.is_empty(), "unexpected crates");
         assert_eq!(config.domains[1].crates.len(), 2);
     }
 

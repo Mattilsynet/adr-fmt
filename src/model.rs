@@ -1934,8 +1934,11 @@ mod tests {
         let record = AdrRecord::test_sentinel();
         assert_eq!(record.id.prefix, "");
         assert_eq!(record.id.number, 0);
-        assert!(record.crates.is_empty());
-        assert!(record.decision_rules.is_empty());
+        assert!(record.crates.is_empty(), "unexpected crates");
+        assert!(
+            record.decision_rules.is_empty(),
+            "unexpected decision rules"
+        );
     }
 
     #[test]
@@ -2114,7 +2117,7 @@ mod tests {
     fn adr_id_error_impls_error_trait() {
         let err = AdrId::try_new("c", 1).unwrap_err();
         let _: &dyn std::error::Error = &err;
-        assert!(!err.to_string().is_empty());
+        assert!(!err.to_string().is_empty(), "missing error message");
     }
 
     struct CharacterisationFields {
