@@ -1024,7 +1024,7 @@ impl Status {
     /// Returns true for the terminal lifecycle states: Rejected,
     /// Deprecated, Superseded.
     ///
-    /// Derived from [`StatusLiveness::classify`], the single authority for
+    /// Derived from `StatusLiveness::classify`, the single authority for
     /// the lifecycle classification; this predicate keeps the public
     /// meaning AFM-0035 gives it.
     ///
@@ -1059,7 +1059,7 @@ impl fmt::Display for Status {
     }
 }
 
-/// Liveness of a [`Status`] in the stale-lifecycle checks.
+/// Liveness of a [`Status`] in the stale-lifecycle checks and in [`Status::is_terminal`].
 pub(crate) enum StatusLiveness {
     Live(LiveStatus),
     Terminal,
@@ -1503,7 +1503,7 @@ impl fmt::Display for RelVerb {
 /// Returns `None` for any deviation: lowercase, non-ASCII, wrong
 /// digit count, trailing text, leading/trailing whitespace.
 ///
-/// Use [`parse_adr_id_from_filename_stem`] when the input is an
+/// Use `parse_adr_id_from_filename_stem` when the input is an
 /// ADR filename stem like `CHE-0042-slug-words`.
 ///
 /// [`AdrId::try_from`] validates and constructs using byte checks per
