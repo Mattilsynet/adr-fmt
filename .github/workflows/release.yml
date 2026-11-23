@@ -16,12 +16,11 @@ on:
         required: true
         type: string
 
-# Restated explicitly rather than inherited from defaults: contents to create
-# the release, id-token + attestations for the build provenance attestation.
+# Least privilege at the workflow level; the release job widens only what
+# publishing needs (contents to create the release, id-token + attestations for
+# the build provenance attestation). Guard and build stay read-only.
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 # A release is a tag moment: never cancel a half-built set of assets.
 concurrency:
@@ -36,6 +35,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.100.0
+          components: clippy, rustfmt
 
       - name: Tag and version guard (fail closed)
         shell: bash
@@ -58,6 +62,22 @@ jobs:
           fi
           if [ "${TAG#v}" != "$VERSION" ]; then
             echo "TAG-GUARD-FAIL: tag '$TAG' (version '${TAG#v}') != Cargo.toml version '$VERSION'" >&2
+            exit 1
+          fi
+
+      - name: Notes guard (fail closed)
+        # The notes body is version-neutral by design: the release title carries
+        # the version, so a stray token would render wrong for every release.
+        # This step makes the defect impossible to reintroduce by a future edit.
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f .github/release-notes.md ] || {
+            echo "NOTES-GUARD-FAIL: .github/release-notes.md is missing" >&2
+            exit 1
+          }
+          if grep -q '<tag>' .github/release-notes.md; then
+            echo "NOTES-GUARD-FAIL: unsubstituted token in release notes" >&2
             exit 1
           fi
 
@@ -117,11 +137,15 @@ jobs:
           # Names are relative, so `sha256sum -c SHA256SUMS-<target>` works from
           # inside dist/. One checksum file per asset. macOS runners are not
           # guaranteed GNU coreutils, so fall back to Perl's `shasum -a 256`,
-          # whose output format is the same `<hex>  <name>`.
+          # whose output format is the same `<hex>  <name>`. Each leg verifies
+          # its own checksum file so a mismatched or truncated asset fails here
+          # rather than at the consumer.
           if command -v sha256sum >/dev/null 2>&1; then
             ( cd dist && sha256sum "$ASSET" > "SHA256SUMS-${TARGET}" )
+            ( cd dist && sha256sum -c "SHA256SUMS-${TARGET}" )
           else
             ( cd dist && shasum -a 256 "$ASSET" > "SHA256SUMS-${TARGET}" )
+            ( cd dist && shasum -a 256 -c "SHA256SUMS-${TARGET}" )
           fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -138,6 +162,10 @@ jobs:
     # builds, and must never publish.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
