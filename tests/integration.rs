@@ -4190,7 +4190,9 @@ fn s006_stays_silent_for_an_accepted_adr_in_the_active_directory() {
         .assert()
         .success()
         .stdout(predicate::str::contains("warning[S006]").not())
-        .stdout(predicate::str::contains("## Diagnostics:"));
+        .stdout(predicate::str::contains(
+            "## Diagnostics: 0 warning(s) across 1 ADR(s)",
+        ));
 }
 
 #[test]
@@ -4215,7 +4217,9 @@ fn context_excludes_an_adr_whose_crates_do_not_match() {
         .args(["--context", "beta"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("TST-0002"));
+        .stdout(
+            predicate::str::contains("TST-0002").and(predicate::str::contains("TST-0001").not()),
+        );
 }
 
 #[test]
