@@ -1390,7 +1390,7 @@ impl RelVerb {
     #[must_use]
     #[expect(
         clippy::wildcard_enum_match_arm,
-        reason = "an unlisted verb is a legacy verb by construction; adding a variant must not silently become an unlabelled one"
+        reason = "an unlisted verb is a legacy verb by construction and renders the legacy-verb description; listing every variant would turn a presentation detail into a compile-time obligation"
     )]
     pub fn description(self) -> &'static str {
         match self {
