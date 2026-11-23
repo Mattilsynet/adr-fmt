@@ -68,7 +68,10 @@ jobs:
       - name: Notes guard (fail closed)
         # The notes body is version-neutral by design: the release title carries
         # the version, so a stray token would render wrong for every release.
-        # This step makes the defect impossible to reintroduce by a future edit.
+        # This step blocks the literal `<tag>` and any three-part version token
+        # such as `0.4.0` or `v0.4.0`. A two-part number such as the `1.100`
+        # MSRV floor, an `AFM-0040` citation and an exit code are allowed by
+        # design, so a version written in one of those shapes still passes.
         shell: bash
         run: |
           set -euo pipefail
@@ -76,8 +79,8 @@ jobs:
             echo "NOTES-GUARD-FAIL: .github/release-notes.md is missing" >&2
             exit 1
           }
-          if grep -q '<tag>' .github/release-notes.md; then
-            echo "NOTES-GUARD-FAIL: unsubstituted token in release notes" >&2
+          if grep -Eq '<tag>|[0-9]+\.[0-9]+\.[0-9]+' .github/release-notes.md; then
+            echo "NOTES-GUARD-FAIL: unsubstituted tag or version-shaped token in release notes" >&2
             exit 1
           fi
 
@@ -137,9 +140,11 @@ jobs:
           # Names are relative, so `sha256sum -c SHA256SUMS-<target>` works from
           # inside dist/. One checksum file per asset. macOS runners are not
           # guaranteed GNU coreutils, so fall back to Perl's `shasum -a 256`,
-          # whose output format is the same `<hex>  <name>`. Each leg verifies
-          # its own checksum file so a mismatched or truncated asset fails here
-          # rather than at the consumer.
+          # whose output format is the same `<hex>  <name>`. Each leg re-reads
+          # its own checksum file, so a corrupt or truncated write fails here
+          # rather than at the consumer. The checksum is derived from the asset,
+          # so it proves the file self-consistent and readable, never that the
+          # asset is the one intended; provenance is the attestation's job.
           if command -v sha256sum >/dev/null 2>&1; then
             ( cd dist && sha256sum "$ASSET" > "SHA256SUMS-${TARGET}" )
             ( cd dist && sha256sum -c "SHA256SUMS-${TARGET}" )

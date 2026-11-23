@@ -4,7 +4,8 @@
 an ADR corpus and reports template, reference and citation findings; it never
 writes to the corpus.
 
-The MSRV floor is **1.100**, raised under AFM-0040.
+This release requires Rust **1.100** or newer (AFM-0036:R5; the current floor
+is recorded there).
 
 ## Exit contract
 

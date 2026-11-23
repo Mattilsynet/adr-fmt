@@ -34,9 +34,10 @@ for threshold enforcement and its distinct no-verdict result.
 
 ### Releases
 
-Version 0.4.0 is the first published release and raises the MSRV floor to
-1.100 per [AFM-0040](docs/adr/adr-fmt/AFM-0040-the-040-msrv-floor-raises.md);
-the maintainer ruled that 0.3.0 was never published.
+Version 0.4.0 is by the maintainer's ruling the first published release and
+raises the MSRV floor to 1.100 per
+[AFM-0040](docs/adr/adr-fmt/AFM-0040-the-040-msrv-floor-raises.md); the same
+ruling records that 0.3.0 was never published.
 
 ### Migration to 0.3.0
 

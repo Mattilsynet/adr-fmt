@@ -1,7 +1,7 @@
 # AFM-0039. Trustworthy Discovery and Retrieval
 
 Date: 2026-09-06
-Last-reviewed: 2026-09-06
+Last-reviewed: 2026-11-23
 Tier: B
 Status: Accepted
 
@@ -19,10 +19,10 @@ constraining first parent rather than a general design citation.
 
 ## Decision
 
-R1 [5]: Version 0.3.0 MUST reject present nonfile, dangling or inaccessible
-  discovery markers instead of selecting an ancestor; genuinely absent
-  markers and intentionally unfit readable configurations retain nearest-fit
-  discovery under AFM-0001:R7 and AFM-0001:R8
+R1 [5]: Versions 0.3.0 and 0.4.0 MUST reject present nonfile, dangling or
+  inaccessible discovery markers instead of selecting an ancestor; genuinely
+  absent markers and intentionally unfit readable configurations retain
+  nearest-fit discovery under AFM-0001:R7 and AFM-0001:R8
 
 R2 [5]: CLI refs, context and tree retrieval MUST exit nonzero with an
   explicit incomplete diagnostic and no authoritative stdout when corpus
@@ -45,10 +45,11 @@ R6 [5]: Context ancestry MUST stop at stale, Rejected, Deprecated, Superseded
   advisory waypoints, and eligible descendants without live roots MUST retain
   every rule in the Unclaimed group
 
-R7 [5]: Version 0.3.0 generated governance and setup output MUST adopt standalone
-  obligations, justified parents and exact citations, crate retrieval, concise
-  rationale and tradeoffs, inspectable evidence, and explicit lifecycle with
-  truthful totals as author/reviewer guidance, not new grammar or semantic checks
+R7 [5]: Versions 0.3.0 and 0.4.0 generated governance and setup output MUST
+  adopt standalone obligations, justified parents and exact citations, crate
+  retrieval, concise rationale and tradeoffs, inspectable evidence, and
+  explicit lifecycle with truthful totals as author/reviewer guidance, not new
+  grammar or semantic checks
 
 ## Consequences
 
