@@ -32,18 +32,22 @@ emitted findings or duplicate IDs prevent indexing. Such retrieval emits no
 authoritative stdout. Treat lint warnings as review signals; use the local gate
 for threshold enforcement and its distinct no-verdict result.
 
+### Releases
+
+Version 0.4.0 is the first published release and raises the MSRV floor to
+1.100 per [AFM-0040](docs/adr/adr-fmt/AFM-0040-the-040-msrv-floor-raises.md);
+the maintainer ruled that 0.3.0 was never published.
+
 ### Migration to 0.3.0
 
 See the [six-technique migration guide](docs/adr-format-proposals.md) for
 discovery, retrieval, diagnostic and generated-output changes under AFM-0039.
 Generated guidance adopts all six conventions. Local author/source-review
-migration covers all 29 active AFM ADRs, ten retired stubs and 24 factory ADRs,
+migration covers the 29 active AFM ADRs of the matrix's 2026-09-06 sweep
+(AFM-0040 postdates it), ten retired stubs and 24 factory ADRs,
 with slice approvals tracked in the [review matrix](docs/adr/six-technique-review.md).
 Final package acceptance remains a separate commander review; these local
 assessments do not establish external compliance or performance guarantees.
-
-Version 0.4.0 is the first published release and raises the MSRV floor to
-1.100 per AFM-0040; 0.3.0 was never published.
 
 ### Warning detail and totals (0.2.0)
 
@@ -156,7 +160,8 @@ project's `Cargo.lock` takes over and this one is ignored.
 This tool's own design decisions live in `docs/adr/adr-fmt/` (prefix
 `AFM`): 30 Accepted decisions and 10 retired stubs, 40 total.
 AFM-0038 records the 0.2.0 warning-output break; AFM-0039 records 0.3.0
-under AFM-0036. The independent factory corpus retains 24 Accepted decisions.
+under AFM-0036; AFM-0040 records the 0.4.0 MSRV floor raises. The independent
+factory corpus retains 24 Accepted decisions.
 
 ## License
 

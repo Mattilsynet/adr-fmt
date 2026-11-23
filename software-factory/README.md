@@ -5,7 +5,7 @@ It is not a replacement for adr-fmt's AFM corpus or an import of upstream
 policy identities. Accepted means usable in this distribution; adoption by
 another repository still requires that repository's decision owner.
 
-Mechanically compatible with adr-fmt 0.3.0; all 24 decisions have individual
+Mechanically compatible with adr-fmt 0.4.0; all 24 decisions have individual
 six-technique author-review assessments and repairs. The twelve core
 FGND/FCOM/FSEC decisions and twelve optional decisions have independent
 approval, with the optional slice recorded in `adr-fmt-t8g9`. Final boundary

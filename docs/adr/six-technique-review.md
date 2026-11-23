@@ -208,7 +208,11 @@ not binding parents. All paths below are under `software-factory/`.
 
 Local author/source-review migration covers all 29 active AFM decisions,
 ten retired stubs and 24 factory decisions. No per-document assessment remains
-uncovered. Optional factory independent approval is recorded in `adr-fmt-t8g9`.
+uncovered inside that sweep boundary — the 29 AFM decisions active on
+2026-09-06. AFM-0040 postdates the sweep, so it has no per-document row here;
+its acceptance rests on its own Status field and AFM-0029's recording terms,
+not on this review. Optional factory independent approval is recorded in
+`adr-fmt-t8g9`.
 Slice approvals do not substitute for final package review. Final boundary
 execution is delegated to `adr-fmt-rjo8.18`; verification acceptance and
 decision-owner acceptance remain with `adr-fmt-rjo8` / `adr-fmt-rjo8.3`.

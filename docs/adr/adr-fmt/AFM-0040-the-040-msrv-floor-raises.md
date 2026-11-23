@@ -24,8 +24,13 @@ R1 [5]: The MSRV floor raised from 1.98 to 1.99, an observable compiler
 R2 [5]: The MSRV floor raised from 1.99 to 1.100, a second breaking change
   under AFM-0036:R3
 
-R3 [5]: Version 0.4.0 records both raises; it is the first published version
-  and 0.3.0 is not published
+R3 [5]: Version 0.4.0 records both raises; by the maintainer's ruling it is
+  the first published version and 0.3.0 was not published. Registry state was
+  not established from this repository
+
+R4 [5]: AFM-0039 binds its requirements to Version 0.3.0, which the
+  maintainer ruled unpublished; those requirements remain in force and apply
+  to the 0.4.0 behaviour
 
 ## Consequences
 
@@ -39,6 +44,7 @@ risks/migration: local manifest and toolchain pins establish the floor this
 repository requires, not the compiler a consumer has installed.
 
 Evidence: `Cargo.toml:1–7` declares 0.4.0 and Rust 1.100;
-`rust-toolchain.toml:1–4` pins 1.100.0. Commits 5cc7861 and 86b6c51 raised
-1.98 to 1.99; 4fb7777 raised 1.99 to 1.100. Publication and downstream builds
-are not established by these local files.
+`rust-toolchain.toml:1–4` pins 1.100.0. Commits 86b6c51 and 5cc7861 raised
+1.98 to 1.99, toolchain selectors then the manifest; 4fb7777 raised 1.99 to
+1.100. Publication and downstream builds are not established by these local
+files.

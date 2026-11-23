@@ -37,8 +37,9 @@ definition in code. This guide provides navigation, not another specification.
 
 The [0.3.0 migration guide](../adr-format-proposals.md) points to the adopted
 six-technique guidance. The [per-document matrix](six-technique-review.md)
-records completed local author/source-review migration for all 29 active AFM
-decisions, ten retired stubs and 24 factory decisions. Independent optional
+records the completed local author/source-review migration for the 29 active AFM
+decisions of its 2026-09-06 sweep (AFM-0040 postdates the sweep), ten retired
+stubs and 24 factory decisions. Independent optional
 factory approval is recorded in `adr-fmt-t8g9`; final boundary evidence is
 tracked in `adr-fmt-rjo8.18` for commander review and acceptance. The matrix
 records evidence limits rather than claiming adopter compliance.
@@ -69,7 +70,9 @@ distinguishes over-threshold findings (exit 1) from no verdict (exit 2).
 Its default producer is `cargo run -q --locked -- --lint`.
 
 The measured corpus has 3 warnings across 40 ADRs on 2026-11-23: L016 × 1
-and T020 × 2. These remaining tier/parent and reference
+and T020 × 2. The count names the binary revision (commit `75980d2`) and the
+corpus state (these 40 ADRs); neither is inferable from the other.
+These remaining tier/parent and reference
 count advisories warrant review, not automatic governance changes. The gate
 threshold remains 8. Citation tests check source citations against live ADR
 rules; they do not replace corpus lint or the full Rust test suite.

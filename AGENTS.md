@@ -185,7 +185,8 @@ BOUNDARY gate before pushing.
 This repo carries its own ADR corpus at `docs/adr/adr-fmt/` (prefix
 `AFM`, 30 Accepted), with 10 retired stubs in `docs/adr/stale/`
 (40 ADRs total). Start with [the corpus guide](docs/adr/README.md).
-These ADRs are binding — read the relevant ones
+AFM-0040 is the newest: it records the 0.4.0 MSRV floor raises and the
+AFM-0039 reconciliation. These ADRs are binding — read the relevant ones
 before changing behaviour they govern. Read them with `adr-fmt --tree`
 / `adr-fmt --context adr-fmt` or directly as markdown; the config file
 `adr-fmt.toml` lives at the **project root**, not inside
