@@ -45,20 +45,25 @@ High-assurance testing techniques—such as property-based testing (proptest), f
 ## Section 2: Target-Specific Profile
 
 ### Target Classification & Entrypoint
-- Target class: `attended-app` (as mapped in `sf-sdlc.toml`).
+- Target class: `attended-app` per the fleet style profile. This repository
+  carries no fleet-style mapping file; the class is recorded here, not read
+  from a file.
 - Real entrypoint: `src/main.rs`.
 - Canonical verification entrypoint: `scripts/verify.sh`
 - A single-crate Rust binary (+ library `adr_fmt`): a read-only ADR
   template and link-integrity validator. It discovers `adr-fmt.toml` by
   walking up from cwd, then lints/inspects an ADR corpus. See `README.md`
   for modes, bootstrap, and usage.
-- Exit codes adhere strictly to the fleet tri-state taxonomy:
-  - `0`: clean pass / compliant / all assertions verified.
-  - `1`: domain defect / violation / finding flagged.
-  - `2`: unknown / environmental error / missing permission / indeterminate.
-- Stream separation: structured machine-readable findings (TSV, JSON Lines)
-  stream to `stdout`; operational telemetry, diagnostic logs, and error traces
-  route to `stderr`.
+- Exit codes describe analysis completeness, not finding count:
+  - `0`: analysis complete, including advisory warnings.
+  - `1`: infrastructure failure, or retrieval that could not establish
+    completeness (unusable marker, unreadable corpus, duplicate ADR IDs).
+  - `2`: CLI usage error.
+  Advisory warnings never fail the process (AFM-0003:R1); threshold
+  enforcement lives in `scripts/adr-lint-gate.sh`.
+- Stream separation: rendered findings and guidance are Markdown on `stdout`;
+  operational diagnostics and error messages are on `stderr`. No machine
+  serialization format is promised.
 
 ### Verification Cadences (Three-Tier Cadence)
 Verification is strictly tier-scoped. A claim is backed by the tier whose scope
@@ -146,12 +151,20 @@ Do not invent artificial domain restrictions where none exist.
 ### Closed Error Enum Policy (C4.5/C4.6)
 Public error enums MUST NOT carry `#[non_exhaustive]`. Variant sets are complete
 within a major semver line, making unhandled error states unrepresentable at
-compile time. Enforced mechanically via `non-exhaustive-check` from the canonical
-`tripwires` repository.
+compile time.
+
+This policy conflicts with AFM-0026:R6, which permits adding variants to public
+error types in minor versions. The fleet `non-exhaustive-check` tool inspects
+only enums that `derive(Error)`; this crate's error enums implement
+`std::error::Error` manually, so that tool reports them clean without inspecting
+them (adr-fmt-npsq). No mechanical enforcement is claimed at this revision.
 
 ### Delivery
-`main` is protected (PR required). Changes land via a feature branch and
-a pull request — never a direct push to `main`.
+`main` requires linear history; force-push and branch deletion are disabled.
+Pull requests are recommended but not required: this is a single-maintainer
+repository and direct commits to `main` are permitted. No required review and no
+required status check is configured, so a red `main` is possible — run the
+BOUNDARY gate before pushing.
 
 ### Governance
 This repo carries its own ADR corpus at `docs/adr/adr-fmt/` (prefix
