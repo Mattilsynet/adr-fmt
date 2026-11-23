@@ -3926,3 +3926,314 @@ R1 [5]: We decided to create a minimal but complete probe ADR that satisfies the
         "an unknown H2 must not mask a known-section inversion:\n{stdout}"
     );
 }
+
+/// Config whose domain declares two crates so `--context alpha` and
+/// `--context beta` both resolve against the same corpus.
+const CRATES_CONFIG: &str = r#"
+[corpus]
+root = "docs/adr"
+
+[stale]
+directory = "stale"
+
+[[domains]]
+prefix = "TST"
+name = "Test Domain"
+directory = "test"
+description = "Seam witness domain."
+crates = ["alpha", "beta"]
+
+[[rules]]
+id = "T015"
+params = { min_words = 10 }
+"#;
+
+/// Active ADR that wrongly carries a `## Retirement` section (S005).
+const ACTIVE_WITH_RETIREMENT_ADR: &str = "\
+# TST-0001. Active ADR holding a Retirement section
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+Crates: alpha
+
+## Related
+
+Root: TST-0001
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+
+## Decision
+
+R1 [5]: We decided to probe the stale lifecycle diagnostics for this repository.
+
+## Consequences
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+
+## Retirement
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+";
+
+/// Stale ADR with no `## Retirement` section (S004).
+const STALE_WITHOUT_RETIREMENT_ADR: &str = "\
+# TST-0001. Retired ADR without a Retirement narrative
+
+Date: 2026-01-01
+Last-reviewed: 2026-01-01
+Tier: B
+Status: Deprecated
+Crates: alpha
+
+## Related
+
+Root: TST-0001
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+";
+
+/// Rejected ADR living in the active directory (S006).
+const REJECTED_ACTIVE_ADR: &str = "\
+# TST-0001. Rejected ADR living in the active directory
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Rejected
+Crates: alpha
+
+## Related
+
+Root: TST-0001
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+
+## Decision
+
+R1 [5]: We decided to probe the stale lifecycle diagnostics for this repository.
+
+## Consequences
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+";
+
+/// Accepted ADR living in the active directory (S006 negative control).
+const ACCEPTED_ACTIVE_ADR: &str = "\
+# TST-0001. Accepted ADR living in the active directory
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+Crates: alpha
+
+## Related
+
+Root: TST-0001
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+
+## Decision
+
+R1 [5]: We decided to probe the stale lifecycle diagnostics for this repository.
+
+## Consequences
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+";
+
+/// Context ADR narrowed to crate `alpha`.
+const ALPHA_ONLY_ADR: &str = "\
+# TST-0001. Alpha-only ADR
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+Crates: alpha
+
+## Related
+
+Root: TST-0001
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+
+## Decision
+
+R1 [5]: Alpha callers resolve this rule when the crate is named.
+
+## Consequences
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+";
+
+/// Context ADR narrowed to crate `beta`.
+const BETA_ONLY_ADR: &str = "\
+# TST-0002. Beta-only ADR
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+Crates: beta
+
+## Related
+
+Root: TST-0002
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+
+## Decision
+
+R1 [5]: Beta callers resolve this rule when the crate is named.
+
+## Consequences
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+";
+
+/// Context ADR with no `Crates:` field — never narrowed by `--context`.
+const CRATELESS_ADR: &str = "\
+# TST-0003. Crate-less ADR
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Accepted
+
+## Related
+
+Root: TST-0003
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+
+## Decision
+
+R1 [5]: Every crate in the domain resolves this rule regardless of name.
+
+## Consequences
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+";
+
+#[test]
+fn s005_fires_on_active_adr_carrying_a_retirement_section() {
+    let dir = setup_corpus(
+        CRATES_CONFIG,
+        &[("TST-0001-active-retirement.md", ACTIVE_WITH_RETIREMENT_ADR)],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--lint"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("warning[S005]"));
+}
+
+#[test]
+fn s004_fires_on_stale_adr_missing_a_retirement_section() {
+    let dir = setup_multi_corpus(
+        CRATES_CONFIG,
+        &[("test", &[] as &[(&str, &str)])],
+        &[(
+            "TST-0001-retired-without-narrative.md",
+            STALE_WITHOUT_RETIREMENT_ADR,
+        )],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--lint"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("warning[S004]"));
+}
+
+#[test]
+fn s006_fires_on_terminal_status_in_the_active_directory() {
+    let dir = setup_corpus(
+        CRATES_CONFIG,
+        &[("TST-0001-rejected-in-active.md", REJECTED_ACTIVE_ADR)],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--lint"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("warning[S006]"));
+}
+
+#[test]
+fn s006_stays_silent_for_an_accepted_adr_in_the_active_directory() {
+    let dir = setup_corpus(
+        CRATES_CONFIG,
+        &[("TST-0001-accepted-in-active.md", ACCEPTED_ACTIVE_ADR)],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--lint"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("warning[S006]").not())
+        .stdout(predicate::str::contains("## Diagnostics:"));
+}
+
+#[test]
+fn context_excludes_an_adr_whose_crates_do_not_match() {
+    let dir = setup_corpus(
+        CRATES_CONFIG,
+        &[
+            ("TST-0001-alpha-only.md", ALPHA_ONLY_ADR),
+            ("TST-0002-beta-only.md", BETA_ONLY_ADR),
+        ],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--context", "alpha"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("TST-0001").and(predicate::str::contains("TST-0002").not()),
+        );
+
+    adr_fmt_in(&dir)
+        .args(["--context", "beta"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TST-0002"));
+}
+
+#[test]
+fn context_includes_an_adr_with_no_crates_field() {
+    let dir = setup_corpus(
+        CRATES_CONFIG,
+        &[
+            ("TST-0001-alpha-only.md", ALPHA_ONLY_ADR),
+            ("TST-0002-beta-only.md", BETA_ONLY_ADR),
+            ("TST-0003-crateless.md", CRATELESS_ADR),
+        ],
+    );
+
+    adr_fmt_in(&dir)
+        .args(["--context", "alpha"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("TST-0003").and(predicate::str::contains("TST-0002").not()),
+        );
+}
