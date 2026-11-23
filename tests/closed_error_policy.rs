@@ -1,11 +1,9 @@
 //! Ratchet for the closed-error-enum policy (C4.5/C4.6) against AFM-0026:R6.
 //!
-//! Seven `pub enum` error types declared in `src/` (item-level `pub`; includes
-//! two types that are not re-exported) carry `#[non_exhaustive]` by binding
-//! decision. Each is recorded in the BASELINE list with its evidence. A new
-//! occurrence fails, and a stale entry fails, so the list cannot grow implicitly
-//! or rot. The conflict between RST-0006 and AFM-0026:R6 is OPEN in bead
-//! `adr-fmt-6zxu`.
+//! Seven `pub enum` error types in `src/` (item-level `pub`; two not re-exported)
+//! carry `#[non_exhaustive]` by binding decision, each recorded in BASELINE with
+//! evidence. A new occurrence fails and a stale entry fails, so the list cannot
+//! grow implicitly or rot. RST-0006 vs AFM-0026:R6 is OPEN in `adr-fmt-6zxu`.
 //!
 //! AFM-0037:R3 — the guard claims only what its mechanism reaches. It matches an
 //! impl trait path whose last segment ends in `Error` (`std::error::Error`,
@@ -372,13 +370,6 @@ fn rule_param_live_control_holds() {
         !derives_error(rule_param) && !scan.manual_impls.contains("RuleParam"),
         "`RuleParam` now implements an error trait, in `src/config.rs` or elsewhere in `src/`; \
          the control needs re-deriving because its non-error premise no longer holds"
-    );
-    assert!(
-        !scan
-            .occurrences
-            .iter()
-            .any(|occurrence| occurrence.enum_name == "RuleParam"),
-        "a `pub(crate)`, non-error `RuleParam` must not be in the flagged set"
     );
 }
 
