@@ -730,10 +730,6 @@ impl AdrRecord {
         self.tier = tier.map_or(TierField::Absent, TierField::Valid);
     }
 
-    pub(crate) fn set_tier_field(&mut self, tier: TierField) {
-        self.tier = tier;
-    }
-
     pub(crate) fn status_mut(&mut self) -> &mut Option<Status> {
         &mut self.status
     }
@@ -750,16 +746,6 @@ impl AdrRecord {
         self.related = related;
     }
 
-    pub(crate) fn relationships_mut(&mut self) -> &mut Vec<Relationship> {
-        if !matches!(self.related, Related::Parsed(_)) {
-            self.related = Related::Parsed(Vec::new());
-        }
-        match &mut self.related {
-            Related::Parsed(v) => v,
-            Related::Absent | Related::Malformed { .. } => unreachable!(),
-        }
-    }
-
     pub(crate) fn has_context_mut(&mut self) -> &mut bool {
         &mut self.has_context
     }
@@ -772,35 +758,8 @@ impl AdrRecord {
         &mut self.has_consequences
     }
 
-    pub(crate) fn has_retirement_mut(&mut self) -> &mut bool {
-        &mut self.has_retirement
-    }
-
     pub(crate) fn is_stale_mut(&mut self) -> &mut bool {
         &mut self.is_stale
-    }
-
-    pub(crate) fn status_from_section_mut(&mut self) -> &mut bool {
-        &mut self.status_from_section
-    }
-
-    pub(crate) fn set_legacy_status_section(&mut self, heading_line: Option<usize>) {
-        self.legacy_status_section = match heading_line {
-            None => LegacyStatusSection::Absent,
-            Some(heading_line) => LegacyStatusSection::Present { heading_line },
-        };
-    }
-
-    pub(crate) fn set_code_block(&mut self, lines: usize, opening_line: usize) {
-        self.code_block = CodeBlockExtent::new(lines, opening_line);
-    }
-
-    pub(crate) fn section_order_mut(&mut self) -> &mut Vec<String> {
-        &mut self.section_order
-    }
-
-    pub(crate) fn section_word_counts_mut(&mut self) -> &mut HashMap<String, usize> {
-        &mut self.section_word_counts
     }
 
     pub(crate) fn crates_mut(&mut self) -> &mut Vec<String> {
@@ -809,10 +768,6 @@ impl AdrRecord {
 
     pub(crate) fn decision_rules_mut(&mut self) -> &mut Vec<TaggedRule> {
         &mut self.decision_rules
-    }
-
-    pub(crate) fn malformed_decision_rules_mut(&mut self) -> &mut Vec<MalformedRule> {
-        &mut self.malformed_decision_rules
     }
 
     pub(crate) fn set_parent_cross_domain(&mut self, declared: CrossDomainParent) {

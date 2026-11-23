@@ -382,6 +382,14 @@ impl ParseFailureCause {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn parse_body(name: &str, body: &str, prefix: &str, is_stale: bool) -> ParseFileOutcome {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join(name);
+    fs::write(&path, body).expect("write file");
+    parse_adr_file(&path, prefix, is_stale).expect("read should succeed")
+}
+
 impl core::fmt::Display for ParseFailureCause {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -2733,10 +2741,7 @@ crates = []
     }
 
     fn parse_markdown(name: &str, body: &str) -> ParseFileOutcome {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join(name);
-        fs::write(&path, body).expect("write file");
-        parse_adr_file(&path, "CHE", false).expect("read should succeed")
+        parse_body(name, body, "CHE", false)
     }
 
     #[test]
