@@ -447,22 +447,14 @@ pub(crate) fn parse_adr_file(
     })?;
     let lines: Vec<&str> = content.lines().collect();
 
-    let mut diagnostics: Vec<Diagnostic> = Vec::new();
-
     let source = SourceLines::scan(&lines);
     let outside = source.outside();
 
     if lines.is_empty() {
-        diagnostics.push(catalog::P002.diagnostic(
-            path,
-            0,
-            format!(
-                "ADR file is empty; expected `# {}-NNNN. Title` H1",
-                expected_prefix.escape_debug()
-            ),
-        ));
-        return Ok(ParseFileOutcome::TitleMissing { diagnostics });
+        return Ok(empty_file_outcome(path, expected_prefix));
     }
+
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     let Some((id, title, title_line)) = parse_title(&outside, expected_prefix) else {
         diagnostics.push(catalog::P002.diagnostic(
@@ -480,32 +472,13 @@ pub(crate) fn parse_adr_file(
     let (last_reviewed, _) = find_field(&lines, "Last-reviewed:");
     let (tier, _) = find_tier_field(&lines);
 
-    let (metadata_status, metadata_status_line, metadata_status_raw) = find_status_field(&lines);
-    let legacy_status_section = match find_heading_line(&outside, "Status") {
-        None => LegacyStatusSection::Absent,
-        Some(heading_line) => LegacyStatusSection::Present { heading_line },
-    };
-    let status_from_section =
-        metadata_status.is_none() && legacy_status_section != LegacyStatusSection::Absent;
-
-    let (status, status_line, status_raw) = if metadata_status.is_none() {
-        let (section_status, section_line, section_raw) = find_status_in_section(&outside);
-        if section_status.is_some() {
-            (section_status, section_line, section_raw)
-        } else {
-            (metadata_status, metadata_status_line, metadata_status_raw)
-        }
-    } else {
-        (metadata_status, metadata_status_line, metadata_status_raw)
-    };
+    let (status, status_line, status_raw, status_from_section, legacy_status_section) =
+        resolve_status(&lines, &outside);
 
     let (related, related_diagnostics) = find_relationships(&outside, path);
     diagnostics.extend(related_diagnostics);
 
-    let has_context = has_heading(&outside, "Context");
-    let has_decision = has_heading(&outside, "Decision");
-    let has_consequences = has_heading(&outside, "Consequences");
-    let has_retirement = has_heading(&outside, "Retirement");
+    let (has_context, has_decision, has_consequences, has_retirement) = section_presence(&outside);
 
     let (section_order, section_word_counts) = analyze_sections(&outside);
 
@@ -556,6 +529,61 @@ pub(crate) fn parse_adr_file(
         record,
         diagnostics,
     })
+}
+
+fn empty_file_outcome(path: &Path, expected_prefix: &str) -> ParseFileOutcome {
+    ParseFileOutcome::TitleMissing {
+        diagnostics: vec![catalog::P002.diagnostic(
+            path,
+            0,
+            format!(
+                "ADR file is empty; expected `# {}-NNNN. Title` H1",
+                expected_prefix.escape_debug()
+            ),
+        )],
+    }
+}
+
+fn resolve_status(
+    lines: &[&str],
+    outside: &OutsideLines<'_>,
+) -> (
+    Option<Status>,
+    usize,
+    Option<String>,
+    bool,
+    LegacyStatusSection,
+) {
+    let (metadata_status, metadata_status_line, metadata_status_raw) = find_status_field(lines);
+    let legacy_status_section = match find_heading_line(outside, "Status") {
+        None => LegacyStatusSection::Absent,
+        Some(heading_line) => LegacyStatusSection::Present { heading_line },
+    };
+    let status_from_section =
+        metadata_status.is_none() && legacy_status_section != LegacyStatusSection::Absent;
+
+    let (status, status_line, status_raw) = if metadata_status.is_none() {
+        find_status_in_section(outside)
+    } else {
+        (metadata_status, metadata_status_line, metadata_status_raw)
+    };
+
+    (
+        status,
+        status_line,
+        status_raw,
+        status_from_section,
+        legacy_status_section,
+    )
+}
+
+fn section_presence(outside: &OutsideLines<'_>) -> (bool, bool, bool, bool) {
+    (
+        has_heading(outside, "Context"),
+        has_heading(outside, "Decision"),
+        has_heading(outside, "Consequences"),
+        has_heading(outside, "Retirement"),
+    )
 }
 
 fn parse_title(
