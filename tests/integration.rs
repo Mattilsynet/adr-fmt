@@ -4238,6 +4238,8 @@ fn context_includes_an_adr_with_no_crates_field() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("TST-0003").and(predicate::str::contains("TST-0002").not()),
+            predicate::str::contains("TST-0001")
+                .and(predicate::str::contains("TST-0002").not())
+                .and(predicate::str::contains("TST-0003")),
         );
 }
