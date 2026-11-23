@@ -3998,6 +3998,24 @@ Root: TST-0001
 One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
 ";
 
+/// Stale ADR with a live status and no `## Retirement` section (S004 + S008).
+const STALE_WITHOUT_RETIREMENT_LIVE_STATUS_ADR: &str = "\
+# TST-0001. Stale ADR still carrying a live status
+
+Date: 2026-01-01
+Last-reviewed: 2026-01-01
+Tier: B
+Status: Accepted
+
+## Related
+
+Root: TST-0001
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+";
+
 /// Rejected ADR living in the active directory (S006).
 const REJECTED_ACTIVE_ADR: &str = "\
 # TST-0001. Rejected ADR living in the active directory
@@ -4162,6 +4180,22 @@ fn s004_fires_on_stale_adr_missing_a_retirement_section() {
         .assert()
         .success()
         .stdout(predicate::str::contains("warning[S004]"));
+}
+
+#[test]
+fn s004_and_s008_co_fire_on_stale_adr_with_live_status_and_no_retirement() {
+    let dir = setup_multi_corpus(
+        CRATES_CONFIG,
+        &[("test", &[] as &[(&str, &str)])],
+        &[(
+            "TST-0001-stale-accepted-without-narrative.md",
+            STALE_WITHOUT_RETIREMENT_LIVE_STATUS_ADR,
+        )],
+    );
+
+    adr_fmt_in(&dir).args(["--lint"]).assert().success().stdout(
+        predicate::str::contains("warning[S004]").and(predicate::str::contains("warning[S008]")),
+    );
 }
 
 #[test]
