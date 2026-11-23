@@ -1021,9 +1021,15 @@ impl Status {
         trimmed.contains('(') && trimmed.contains(')')
     }
 
-    /// Returns true for terminal lifecycle states: Rejected, Deprecated,
-    /// Superseded. Terminal-state ADRs must be in the stale directory
-    /// and have a `## Retirement` section.
+    /// Returns true for the terminal lifecycle states: Rejected,
+    /// Deprecated, Superseded.
+    ///
+    /// This predicate is the single authority for the terminal set;
+    /// `StatusLiveness::classify` delegates its terminal decision to it.
+    /// A new terminal variant belongs in this predicate and nowhere else.
+    ///
+    /// Terminal-state ADRs must be in the stale directory and have a
+    /// `## Retirement` section.
     #[must_use]
     pub fn is_terminal(&self) -> bool {
         matches!(

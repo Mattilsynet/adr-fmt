@@ -342,12 +342,20 @@ enum StatusLiveness {
 
 impl StatusLiveness {
     fn classify(status: &Status) -> Self {
+        if status.is_terminal() {
+            return Self::Terminal;
+        }
         match status {
             Status::Draft => Self::Live(LiveStatus::Draft),
             Status::Proposed => Self::Live(LiveStatus::Proposed),
             Status::Accepted => Self::Live(LiveStatus::Accepted),
-            Status::Rejected | Status::Deprecated | Status::SupersededBy(_) => Self::Terminal,
             Status::Invalid(_) => Self::Indeterminate,
+            Status::Rejected | Status::Deprecated | Status::SupersededBy(_) => {
+                unreachable!(
+                    "Status::is_terminal owns the terminal set; the early return \
+                     above is the only route for these variants"
+                )
+            }
         }
     }
 }
