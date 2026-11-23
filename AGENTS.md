@@ -148,16 +148,21 @@ by design. For each changed constrained type, review all construction routes:
 Independent booleans remain valid booleans; genuine optionality remains `Option`.
 Do not invent artificial domain restrictions where none exist.
 
-### Closed Error Enum Policy (C4.5/C4.6)
-Public error enums MUST NOT carry `#[non_exhaustive]`. Variant sets are complete
-within a major semver line, making unhandled error states unrepresentable at
-compile time.
+### Closed Error Enum Policy (C4.5/C4.6) — provisional ratchet
+No new public error enum may carry `#[non_exhaustive]`. Seven existing public error
+enums do, recorded in `tests/closed_error_policy.rs` as a baseline whose entries each
+cite AFM-0026:R6 and that enum's recorded growth, or state plainly that there is none.
+The check fails on a new occurrence and on a stale entry, so the baseline cannot rot,
+and it does not grow without a successor ADR.
 
-This policy conflicts with AFM-0026:R6, which permits adding variants to public
-error types in minor versions. The fleet `non-exhaustive-check` tool inspects
-only enums that `derive(Error)`; this crate's error enums implement
-`std::error::Error` manually, so that tool reports them clean without inspecting
-them (adr-fmt-npsq). No mechanical enforcement is claimed at this revision.
+This is provisional containment of an open conflict, not a resolution: RST-0006 requires
+closed enums (exhaustive matching) while AFM-0026:R6 permits adding error variants in
+minor versions. The two coherent settlements — amend RST-0006 out of scope for this
+repository, or amend AFM-0026:R6 and drop the attribute from the seven on a breaking
+version — are recorded in adr-fmt-6zxu.
+
+Enforced by `tests/closed_error_policy.rs`, which parses the crate's sources with `syn`
+and fails closed on unreadable input, in both `scripts/verify.sh` and CI.
 
 ### Delivery
 `main` requires linear history; force-push and branch deletion are disabled.

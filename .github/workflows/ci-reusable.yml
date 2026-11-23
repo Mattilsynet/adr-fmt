@@ -71,6 +71,32 @@ jobs:
             exit 1
           fi
 
+  # In-repo ratchet for the closed error enum policy (C4.5/C4.6) against
+  # AFM-0026:R6, plus the `forbid(unsafe_code)` crate-root gates. The ratchet
+  # fails on a new `#[non_exhaustive]` public error enum and on a stale baseline
+  # entry; seven existing enums are recorded with evidence in
+  # tests/closed_error_policy.rs (see bd adr-fmt-6zxu).
+  closed-error-and-unsafe-gate:
+    name: closed-error ratchet + forbid-unsafe gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.100.0
+      - run: cargo test --locked --test closed_error_policy
+      - name: enforce #![forbid(unsafe_code)] in every crate root
+        run: |
+          set -euo pipefail
+          grep -q 'forbid(unsafe_code)' src/lib.rs || {
+            echo "::error::forbid-unsafe-total: src/lib.rs lacks #![forbid(unsafe_code)] (RST-0005)" >&2
+            exit 1
+          }
+          grep -q 'forbid(unsafe_code)' src/main.rs || {
+            echo "::error::forbid-unsafe-total: src/main.rs lacks #![forbid(unsafe_code)] (RST-0005)" >&2
+            exit 1
+          }
+
   supply-chain:
     name: supply-chain (audit + deny)
     runs-on: ubuntu-latest
