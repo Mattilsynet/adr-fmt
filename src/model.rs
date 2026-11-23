@@ -1921,6 +1921,11 @@ mod tests {
             })
             .is_terminal()
         );
+        assert!(
+            !Status::Invalid("Bogus".into()).is_terminal(),
+            "an unparseable status is Indeterminate, not Terminal; T006 diagnoses it \
+             and S006/S007/S008 decline to act on it"
+        );
     }
 
     #[test]

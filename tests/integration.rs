@@ -4070,6 +4070,33 @@ R1 [5]: We decided to probe the stale lifecycle diagnostics for this repository.
 One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
 ";
 
+/// Active ADR with an unparseable status (T006; S006 must stay silent).
+const UNPARSEABLE_STATUS_ACTIVE_ADR: &str = "\
+# TST-0001. Unparseable status ADR in the active directory
+
+Date: 2026-04-27
+Last-reviewed: 2026-04-27
+Tier: B
+Status: Bogus
+Crates: alpha
+
+## Related
+
+Root: TST-0001
+
+## Context
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+
+## Decision
+
+R1 [5]: We decided to probe the stale lifecycle diagnostics for this repository.
+
+## Consequences
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen.
+";
+
 /// Context ADR narrowed to crate `alpha`.
 const ALPHA_ONLY_ADR: &str = "\
 # TST-0001. Alpha-only ADR
@@ -4227,6 +4254,35 @@ fn s006_stays_silent_for_an_accepted_adr_in_the_active_directory() {
         .stdout(predicate::str::contains(
             "## Diagnostics: 0 warning(s) across 1 ADR(s)",
         ));
+}
+
+#[test]
+fn s006_stays_silent_on_active_adr_with_unparseable_status() {
+    let dir = setup_corpus(
+        CRATES_CONFIG,
+        &[(
+            "TST-0001-unparseable-in-active.md",
+            UNPARSEABLE_STATUS_ACTIVE_ADR,
+        )],
+    );
+
+    let output = adr_fmt_in(&dir).args(["--lint"]).assert().success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout).into_owned();
+
+    assert_eq!(
+        count_rule_occurrences(&stdout, "S006"),
+        0,
+        "an unparseable status is Indeterminate, so (not stale, Indeterminate) is \
+         Consistent and S006 stays silent. If Invalid were classified Terminal, \
+         (not stale, Terminal) would become TerminalOutsideStale and S006 would \
+         fire here:\n{stdout}"
+    );
+    assert_eq!(
+        count_rule_occurrences(&stdout, "T006"),
+        1,
+        "T006 must diagnose the unparseable status exactly once, proving the run \
+         reached status handling instead of passing vacuously:\n{stdout}"
+    );
 }
 
 #[test]
