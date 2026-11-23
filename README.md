@@ -42,6 +42,9 @@ with slice approvals tracked in the [review matrix](docs/adr/six-technique-revie
 Final package acceptance remains a separate commander review; these local
 assessments do not establish external compliance or performance guarantees.
 
+Version 0.4.0 is the first published release and raises the MSRV floor to
+1.100 per AFM-0040; 0.3.0 was never published.
+
 ### Warning detail and totals (0.2.0)
 
 `--lint` scans the corpus and shows all diagnostics for the first offending
@@ -151,7 +154,7 @@ project's `Cargo.lock` takes over and this one is ignored.
 ## Governance
 
 This tool's own design decisions live in `docs/adr/adr-fmt/` (prefix
-`AFM`): 29 Accepted decisions and 10 retired stubs, 39 total.
+`AFM`): 30 Accepted decisions and 10 retired stubs, 40 total.
 AFM-0038 records the 0.2.0 warning-output break; AFM-0039 records 0.3.0
 under AFM-0036. The independent factory corpus retains 24 Accepted decisions.
 

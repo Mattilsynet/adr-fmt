@@ -183,8 +183,8 @@ BOUNDARY gate before pushing.
 
 ### Governance
 This repo carries its own ADR corpus at `docs/adr/adr-fmt/` (prefix
-`AFM`, 29 Accepted), with 10 retired stubs in `docs/adr/stale/`
-(39 ADRs total). Start with [the corpus guide](docs/adr/README.md).
+`AFM`, 30 Accepted), with 10 retired stubs in `docs/adr/stale/`
+(40 ADRs total). Start with [the corpus guide](docs/adr/README.md).
 These ADRs are binding — read the relevant ones
 before changing behaviour they govern. Read them with `adr-fmt --tree`
 / `adr-fmt --context adr-fmt` or directly as markdown; the config file
