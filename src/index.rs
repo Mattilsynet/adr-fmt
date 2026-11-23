@@ -299,6 +299,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "test assertion over a closed enum; an unexpected variant must fail loudly"
+    )]
     fn unparsed_target_resolves_indeterminate_not_absent() {
         let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
         let diags = vec![parse_failure(

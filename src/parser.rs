@@ -398,6 +398,10 @@ pub(crate) struct ReadFileError {
 }
 
 impl ReadFileError {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "any unlisted ErrorKind is rendered from its Display; enumerating the 40+ kinds would be a maintenance trap"
+    )]
     fn reason(&self) -> String {
         match self.source.kind() {
             std::io::ErrorKind::NotFound => "file not found".to_string(),
@@ -695,6 +699,10 @@ fn find_relationships(outside: &OutsideLines<'_>, path: &Path) -> (Related, Vec<
     (related, diagnostics)
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "only References is clause-stripped; every other verb keeps its annotation verbatim"
+)]
 fn parse_related_segment(
     segment: &str,
     line: &str,

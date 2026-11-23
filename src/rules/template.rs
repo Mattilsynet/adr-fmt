@@ -468,6 +468,10 @@ fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "the is_terminal guard admits only the three statuses named above; the Debug fallback keeps the match total without enumerating unreachable variants"
+)]
 fn check_stale_lifecycle(
     record: &AdrRecord,
     config: &Config,
@@ -1369,12 +1373,10 @@ params = { min_words = 20, max_words = 200 }
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
-        let s004_existence: Vec<_> = diags
-            .iter()
-            .filter(|d| d.rule == "S004" && d.message.contains("missing"))
-            .collect();
         assert!(
-            s004_existence.is_empty(),
+            !diags
+                .iter()
+                .any(|d| d.rule == "S004" && d.message.contains("missing")),
             "stale with Retirement should not trigger S004 existence check"
         );
     }
@@ -2827,12 +2829,11 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
-        let s007_verb: Vec<_> = diags
-            .iter()
-            .filter(|d| d.rule == "S007" && d.message.contains("Superseded by"))
-            .collect();
         assert_eq!(
-            s007_verb.len(),
+            diags
+                .iter()
+                .filter(|d| d.rule == "S007" && d.message.contains("Superseded by"))
+                .count(),
             1,
             "Superseded-by in stub Related should trigger S007, got: {diags:?}"
         );
@@ -2878,12 +2879,11 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
-        let s007_section: Vec<_> = diags
-            .iter()
-            .filter(|d| d.rule == "S007" && d.message.contains("must not contain"))
-            .collect();
         assert_eq!(
-            s007_section.len(),
+            diags
+                .iter()
+                .filter(|d| d.rule == "S007" && d.message.contains("must not contain"))
+                .count(),
             3,
             "expected one S007 per disallowed section (Context/Decision/Consequences), got: {diags:?}"
         );
@@ -2896,12 +2896,11 @@ params = { max_rules = 10, min_rule_words = 7, max_rule_words = 60 }
         let config = make_config();
         let mut diags = Vec::new();
         check(&record, &config, &mut diags);
-        let s007: Vec<_> = diags
-            .iter()
-            .filter(|d| d.rule == "S007" && d.message.contains("## Notes"))
-            .collect();
         assert_eq!(
-            s007.len(),
+            diags
+                .iter()
+                .filter(|d| d.rule == "S007" && d.message.contains("## Notes"))
+                .count(),
             1,
             "non-canonical `## Notes` in stub should trigger S007, got: {diags:?}"
         );

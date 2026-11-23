@@ -101,6 +101,10 @@ pub fn find_refs(
     })
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "unlisted verbs sort last; the rank is a presentation choice, not an exhaustive classification"
+)]
 fn verb_sort_key(verb: RelVerb) -> u8 {
     match verb {
         RelVerb::References => 0,

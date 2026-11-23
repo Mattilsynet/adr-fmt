@@ -1388,6 +1388,10 @@ impl RelVerb {
 
     /// Human-readable description of the verb's meaning.
     #[must_use]
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "an unlisted verb is a legacy verb by construction; adding a variant must not silently become an unlabelled one"
+    )]
     pub fn description(self) -> &'static str {
         match self {
             Self::Root => "Self-reference marking this ADR as a tree root",
@@ -1399,6 +1403,10 @@ impl RelVerb {
 
     /// Migration guidance for legacy verbs. Returns None for permitted verbs.
     #[must_use]
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "the wildcard is exactly the permitted verbs; permitted verbs deliberately have no migration advice"
+    )]
     pub fn migration(self) -> Option<&'static str> {
         match self {
             Self::DependsOn
@@ -1821,6 +1829,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "test assertion over a closed enum; an unexpected variant must fail loudly"
+    )]
     fn parse_status_superseded() {
         let s = Status::parse("Superseded by CHE-0099");
         match s {

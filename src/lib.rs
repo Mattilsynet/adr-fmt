@@ -24,7 +24,6 @@
 //! `pub use` exports for `adr-srv`.
 
 #![forbid(unsafe_code)]
-#![allow(clippy::wildcard_enum_match_arm, clippy::needless_collect)]
 
 mod config;
 mod containment;

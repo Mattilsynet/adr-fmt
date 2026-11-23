@@ -1633,8 +1633,11 @@ mod tests {
         *b.status_mut() = Some(Status::SupersededBy(make_id("CHE", 99)));
         let mut diags = Vec::new();
         check(&[a, b], &mut diags);
-        let l013s: Vec<_> = diags.iter().filter(|d| d.rule == "L013").collect();
-        assert_eq!(l013s.len(), 2, "expected 2× L013, got: {diags:?}");
+        assert_eq!(
+            diags.iter().filter(|d| d.rule == "L013").count(),
+            2,
+            "expected 2× L013, got: {diags:?}"
+        );
         assert!(
             !diags.iter().any(|d| d.rule == "L017"),
             "L017 should not fire for cycle-member parents, got: {diags:?}"

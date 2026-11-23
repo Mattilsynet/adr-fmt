@@ -861,9 +861,11 @@ description = "test"
             .iter()
             .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
-        let che1_adr_ids: Vec<&AdrId> = che1_group.rules.iter().map(|r| &r.adr_id).collect();
         assert!(
-            che1_adr_ids.contains(&&make_id("CHE", 2)),
+            che1_group
+                .rules
+                .iter()
+                .any(|r| r.adr_id == make_id("CHE", 2)),
             "CHE-0002 should be under CHE-0001"
         );
 
@@ -871,9 +873,11 @@ description = "test"
             .iter()
             .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 4)))
             .unwrap();
-        let che4_adr_ids: Vec<&AdrId> = che4_group.rules.iter().map(|r| &r.adr_id).collect();
         assert!(
-            !che4_adr_ids.contains(&&make_id("CHE", 2)),
+            !che4_group
+                .rules
+                .iter()
+                .any(|r| r.adr_id == make_id("CHE", 2)),
             "CHE-0002 should NOT be under CHE-0004"
         );
     }
@@ -910,9 +914,11 @@ description = "test"
             .iter()
             .find(|g| g.root == GroupRoot::Adr(make_id("CHE", 1)))
             .unwrap();
-        let adr_ids: Vec<&AdrId> = che1_group.rules.iter().map(|r| &r.adr_id).collect();
         assert!(
-            adr_ids.contains(&&make_id("CHE", 3)),
+            che1_group
+                .rules
+                .iter()
+                .any(|r| r.adr_id == make_id("CHE", 3)),
             "CHE-0003 should reach CHE-0001 via fallback"
         );
     }
@@ -1315,9 +1321,13 @@ description = "test"
             GroupRoot::Unclaimed,
             "synthetic root must be the Unclaimed variant, never a forged AdrId"
         );
-        let unclaimed_ids: Vec<&AdrId> =
-            unclaimed.unwrap().rules.iter().map(|r| &r.adr_id).collect();
-        assert!(unclaimed_ids.contains(&&make_id("CHE", 2)));
+        assert!(
+            unclaimed
+                .unwrap()
+                .rules
+                .iter()
+                .any(|r| r.adr_id == make_id("CHE", 2))
+        );
     }
 
     #[test]
