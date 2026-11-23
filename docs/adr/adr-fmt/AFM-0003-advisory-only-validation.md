@@ -48,7 +48,7 @@ R3 [5]: Enforce the warning threshold outside `adr-fmt` in
 - Risks: thresholds tolerate findings; duplicate IDs prevent complete validation
   and produce gate exit 2 under AFM-0039:R3.
 
-Source evidence: `src/main.rs:18–23` maps exits;
+Source evidence: `src/main.rs:15–21` maps exits;
 `src/lib.rs:342–373` renders advisory and incomplete lint;
 `scripts/adr-lint-gate.sh:30–93` validates counts and enforces the threshold.
 These mechanisms do not establish that warnings are harmless or measure

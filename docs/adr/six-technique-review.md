@@ -45,7 +45,7 @@ unverified unless explicitly stated. Execution evidence lives in mission beads.
 | ADR | T1 obligation assessment | T2 parent / exact constraint | T4 rationale/tradeoffs | T5 evidence / remaining check | T6 specific disposition |
 |---|---|---|---|---|---|
 | AFM-0001 | Repair: default guidance spelling; explicit marker subject | Root justified by invariant/config/judgment split | Repair: concise rationale; explicit costs/risks | Read `src/lib.rs:397–427,484–574`; guidance 414–477; no efficacy claim | Retain root |
-| AFM-0003 | Repair: lint scope, current stderr ownership/path | AFM-0001:R4 explicitly justified | Repair: remove fmt/clippy analogy; explicit costs/risks | Read `src/main.rs:18–23`, lib 342–373, gate 30–93; foreign evidence excluded | Retain usage/retrieval distinction |
+| AFM-0003 | Repair: lint scope, current stderr ownership/path | AFM-0001:R4 explicitly justified | Repair: remove fmt/clippy analogy; explicit costs/risks | Read `src/main.rs:15–21`, lib 342–373, gate 30–93; foreign evidence excluded | Retain usage/retrieval distinction |
 | AFM-0004 | Repair: default-mode guidance spelling | AFM-0001:R1 explicitly justified | Repair: explicit costs/risks | Read parser 467–542, template 435–458/622–690, guidance 414–477; parity not semantics | Retain three-site structural obligation |
 | AFM-0006 | Retain parser scope/reassessment | AFM-0004:R1 explicitly justified | Repair: explicit costs/risks; no universal regex claim | Read parser 427–542/1041–1143; no full Markdown/performance guarantee | Retain |
 | AFM-0008 | Retain naming/foreign scope | AFM-0001:R2 explicitly justified | Repair: remove chronology/capacity assurance | Read naming 17–97, links 93–143, config 23–33; historical allocation excluded | Retain foreign support |
