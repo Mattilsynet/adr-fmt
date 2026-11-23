@@ -1024,18 +1024,15 @@ impl Status {
     /// Returns true for the terminal lifecycle states: Rejected,
     /// Deprecated, Superseded.
     ///
-    /// This predicate is the single authority for the terminal set;
-    /// `StatusLiveness::classify` delegates its terminal decision to it.
-    /// A new terminal variant belongs in this predicate and nowhere else.
+    /// Derived from [`StatusLiveness::classify`], the single authority for
+    /// the lifecycle classification; this predicate keeps the public
+    /// meaning AFM-0035 gives it.
     ///
     /// Terminal-state ADRs must be in the stale directory and have a
     /// `## Retirement` section.
     #[must_use]
     pub fn is_terminal(&self) -> bool {
-        matches!(
-            self,
-            Self::Rejected | Self::Deprecated | Self::SupersededBy(_)
-        )
+        matches!(StatusLiveness::classify(self), StatusLiveness::Terminal)
     }
 
     /// Short display string for output formatting.
@@ -1059,6 +1056,50 @@ impl fmt::Display for Status {
             Self::SupersededBy(id) => write!(f, "Superseded by {id}"),
             Self::Invalid(s) => f.write_str(s),
         }
+    }
+}
+
+/// Liveness of a [`Status`] in the stale-lifecycle checks.
+pub(crate) enum StatusLiveness {
+    Live(LiveStatus),
+    Terminal,
+    Indeterminate,
+}
+
+impl StatusLiveness {
+    /// Single authority for the [`Status`] lifecycle classification: one
+    /// exhaustive statement naming every variant, with no wildcard arm.
+    ///
+    /// A new [`Status`] variant belongs here, and [`Status::is_terminal`]
+    /// derives from it. `Indeterminate` is the decline path for an
+    /// unparseable status: T006 diagnoses it and S007/S008 stay silent.
+    pub(crate) fn classify(status: &Status) -> Self {
+        match status {
+            Status::Draft => Self::Live(LiveStatus::Draft),
+            Status::Proposed => Self::Live(LiveStatus::Proposed),
+            Status::Accepted => Self::Live(LiveStatus::Accepted),
+            Status::Rejected | Status::Deprecated | Status::SupersededBy(_) => Self::Terminal,
+            Status::Invalid(_) => Self::Indeterminate,
+        }
+    }
+}
+
+/// Non-terminal [`Status`] variant carried by [`StatusLiveness::Live`].
+#[derive(Clone, Copy)]
+pub(crate) enum LiveStatus {
+    Draft,
+    Proposed,
+    Accepted,
+}
+
+impl std::fmt::Display for LiveStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Draft => "Draft",
+            Self::Proposed => "Proposed",
+            Self::Accepted => "Accepted",
+        };
+        f.write_str(name)
     }
 }
 

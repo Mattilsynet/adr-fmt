@@ -16,8 +16,8 @@ use std::path::Path;
 
 use crate::config::{Config, RuleParam};
 use crate::model::{
-    AdrRecord, DateError, DateField, RelVerb, Related, Status, TaggedRule, Tier, TierField,
-    layer_to_tier,
+    AdrRecord, DateError, DateField, LiveStatus, RelVerb, Related, Status, StatusLiveness,
+    TaggedRule, Tier, TierField, layer_to_tier,
 };
 use crate::report::Diagnostic;
 
@@ -324,50 +324,6 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
                 .to_owned(),
         };
         diags.push(catalog::T005C.diagnostic(record.file_path(), heading_line, message));
-    }
-}
-
-#[derive(Clone, Copy)]
-enum LiveStatus {
-    Draft,
-    Proposed,
-    Accepted,
-}
-
-enum StatusLiveness {
-    Live(LiveStatus),
-    Terminal,
-    Indeterminate,
-}
-
-impl StatusLiveness {
-    fn classify(status: &Status) -> Self {
-        if status.is_terminal() {
-            return Self::Terminal;
-        }
-        match status {
-            Status::Draft => Self::Live(LiveStatus::Draft),
-            Status::Proposed => Self::Live(LiveStatus::Proposed),
-            Status::Accepted => Self::Live(LiveStatus::Accepted),
-            Status::Invalid(_) => Self::Indeterminate,
-            Status::Rejected | Status::Deprecated | Status::SupersededBy(_) => {
-                unreachable!(
-                    "Status::is_terminal owns the terminal set; the early return \
-                     above is the only route for these variants"
-                )
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for LiveStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
-            Self::Draft => "Draft",
-            Self::Proposed => "Proposed",
-            Self::Accepted => "Accepted",
-        };
-        f.write_str(name)
     }
 }
 
