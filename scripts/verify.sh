@@ -29,4 +29,7 @@ cargo clippy --all-targets --locked -- -D warnings
 echo "==> Running cargo fmt check..."
 cargo fmt --all -- --check
 
+echo "==> Running cargo doc (deny warnings)..."
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
+
 echo "==> All adr-fmt verification checks passed."

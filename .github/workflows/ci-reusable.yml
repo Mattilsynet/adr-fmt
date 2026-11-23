@@ -112,3 +112,21 @@ jobs:
         if: always()
       - run: cargo deny check
         if: always()
+
+  # CI/local parity: this job runs the two entry points a developer runs and
+  # nothing else, so green here means the repository's own gates passed on this
+  # commit — not a CI-only reimplementation of them.
+  boundary-gate:
+    name: repository gate (verify.sh + adr lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.100.0
+          components: clippy, rustfmt
+      - run: sh scripts/verify.sh
+      # `adr-lint-gate.sh` carries a bash shebang and uses bash-only constructs
+      # (`[[ =~ ]]`, `BASH_SOURCE`), so it is invoked through `bash`: ubuntu's
+      # `sh` is dash, where the gate cannot run and reports exit 2 (no verdict).
+      - run: bash scripts/adr-lint-gate.sh

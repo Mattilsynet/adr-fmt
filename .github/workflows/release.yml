@@ -1,0 +1,168 @@
+name: release
+
+# Publishes exactly the artifacts this repository's own gate proved. The guard
+# job runs the same entry points a developer runs (`scripts/verify.sh` and
+# `scripts/adr-lint-gate.sh`) before any target is built; the release job only
+# assembles uploaded artifacts, so it never rebuilds and never publishes to a
+# registry. `main` is a deployed surface for the consumer's unpinned install,
+# which is why the released bytes must be the bytes the gate passed.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      expected_tag:
+        description: 'Dry-run rehearsal tag (must equal the Cargo.toml version); never publishes'
+        required: true
+        type: string
+
+# Restated explicitly rather than inherited from defaults: contents to create
+# the release, id-token + attestations for the build provenance attestation.
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+# A release is a tag moment: never cancel a half-built set of assets.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: tag + version guard and repository gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Tag and version guard (fail closed)
+        shell: bash
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.expected_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAG:-}" ]; then
+            echo "TAG-GUARD-FAIL: tag is empty" >&2
+            exit 1
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "TAG-GUARD-FAIL: tag '$TAG' does not match v*" >&2; exit 1 ;;
+          esac
+          VERSION="$(grep -m1 '^version = ' Cargo.toml | sed -E 's/^version = "(.*)"$/\1/')"
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "TAG-GUARD-FAIL: version '$VERSION' from Cargo.toml is not X.Y.Z" >&2
+            exit 1
+          fi
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "TAG-GUARD-FAIL: tag '$TAG' (version '${TAG#v}') != Cargo.toml version '$VERSION'" >&2
+            exit 1
+          fi
+
+      - name: Run the repository gate
+        run: sh scripts/verify.sh
+
+      - name: Run the ADR lint gate
+        # `adr-lint-gate.sh` carries a bash shebang and uses bash-only
+        # constructs, so it is invoked through `bash` (dash cannot run it).
+        run: bash scripts/adr-lint-gate.sh
+
+  build:
+    name: build ${{ matrix.target }}
+    needs: guard
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.expected_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.100.0
+          targets: ${{ matrix.target }}
+
+      - name: Install musl linker driver
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        # adr-fmt's dependency closure (clap, regex, serde, toml) is pure Rust,
+        # so the musl target is self-contained: musl-tools only supplies the
+        # linker driver cargo invokes, never a runtime shared library.
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package dist/
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          BIN="target/${TARGET}/release/adr-fmt"
+          ASSET="adr-fmt-${TAG}-${TARGET}"
+          [ -e "$BIN" ] || { echo "PACKAGE-FAIL: missing $BIN" >&2; exit 1; }
+          [ -x "$BIN" ] || { echo "PACKAGE-FAIL: $BIN is not executable" >&2; exit 1; }
+          mkdir -p dist
+          cp -f "$BIN" "dist/$ASSET"
+          chmod 0755 "dist/$ASSET"
+          # Names are relative, so `sha256sum -c SHA256SUMS-<target>` works from
+          # inside dist/. One checksum file per asset. macOS runners are not
+          # guaranteed GNU coreutils, so fall back to Perl's `shasum -a 256`,
+          # whose output format is the same `<hex>  <name>`.
+          if command -v sha256sum >/dev/null 2>&1; then
+            ( cd dist && sha256sum "$ASSET" > "SHA256SUMS-${TARGET}" )
+          else
+            ( cd dist && shasum -a 256 "$ASSET" > "SHA256SUMS-${TARGET}" )
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: adr-fmt-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: publish release
+    needs: [guard, build]
+    # workflow_dispatch is the rehearsal path: it proves the guard and both
+    # builds, and must never publish.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          # Binary assets only, deliberately: the checksum files are derived, and
+          # the attestation must bind the shipped executable.
+          subject-path: dist/adr-fmt-*
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # `gh` is preinstalled on ubuntu-latest. --verify-tag refuses to
+          # create a release for a tag that was not pushed.
+          gh release create "$TAG" dist/* \
+            --verify-tag \
+            --notes-file .github/release-notes.md \
+            --generate-notes
