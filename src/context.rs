@@ -102,6 +102,56 @@ pub fn context_grouped(
     Ok(build_context_groups(records, &eligible_context, index))
 }
 
+fn is_live_and_accepted(record: &AdrRecord) -> bool {
+    !record.is_stale() && record.status() == Some(&Status::Accepted)
+}
+
+fn carries_decision_rules(record: &AdrRecord) -> bool {
+    !record.decision_rules().is_empty()
+}
+
+fn is_foundation_domain(record: &AdrRecord, foundation_prefixes: &[&str]) -> bool {
+    foundation_prefixes.contains(&record.id().prefix())
+}
+
+fn foundation_eligible(record: &AdrRecord, foundation_prefixes: &[&str]) -> bool {
+    is_foundation_domain(record, foundation_prefixes)
+        && is_live_and_accepted(record)
+        && carries_decision_rules(record)
+}
+
+struct DomainCrates<'a> {
+    crate_name: &'a str,
+    domain_declares_crates: bool,
+}
+
+impl<'a> DomainCrates<'a> {
+    fn of(crate_name: &'a str, live_domain_records: &[&AdrRecord]) -> Self {
+        Self {
+            crate_name,
+            domain_declares_crates: live_domain_records.iter().any(|r| !r.crates().is_empty()),
+        }
+    }
+
+    fn excludes(&self, record: &AdrRecord) -> bool {
+        self.domain_declares_crates
+            && !record.crates().is_empty()
+            && !record.crates().iter().any(|c| c == self.crate_name)
+    }
+}
+
+fn eligible_domain_records<'r>(
+    live_domain_records: &[&'r AdrRecord],
+    crate_name: &str,
+) -> Vec<&'r AdrRecord> {
+    let crates = DomainCrates::of(crate_name, live_domain_records);
+    live_domain_records
+        .iter()
+        .copied()
+        .filter(|record| carries_decision_rules(record) && !crates.excludes(record))
+        .collect()
+}
+
 fn collect_eligible_context<'a>(
     crate_name: &str,
     records: &'a [AdrRecord],
@@ -117,38 +167,20 @@ fn collect_eligible_context<'a>(
 
     let mut eligible_records: HashMap<&AdrId, &AdrRecord> = HashMap::new();
 
-    for record in records {
-        if record.is_stale() || record.status() != Some(&Status::Accepted) {
-            continue;
-        }
-        if foundation_prefixes.contains(&record.id().prefix()) {
-            if record.decision_rules().is_empty() {
-                continue;
-            }
-            eligible_records.insert(record.id(), record);
-        }
+    for record in records
+        .iter()
+        .filter(|record| foundation_eligible(record, &foundation_prefixes))
+    {
+        eligible_records.insert(record.id(), record);
     }
 
     for prefix in candidate_domains {
-        let domain_records: Vec<&AdrRecord> = records
+        let live_domain_records: Vec<&AdrRecord> = records
             .iter()
-            .filter(|r| {
-                !r.is_stale() && r.id().prefix() == *prefix && r.status() == Some(&Status::Accepted)
-            })
+            .filter(|record| is_live_and_accepted(record) && record.id().prefix() == *prefix)
             .collect();
 
-        let any_has_crates = domain_records.iter().any(|r| !r.crates().is_empty());
-
-        for record in &domain_records {
-            if any_has_crates
-                && !record.crates().is_empty()
-                && !record.crates().iter().any(|c| c == crate_name)
-            {
-                continue;
-            }
-            if record.decision_rules().is_empty() {
-                continue;
-            }
+        for record in eligible_domain_records(&live_domain_records, crate_name) {
             eligible_records.insert(record.id(), record);
         }
     }
@@ -303,25 +335,48 @@ fn collect_root_rules(
     visited.insert(root_id.clone());
 
     while let Some((current_id, depth)) = queue.pop_front() {
-        if eligible_context.is_eligible(&current_id)
-            && assignment.get(&current_id) == Some(root_id)
-            && !claimed.contains(&current_id)
-        {
+        if claimed_by_root(&current_id, root_id, assignment, eligible_context, claimed) {
             push_record_rules(&mut rules, &current_id, depth, eligible_context);
             claimed.insert(current_id.clone());
         }
 
-        if let Some(children) = parent_children.get(&current_id) {
-            for child in children {
-                if !visited.contains(child) {
-                    visited.insert(child.clone());
-                    queue.push_back((child.clone(), depth + 1));
-                }
-            }
-        }
+        enqueue_unvisited_children(
+            &mut queue,
+            &mut visited,
+            parent_children,
+            &current_id,
+            depth,
+        );
     }
 
     rules
+}
+
+fn claimed_by_root(
+    id: &AdrId,
+    root_id: &AdrId,
+    assignment: &HashMap<AdrId, AdrId>,
+    eligible_context: &EligibleContext<'_>,
+    claimed: &HashSet<AdrId>,
+) -> bool {
+    eligible_context.is_eligible(id) && assignment.get(id) == Some(root_id) && !claimed.contains(id)
+}
+
+fn enqueue_unvisited_children(
+    queue: &mut VecDeque<(AdrId, usize)>,
+    visited: &mut HashSet<AdrId>,
+    parent_children: &HashMap<AdrId, Vec<AdrId>>,
+    parent: &AdrId,
+    depth: usize,
+) {
+    let Some(children) = parent_children.get(parent) else {
+        return;
+    };
+    for child in children {
+        if visited.insert(child.clone()) {
+            queue.push_back((child.clone(), depth + 1));
+        }
+    }
 }
 
 fn push_record_rules(
