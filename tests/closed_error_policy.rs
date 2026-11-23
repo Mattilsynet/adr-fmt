@@ -8,10 +8,12 @@
 //! `adr-fmt-6zxu`.
 //!
 //! AFM-0037:R3 — the guard claims only what its mechanism reaches. It matches an
-//! impl trait path whose last segment ends in `Error` (`Error`, `error::Error`,
-//! `std::error::Error`, `StdError`, ...), so it errs toward flagging without name
-//! resolution. The one silent gap is an alias bearing no relation to `Error`
-//! (`use std::error::Error as Boom;` then `impl Boom for X {}`).
+//! impl trait path whose last segment ends in `Error` (`std::error::Error`,
+//! `StdError`, ...), so it errs toward flagging without name resolution. Silent
+//! gaps (false cleans): a trait alias unrelated to `Error` (`use
+//! std::error::Error as Boom;`, `impl Boom for X {}`); a non-`Path` self type
+//! (`impl Error for &FooError`); an aliased self type (`type A = FooError;`,
+//! `impl Error for A`).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -106,7 +108,7 @@ struct Scan {
     files: usize,
     pub_enums: usize,
     all_enums: usize,
-    manual_impls: usize,
+    manual_impls: BTreeSet<String>,
     occurrences: Vec<Occurrence>,
 }
 
@@ -122,7 +124,7 @@ fn no_unrecorded_public_non_exhaustive_error_enum() {
     let files = scan.files;
     let pub_enums = scan.pub_enums;
     let all_enums = scan.all_enums;
-    let manual_impls = scan.manual_impls;
+    let manual_impls = scan.manual_impls.len();
     let baseline_entries = BASELINE.len();
     println!(
         "closed-error ratchet summary: {files} files, pub enums: {pub_enums}, all enums: \
@@ -152,15 +154,6 @@ fn no_unrecorded_public_non_exhaustive_error_enum() {
         "the baseline changed size: growth requires a successor ADR settling RST-0006 against \
          AFM-0026:R6; see adr-fmt-6zxu"
     );
-    assert!(
-        !scan
-            .occurrences
-            .iter()
-            .any(|occurrence| occurrence.enum_name == "RuleParam"),
-        "a non-public `RuleParam` must not be flagged; the live control lives in \
-         rule_param_live_control_holds"
-    );
-
     let recorded: BTreeSet<(&str, &str)> = BASELINE
         .iter()
         .map(|entry| (entry.path, entry.enum_name))
@@ -242,6 +235,20 @@ fn manual_shape_is_flagged() {
          impl std::error::Error for ManualError {}",
     );
     assert_eq!(flagged, [("ManualError".to_owned(), ErrorShape::Manual)]);
+}
+
+#[test]
+fn core_manual_shape_is_flagged() {
+    let flagged = flagged_in(
+        "#[non_exhaustive] pub enum CoreManualError { A }\n\
+         impl core::error::Error for CoreManualError {}",
+    );
+    assert_eq!(
+        flagged,
+        [("CoreManualError".to_owned(), ErrorShape::Manual)],
+        "a manual `core::error::Error` impl with no derive must reach the manual branch; this \
+         fixture cannot pass through the derive branch"
+    );
 }
 
 #[test]
@@ -360,14 +367,12 @@ fn rule_param_live_control_holds() {
         "`RuleParam` no longer carries #[non_exhaustive]; the control needs re-deriving to pin a \
          real enum"
     );
-    let mut manual_impls = BTreeSet::new();
-    collect_manual_error_types(&source.ast.items, &mut manual_impls);
-    assert!(
-        !derives_error(rule_param) && !manual_impls.contains("RuleParam"),
-        "`RuleParam` now implements an error trait; the control needs re-deriving because its \
-         non-error premise no longer holds"
-    );
     let scan = scan_live();
+    assert!(
+        !derives_error(rule_param) && !scan.manual_impls.contains("RuleParam"),
+        "`RuleParam` now implements an error trait, in `src/config.rs` or elsewhere in `src/`; \
+         the control needs re-deriving because its non-error premise no longer holds"
+    );
     assert!(
         !scan
             .occurrences
@@ -455,7 +460,7 @@ fn scan_live() -> Scan {
         files: sources.len(),
         pub_enums,
         all_enums,
-        manual_impls: manual_impls.len(),
+        manual_impls,
         occurrences,
     }
 }
