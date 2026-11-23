@@ -104,15 +104,16 @@ fn check_single_link(
     }
 
     match by_id.resolve(target_id) {
-        Resolution::Resolved(target_record) => {
-            if target_record.is_stale() && !source.is_stale() && rel.verb != RelVerb::Supersedes {
-                diags.push(catalog::L007.diagnostic(
-                    source.file_path(),
-                    rel.line,
-                    format!("{} → {target_id}: reference to stale ADR", source.id()),
-                ));
-            }
+        Resolution::Resolved(target_record)
+            if stale_reference_is_reportable(source, target_record, rel) =>
+        {
+            diags.push(catalog::L007.diagnostic(
+                source.file_path(),
+                rel.line,
+                format!("{} → {target_id}: reference to stale ADR", source.id()),
+            ));
         }
+        Resolution::Resolved(_) => {}
         Resolution::Absent => match governed.membership(target_id) {
             Membership::Governed => {
                 diags.push(catalog::L001.diagnostic(
@@ -143,6 +144,14 @@ fn check_single_link(
     }
 }
 
+fn stale_reference_is_reportable(
+    source: &AdrRecord,
+    target: &AdrRecord,
+    rel: &Relationship,
+) -> bool {
+    target.is_stale() && !source.is_stale() && rel.verb != RelVerb::Supersedes
+}
+
 fn check_supersedes_consistency(
     records: &[AdrRecord],
     by_id: &CorpusIndex<'_>,
@@ -155,25 +164,27 @@ fn check_supersedes_consistency(
             }
 
             let target_id = &rel.target;
-            if let Some(target_record) = by_id.get(target_id) {
-                let status_matches = matches!(
-                    target_record.status(),
-                    Some(crate::model::Status::SupersededBy(by_id)) if by_id == record.id()
-                );
-
-                if !status_matches {
-                    diags.push(catalog::L003.diagnostic(
-                        record.file_path(),
-                        rel.line,
-                        format!(
-                            "{} supersedes {target_id}, but {target_id}'s status \
-                             is not `Superseded by {}` — update the target's status",
-                            record.id(),
-                            record.id(),
-                        ),
-                    ));
-                }
+            let Some(target_record) = by_id.get(target_id) else {
+                continue;
+            };
+            let status_matches = matches!(
+                target_record.status(),
+                Some(crate::model::Status::SupersededBy(by_id)) if by_id == record.id()
+            );
+            if status_matches {
+                continue;
             }
+
+            diags.push(catalog::L003.diagnostic(
+                record.file_path(),
+                rel.line,
+                format!(
+                    "{} supersedes {target_id}, but {target_id}'s status \
+                     is not `Superseded by {}` — update the target's status",
+                    record.id(),
+                    record.id(),
+                ),
+            ));
         }
     }
 }
@@ -216,8 +227,19 @@ fn check_parent_cross_domain_consistency(
     by_id: &CorpusIndex<'_>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    let (declared, declared_reason) = match record.parent_cross_domain_field() {
-        CrossDomainParent::Absent => return,
+    let Some((declared, declared_reason)) = declared_cross_domain_parent(record, diags) else {
+        return;
+    };
+    check_declared_parent_exists(record, declared, by_id, diags);
+    check_parent_matches_first_reference(record, declared, declared_reason, diags);
+}
+
+fn declared_cross_domain_parent<'a>(
+    record: &'a AdrRecord,
+    diags: &mut Vec<Diagnostic>,
+) -> Option<(&'a AdrId, &'a str)> {
+    match record.parent_cross_domain_field() {
+        CrossDomainParent::Absent => None,
         CrossDomainParent::Malformed { raw, reason } => {
             diags.push(catalog::L018.diagnostic(
                 record.file_path(),
@@ -229,11 +251,18 @@ fn check_parent_cross_domain_consistency(
                     raw.escape_debug(),
                 ),
             ));
-            return;
+            None
         }
-        CrossDomainParent::Valid { id, reason } => (id, reason),
-    };
+        CrossDomainParent::Valid { id, reason } => Some((id, reason.as_str())),
+    }
+}
 
+fn check_declared_parent_exists(
+    record: &AdrRecord,
+    declared: &AdrId,
+    by_id: &CorpusIndex<'_>,
+    diags: &mut Vec<Diagnostic>,
+) {
     match by_id.resolve(declared) {
         Resolution::Resolved(_) => {}
         Resolution::Absent => {
@@ -262,49 +291,49 @@ fn check_parent_cross_domain_consistency(
             ));
         }
     }
+}
 
-    let first_ref_target = record
+fn check_parent_matches_first_reference(
+    record: &AdrRecord,
+    declared: &AdrId,
+    declared_reason: &str,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let Some(first_reference) = record
         .relationships()
         .iter()
         .find(|r| r.verb == RelVerb::References)
-        .map(|r| &r.target);
-
-    match first_ref_target {
-        Some(actual) if actual == declared => {}
-        Some(actual) => {
-            let line = record
-                .relationships()
-                .iter()
-                .find(|r| r.verb == RelVerb::References)
-                .map_or(0, |r| r.line);
-            diags.push(catalog::L018.diagnostic(
-                record.file_path(),
-                line,
-                format!(
-                    "{}: Parent-cross-domain declares {declared} (\"{}\"), but \
-                     first References is {actual} — align the field with the \
-                     structural parent or re-order References to put \
-                     {declared} first",
-                    record.id(),
-                    declared_reason.escape_debug(),
-                ),
-            ));
+    else {
+        if !record.is_root() {
+            return;
         }
-        None => {
-            if !record.is_root() {
-                return;
-            }
-            diags.push(catalog::L018.diagnostic(
-                record.file_path(),
-                0,
-                format!(
-                    "{}: Parent-cross-domain declared on a Root ADR — Roots \
-                     have no parent edge; remove the field",
-                    record.id(),
-                ),
-            ));
-        }
+        diags.push(catalog::L018.diagnostic(
+            record.file_path(),
+            0,
+            format!(
+                "{}: Parent-cross-domain declared on a Root ADR — Roots \
+                 have no parent edge; remove the field",
+                record.id(),
+            ),
+        ));
+        return;
+    };
+    if first_reference.target == *declared {
+        return;
     }
+    diags.push(catalog::L018.diagnostic(
+        record.file_path(),
+        first_reference.line,
+        format!(
+            "{}: Parent-cross-domain declares {declared} (\"{}\"), but \
+             first References is {} — align the field with the \
+             structural parent or re-order References to put \
+             {declared} first",
+            record.id(),
+            declared_reason.escape_debug(),
+            first_reference.target,
+        ),
+    ));
 }
 
 fn check_root_references_coexistence(source: &AdrRecord, diags: &mut Vec<Diagnostic>) {
@@ -603,34 +632,41 @@ fn detect_cycle_members(parent_edges: &HashMap<AdrId, AdrId>) -> std::collection
         if globally_seen.contains(start) {
             continue;
         }
-        let mut path: Vec<AdrId> = Vec::new();
-        let mut path_set: HashSet<AdrId> = HashSet::new();
-        let mut current = start.clone();
-        loop {
-            if path_set.contains(&current) {
-                if let Some(start_idx) = path.iter().position(|id| id == &current) {
-                    for id in &path[start_idx..] {
-                        cycle_set.insert(id.clone());
-                    }
-                }
-                break;
-            }
-            if globally_seen.contains(&current) {
-                break;
-            }
-            path.push(current.clone());
-            path_set.insert(current.clone());
-            match parent_edges.get(&current) {
-                Some(parent) => current = parent.clone(),
-                None => break,
-            }
+        let (path, cycle_start) = walk_edge_path(start, parent_edges, &globally_seen);
+        if let Some(start_idx) = cycle_start {
+            cycle_set.extend(path[start_idx..].iter().cloned());
         }
-        for id in path {
-            globally_seen.insert(id);
-        }
+        globally_seen.extend(path);
     }
 
     cycle_set
+}
+
+fn walk_edge_path(
+    start: &AdrId,
+    parent_edges: &HashMap<AdrId, AdrId>,
+    globally_seen: &std::collections::HashSet<AdrId>,
+) -> (Vec<AdrId>, Option<usize>) {
+    use std::collections::HashSet;
+
+    let mut path: Vec<AdrId> = Vec::new();
+    let mut path_set: HashSet<AdrId> = HashSet::new();
+    let mut current = start.clone();
+    loop {
+        if path_set.contains(&current) {
+            let cycle_start = path.iter().position(|id| id == &current);
+            return (path, cycle_start);
+        }
+        if globally_seen.contains(&current) {
+            return (path, None);
+        }
+        path.push(current.clone());
+        path_set.insert(current.clone());
+        let Some(parent) = parent_edges.get(&current) else {
+            return (path, None);
+        };
+        current = parent.clone();
+    }
 }
 
 fn emit_cycle_diagnostics(
