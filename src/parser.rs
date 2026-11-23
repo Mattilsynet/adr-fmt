@@ -1100,28 +1100,7 @@ fn extract_tagged_rules(path: &Path, scan: &RuleScanLines<'_>) -> RuleExtraction
                 let mut text = rule_text.trim().to_owned();
                 let rule_line = line_no;
 
-                i += 1;
-                while i < scanned.len() {
-                    let RuleScanLine::Outside { text: next, .. } = scanned[i] else {
-                        break;
-                    };
-                    if next.trim().is_empty() {
-                        break;
-                    }
-                    if next.starts_with("## ") {
-                        break;
-                    }
-                    if RULE_SHAPED_RE.is_match(next) {
-                        break;
-                    }
-                    if next.len() >= 2 && next.starts_with("  ") {
-                        text.push(' ');
-                        text.push_str(next.trim());
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                }
+                i = absorb_rule_continuation(scanned, i + 1, &mut text);
 
                 rules.push(TaggedRule {
                     id,
@@ -1157,6 +1136,32 @@ fn extract_tagged_rules(path: &Path, scan: &RuleScanLines<'_>) -> RuleExtraction
         malformed,
         diagnostics,
     }
+}
+
+fn absorb_rule_continuation(
+    scanned: &[RuleScanLine<'_>],
+    mut i: usize,
+    text: &mut String,
+) -> usize {
+    while let Some(RuleScanLine::Outside { text: next, .. }) = scanned.get(i) {
+        if next.trim().is_empty() {
+            break;
+        }
+        if next.starts_with("## ") {
+            break;
+        }
+        if RULE_SHAPED_RE.is_match(next) {
+            break;
+        }
+        let indented_continuation = next.len() >= 2 && next.starts_with("  ");
+        if !indented_continuation {
+            break;
+        }
+        text.push(' ');
+        text.push_str(next.trim());
+        i += 1;
+    }
+    i
 }
 
 fn strip_annotation(s: &str) -> &str {
