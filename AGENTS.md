@@ -149,7 +149,8 @@ Independent booleans remain valid booleans; genuine optionality remains `Option`
 Do not invent artificial domain restrictions where none exist.
 
 ### Closed Error Enum Policy (C4.5/C4.6) — provisional ratchet
-No new public error enum may carry `#[non_exhaustive]`. Seven existing public error
+No new `pub enum` error type declared in `src/` (item-level `pub`; includes two
+types that are not re-exported) may carry `#[non_exhaustive]`. Seven existing such error
 enums do, recorded in `tests/closed_error_policy.rs` as a baseline whose entries each
 cite AFM-0026:R6 and that enum's recorded growth, or state plainly that there is none.
 The check fails on a new occurrence and on a stale entry, so the baseline cannot rot,

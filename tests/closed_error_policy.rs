@@ -1,10 +1,17 @@
 //! Ratchet for the closed-error-enum policy (C4.5/C4.6) against AFM-0026:R6.
 //!
-//! Seven public error enums carry `#[non_exhaustive]` by binding decision. Each
-//! is recorded in the BASELINE list below with the evidence for retaining it. A
-//! new occurrence fails, and so does a baseline entry that no longer matches, so
-//! the list can neither grow implicitly nor rot. The underlying conflict between
-//! RST-0006 and AFM-0026:R6 is OPEN in bead `adr-fmt-6zxu`.
+//! Seven `pub enum` error types declared in `src/` (item-level `pub`; includes
+//! two types that are not re-exported) carry `#[non_exhaustive]` by binding
+//! decision. Each is recorded in the BASELINE list with its evidence. A new
+//! occurrence fails, and a stale entry fails, so the list cannot grow implicitly
+//! or rot. The conflict between RST-0006 and AFM-0026:R6 is OPEN in bead
+//! `adr-fmt-6zxu`.
+//!
+//! AFM-0037:R3 — the guard claims only what its mechanism reaches. It matches an
+//! impl trait path whose last segment ends in `Error` (`Error`, `error::Error`,
+//! `std::error::Error`, `StdError`, ...), so it errs toward flagging without name
+//! resolution. The one silent gap is an alias bearing no relation to `Error`
+//! (`use std::error::Error as Boom;` then `impl Boom for X {}`).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -98,6 +105,7 @@ impl Occurrence {
 struct Scan {
     files: usize,
     pub_enums: usize,
+    all_enums: usize,
     manual_impls: usize,
     occurrences: Vec<Occurrence>,
 }
@@ -113,7 +121,15 @@ fn no_unrecorded_public_non_exhaustive_error_enum() {
     let scan = scan_live();
     let files = scan.files;
     let pub_enums = scan.pub_enums;
+    let all_enums = scan.all_enums;
     let manual_impls = scan.manual_impls;
+    let baseline_entries = BASELINE.len();
+    println!(
+        "closed-error ratchet summary: {files} files, pub enums: {pub_enums}, all enums: \
+         {all_enums}, {manual_impls} manual Error impls, {baseline_entries} baseline entries; \
+         scope: `pub enum` error types declared in `src/` (item-level `pub`; includes two types \
+         that are not re-exported)"
+    );
     assert!(
         files >= FILES_FLOOR,
         "the scan parsed only {files} Rust sources under src/; the walker is broken and this \
@@ -141,9 +157,8 @@ fn no_unrecorded_public_non_exhaustive_error_enum() {
             .occurrences
             .iter()
             .any(|occurrence| occurrence.enum_name == "RuleParam"),
-        "the detector flagged `RuleParam`, which is a `pub(crate)` enum (src/config.rs), not part \
-         of the public error surface. A detector with this false positive inflates the baseline \
-         for no reason and cannot be trusted to report the remaining seven"
+        "a non-public `RuleParam` must not be flagged; the live control lives in \
+         rule_param_live_control_holds"
     );
 
     let recorded: BTreeSet<(&str, &str)> = BASELINE
@@ -276,6 +291,114 @@ fn manual_impl_for_a_different_enum_does_not_flag_the_wrong_one() {
     );
 }
 
+#[test]
+fn short_error_trait_path_is_flagged() {
+    let flagged = flagged_in(
+        "use std::error::Error;\n\
+         #[non_exhaustive] pub enum FooError { A }\n\
+         impl Error for FooError {}",
+    );
+    assert_eq!(
+        flagged,
+        [("FooError".to_owned(), ErrorShape::Manual)],
+        "an `Error` impl reached through a short imported path must still count as an error type"
+    );
+}
+
+#[test]
+fn suffixed_error_trait_path_is_flagged() {
+    let flagged = flagged_in(
+        "use std::error::Error as StdError;\n\
+         #[non_exhaustive] pub enum AliasedError { A }\n\
+         impl StdError for AliasedError {}",
+    );
+    assert_eq!(
+        flagged,
+        [("AliasedError".to_owned(), ErrorShape::Manual)],
+        "a trait whose last path segment ends in `Error` is treated as an error trait"
+    );
+}
+
+#[test]
+fn cross_file_manual_impl_is_flagged() {
+    let flagged = flagged_across(&[
+        "#[non_exhaustive] pub enum FarError { A }",
+        "impl std::error::Error for FarError {}",
+    ]);
+    assert_eq!(
+        flagged,
+        [("FarError".to_owned(), ErrorShape::Manual)],
+        "manual impls are collected across all sources before classification, so an impl in one \
+         file must flag an enum declared in another"
+    );
+}
+
+#[test]
+fn rule_param_live_control_holds() {
+    let root = manifest_dir();
+    let source = parse_source(&root, &root.join("src/config.rs"));
+    let mut enums = Vec::new();
+    collect_enums(&source.ast.items, &mut enums);
+    let rule_param = enums
+        .iter()
+        .find(|item_enum| item_enum.ident == "RuleParam")
+        .expect(
+            "src/config.rs must declare `enum RuleParam`; the live control that keeps the public \
+             baseline honest has lost its subject and needs re-deriving",
+        );
+    assert!(
+        matches!(rule_param.vis, syn::Visibility::Restricted(_)),
+        "`RuleParam` is no longer visibility-restricted; if it became `pub` the closed-error \
+         surface changed and this control must be re-derived: {:?}",
+        rule_param.vis
+    );
+    assert!(
+        rule_param
+            .attrs
+            .iter()
+            .any(|attr| attr.path().is_ident("non_exhaustive")),
+        "`RuleParam` no longer carries #[non_exhaustive]; the control needs re-deriving to pin a \
+         real enum"
+    );
+    let mut manual_impls = BTreeSet::new();
+    collect_manual_error_types(&source.ast.items, &mut manual_impls);
+    assert!(
+        !derives_error(rule_param) && !manual_impls.contains("RuleParam"),
+        "`RuleParam` now implements an error trait; the control needs re-deriving because its \
+         non-error premise no longer holds"
+    );
+    let scan = scan_live();
+    assert!(
+        !scan
+            .occurrences
+            .iter()
+            .any(|occurrence| occurrence.enum_name == "RuleParam"),
+        "a `pub(crate)`, non-error `RuleParam` must not be in the flagged set"
+    );
+}
+
+fn flagged_across(sources: &[&str]) -> Vec<(String, ErrorShape)> {
+    let asts: Vec<syn::File> = sources
+        .iter()
+        .map(|source| syn::parse_file(source).expect("classifier fixture must parse"))
+        .collect();
+    let mut manual_impls = BTreeSet::new();
+    for ast in &asts {
+        collect_manual_error_types(&ast.items, &mut manual_impls);
+    }
+    let mut flagged = Vec::new();
+    for ast in &asts {
+        let mut enums = Vec::new();
+        collect_enums(&ast.items, &mut enums);
+        for item_enum in enums {
+            if let Some(shape) = classify(item_enum, &manual_impls) {
+                flagged.push((item_enum.ident.to_string(), shape));
+            }
+        }
+    }
+    flagged
+}
+
 fn flagged_in(source: &str) -> Vec<(String, ErrorShape)> {
     let ast = syn::parse_file(source).expect("classifier fixture must parse");
     let mut manual_impls = BTreeSet::new();
@@ -306,11 +429,16 @@ fn scan_live() -> Scan {
     }
 
     let mut occurrences = Vec::new();
+    let mut all_enums: usize = 0;
     let mut pub_enums: usize = 0;
     for source in &sources {
         let mut enums = Vec::new();
         collect_enums(&source.ast.items, &mut enums);
-        pub_enums += enums.len();
+        all_enums += enums.len();
+        pub_enums += enums
+            .iter()
+            .filter(|item_enum| matches!(item_enum.vis, syn::Visibility::Public(_)))
+            .count();
         for item_enum in enums {
             if let Some(shape) = classify(item_enum, &manual_impls) {
                 occurrences.push(Occurrence {
@@ -326,6 +454,7 @@ fn scan_live() -> Scan {
     Scan {
         files: sources.len(),
         pub_enums,
+        all_enums,
         manual_impls: manual_impls.len(),
         occurrences,
     }
@@ -354,7 +483,14 @@ fn declaration_line(source: &SourceFile, item_enum: &syn::ItemEnum) -> usize {
     let offset = source
         .text
         .lines()
-        .position(|line| line.contains(&needle))
+        .position(|line| {
+            line.find(&needle).is_some_and(|index| {
+                matches!(
+                    line[index + needle.len()..].chars().next(),
+                    None | Some(' ' | '{' | '<')
+                )
+            })
+        })
         .unwrap_or_else(|| {
             panic!(
                 "{}: cannot locate the declaration line of {name}; the ratchet must not report a \
@@ -429,16 +565,9 @@ fn self_type_name(ty: &syn::Type) -> Option<String> {
 }
 
 fn is_error_trait_path(path: &syn::Path) -> bool {
-    let segments: Vec<String> = path
-        .segments
-        .iter()
-        .map(|segment| segment.ident.to_string())
-        .collect();
-    matches!(
-        segments.as_slice(),
-        [root, error, last]
-            if (root == "std" || root == "core") && error == "error" && last == "Error"
-    )
+    path.segments
+        .last()
+        .is_some_and(|segment| segment.ident.to_string().ends_with("Error"))
 }
 
 fn classify(item_enum: &syn::ItemEnum, manual_impls: &BTreeSet<String>) -> Option<ErrorShape> {
