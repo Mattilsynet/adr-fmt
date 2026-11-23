@@ -16,7 +16,8 @@ use std::path::Path;
 
 use crate::config::{Config, RuleParam};
 use crate::model::{
-    AdrRecord, DateError, DateField, RelVerb, Related, Status, Tier, TierField, layer_to_tier,
+    AdrRecord, DateError, DateField, RelVerb, Related, Status, TaggedRule, Tier, TierField,
+    layer_to_tier,
 };
 use crate::report::Diagnostic;
 
@@ -326,6 +327,7 @@ fn check_metadata(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     }
 }
 
+#[derive(Clone, Copy)]
 enum LiveStatus {
     Draft,
     Proposed,
@@ -468,86 +470,93 @@ fn check_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     }
 }
 
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "the is_terminal guard admits only the three statuses named above; the Debug fallback keeps the match total without enumerating unreachable variants"
-)]
-fn check_stale_lifecycle(
-    record: &AdrRecord,
-    config: &Config,
-    effective_min: Option<u64>,
-    diags: &mut Vec<Diagnostic>,
-) {
-    if record.is_stale() && !record.has_retirement() {
-        diags.push(
-            catalog::S004.diagnostic(
-                record.file_path(),
-                0,
-                "stale ADR missing `## Retirement` section — explain why \
-             this ADR was retired"
-                    .into(),
-            ),
-        );
-    }
+#[derive(Clone, Copy)]
+enum RetirementPlacement {
+    StaleWithoutRetirement,
+    ActiveWithRetirement,
+    Consistent,
+}
 
-    if !record.is_stale() && record.has_retirement() {
-        diags.push(
-            catalog::S005.diagnostic(
-                record.file_path(),
-                0,
-                "active ADR has `## Retirement` section — Retirement is \
-             only for stale ADRs"
-                    .into(),
-            ),
-        );
-    }
+#[derive(Clone, Copy)]
+enum StatusPlacement<'a> {
+    TerminalOutsideStale(&'a Status),
+    LiveInsideStale(LiveStatus),
+    IndeterminateInsideStale,
+    Consistent,
+}
 
-    if let Some(ref status) = record.status()
-        && status.is_terminal()
-        && !record.is_stale()
-    {
-        let status_display = match status {
-            Status::Rejected => "Rejected".to_string(),
-            Status::Deprecated => "Deprecated".to_string(),
-            Status::SupersededBy(id) => format!("Superseded by {id}"),
-            _ => format!("{status:?}"),
+struct StaleLifecycleVerdict<'a> {
+    retirement: RetirementPlacement,
+    status: StatusPlacement<'a>,
+}
+
+impl<'a> StaleLifecycleVerdict<'a> {
+    fn classify(record: &'a AdrRecord) -> Self {
+        let is_stale = record.is_stale();
+        let has_retirement = record.has_retirement();
+
+        let retirement = if is_stale && !has_retirement {
+            RetirementPlacement::StaleWithoutRetirement
+        } else if !is_stale && has_retirement {
+            RetirementPlacement::ActiveWithRetirement
+        } else {
+            RetirementPlacement::Consistent
         };
-        let retirement_budget = match effective_min {
-            Some(min_words) => format!(" (≥{min_words} words)"),
-            None => String::new(),
+
+        let status = match record.status() {
+            None => StatusPlacement::Consistent,
+            Some(status) => match (is_stale, StatusLiveness::classify(status)) {
+                (false, StatusLiveness::Terminal) => StatusPlacement::TerminalOutsideStale(status),
+                (true, StatusLiveness::Live(live)) => StatusPlacement::LiveInsideStale(live),
+                (true, StatusLiveness::Indeterminate) => StatusPlacement::IndeterminateInsideStale,
+                _ => StatusPlacement::Consistent,
+            },
         };
-        diags.push(catalog::S006.diagnostic(
-            record.file_path(),
-            record.status_line(),
-            format!(
-                "{} has terminal status '{status_display}' but is not in the \
-                 stale directory. Action: move this file to {stale_dir}/ and add a \
-                 `## Retirement` section{retirement_budget} explaining why this \
-                 ADR left active service.",
-                record.id(),
-                stale_dir = config.stale.directory,
-            ),
-        ));
+
+        Self { retirement, status }
     }
 
-    if let Some(status) = record.status()
-        && record.is_stale()
-    {
-        match StatusLiveness::classify(status) {
-            StatusLiveness::Live(live) => diags.push(catalog::S008.diagnostic(
+    fn emit(
+        &self,
+        record: &AdrRecord,
+        config: &Config,
+        effective_min: Option<u64>,
+        diags: &mut Vec<Diagnostic>,
+    ) {
+        match self.retirement {
+            RetirementPlacement::StaleWithoutRetirement => diags.push(
+                catalog::S004.diagnostic(
+                    record.file_path(),
+                    0,
+                    "stale ADR missing `## Retirement` section — explain why \
+                 this ADR was retired"
+                        .into(),
+                ),
+            ),
+            RetirementPlacement::ActiveWithRetirement => diags.push(
+                catalog::S005.diagnostic(
+                    record.file_path(),
+                    0,
+                    "active ADR has `## Retirement` section — Retirement is \
+                 only for stale ADRs"
+                        .into(),
+                ),
+            ),
+            RetirementPlacement::Consistent => {}
+        }
+
+        match self.status {
+            StatusPlacement::TerminalOutsideStale(status) => diags.push(catalog::S006.diagnostic(
                 record.file_path(),
                 record.status_line(),
-                format!(
-                    "{} is in the {stale_dir}/ directory but has non-terminal status \
-                     '{live}'. Action: either set a terminal status (Rejected, \
-                     Deprecated, or Superseded by PREFIX-NNNN) to record how this ADR \
-                     left active service, or move the file back out of {stale_dir}/.",
-                    record.id(),
-                    stale_dir = config.stale.directory,
-                ),
+                terminal_outside_stale_message(record, status, config, effective_min),
             )),
-            StatusLiveness::Terminal => {}
-            StatusLiveness::Indeterminate => {
+            StatusPlacement::LiveInsideStale(live) => diags.push(catalog::S008.diagnostic(
+                record.file_path(),
+                record.status_line(),
+                live_inside_stale_message(record, live, config),
+            )),
+            StatusPlacement::IndeterminateInsideStale => {
                 debug_assert!(
                     {
                         let file = record.file_path().display().to_string();
@@ -557,8 +566,49 @@ fn check_stale_lifecycle(
                      before the stale lifecycle check declines to emit S008"
                 );
             }
+            StatusPlacement::Consistent => {}
         }
     }
+}
+
+fn terminal_outside_stale_message(
+    record: &AdrRecord,
+    status: &Status,
+    config: &Config,
+    effective_min: Option<u64>,
+) -> String {
+    let retirement_budget = match effective_min {
+        Some(min_words) => format!(" (≥{min_words} words)"),
+        None => String::new(),
+    };
+    format!(
+        "{} has terminal status '{status}' but is not in the \
+         stale directory. Action: move this file to {stale_dir}/ and add a \
+         `## Retirement` section{retirement_budget} explaining why this \
+         ADR left active service.",
+        record.id(),
+        stale_dir = config.stale.directory,
+    )
+}
+
+fn live_inside_stale_message(record: &AdrRecord, live: LiveStatus, config: &Config) -> String {
+    format!(
+        "{} is in the {stale_dir}/ directory but has non-terminal status \
+         '{live}'. Action: either set a terminal status (Rejected, \
+         Deprecated, or Superseded by PREFIX-NNNN) to record how this ADR \
+         left active service, or move the file back out of {stale_dir}/.",
+        record.id(),
+        stale_dir = config.stale.directory,
+    )
+}
+
+fn check_stale_lifecycle(
+    record: &AdrRecord,
+    config: &Config,
+    effective_min: Option<u64>,
+    diags: &mut Vec<Diagnostic>,
+) {
+    StaleLifecycleVerdict::classify(record).emit(record, config, effective_min, diags);
 }
 
 fn check_stale_stub_structure(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
@@ -770,6 +820,12 @@ fn check_rule_count(
     }
 }
 
+#[derive(PartialEq, Eq)]
+enum RuleSetPresence {
+    Present,
+    Absent,
+}
+
 fn check_tagged_rules(
     record: &AdrRecord,
     min_rule_words: u64,
@@ -779,7 +835,14 @@ fn check_tagged_rules(
     if record.is_stale() {
         return;
     }
+    if check_rule_presence(record, diags) == RuleSetPresence::Absent {
+        return;
+    }
+    check_rule_annotations(record, min_rule_words, max_rule_words, diags);
+    check_rule_sequence(record, diags);
+}
 
+fn check_rule_presence(record: &AdrRecord, diags: &mut Vec<Diagnostic>) -> RuleSetPresence {
     for candidate in record.malformed_decision_rules() {
         diags.push(catalog::T016.diagnostic(
             record.file_path(),
@@ -798,47 +861,70 @@ fn check_tagged_rules(
             0,
             "Decision section lacks tagged rules (RN [L]: pattern)".into(),
         ));
-        return;
+        return RuleSetPresence::Absent;
     }
+    RuleSetPresence::Present
+}
 
+fn check_rule_annotations(
+    record: &AdrRecord,
+    min_rule_words: u64,
+    max_rule_words: u64,
+    diags: &mut Vec<Diagnostic>,
+) {
     for rule in record.decision_rules() {
-        let word_count = rule.text.split_whitespace().count() as u64;
-        if word_count < min_rule_words {
-            diags.push(catalog::T016.diagnostic(
-                record.file_path(),
-                rule.line,
-                format!(
-                    "Rule {id} has {word_count} word(s) (minimum {min_rule_words})",
-                    id = rule.id,
-                ),
-            ));
-        } else if word_count > max_rule_words {
-            diags.push(catalog::T016.diagnostic(
-                record.file_path(),
-                rule.line,
-                format!(
-                    "Rule {id} has {word_count} word(s) (maximum {max_rule_words}) — be concise",
-                    id = rule.id,
-                ),
-            ));
-        }
-
-        if rule.layer == 0 || rule.layer > 12 {
-            diags.push(catalog::T016.diagnostic(
-                record.file_path(),
-                rule.line,
-                format!(
-                    "Rule {id} has layer {layer} (must be 1-12, Meadows leverage points)",
-                    id = rule.id,
-                    layer = record.unparsed_rule_layer(rule.line).map_or_else(
-                        || rule.layer.to_string(),
-                        str::to_owned,
-                    ),
-                ),
-            ));
-        }
+        check_rule_word_budget(record, rule, min_rule_words, max_rule_words, diags);
+        check_rule_layer_range(record, rule, diags);
     }
+}
 
+fn check_rule_word_budget(
+    record: &AdrRecord,
+    rule: &TaggedRule,
+    min_rule_words: u64,
+    max_rule_words: u64,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let word_count = rule.text.split_whitespace().count() as u64;
+    if word_count < min_rule_words {
+        diags.push(catalog::T016.diagnostic(
+            record.file_path(),
+            rule.line,
+            format!(
+                "Rule {id} has {word_count} word(s) (minimum {min_rule_words})",
+                id = rule.id,
+            ),
+        ));
+    } else if word_count > max_rule_words {
+        diags.push(catalog::T016.diagnostic(
+            record.file_path(),
+            rule.line,
+            format!(
+                "Rule {id} has {word_count} word(s) (maximum {max_rule_words}) — be concise",
+                id = rule.id,
+            ),
+        ));
+    }
+}
+
+fn check_rule_layer_range(record: &AdrRecord, rule: &TaggedRule, diags: &mut Vec<Diagnostic>) {
+    if rule.layer == 0 || rule.layer > 12 {
+        diags.push(catalog::T016.diagnostic(
+            record.file_path(),
+            rule.line,
+            format!(
+                "Rule {id} has layer {layer} (must be 1-12, Meadows leverage points)",
+                id = rule.id,
+                layer = record.unparsed_rule_layer(rule.line).map_or_else(
+                    || rule.layer.to_string(),
+                    str::to_owned,
+                ),
+            ),
+        ));
+    }
+}
+
+fn check_rule_sequence(record: &AdrRecord, diags: &mut Vec<Diagnostic>) {
     let mut nums: Vec<u32> = Vec::new();
     for rule in record.decision_rules() {
         if let Some(num) = rule.id.ordinal() {
@@ -1964,7 +2050,7 @@ params = { min_words = 20, max_words = 200 }
     }
 
     #[test]
-    fn t019_distance_two_lower_leverage_no_warning() {
+    fn t019_rule_two_tiers_below_adr_tier_no_warning() {
         let body = Doc::new()
             .tier("S")
             .decision(&format!("R1 [5]: {}", prose(8)))
@@ -1973,7 +2059,7 @@ params = { min_words = 20, max_words = 200 }
     }
 
     #[test]
-    fn t019_foundation_s_tier_lower_leverage_no_warning() {
+    fn t019_gnd_prefix_rule_two_tiers_below_adr_tier_no_warning() {
         let body = Doc::new()
             .prefix("GND")
             .tier("S")
@@ -1983,7 +2069,7 @@ params = { min_words = 20, max_words = 200 }
     }
 
     #[test]
-    fn t019_s_tier_rule_in_c_tier_foundation_adr_lower_leverage_no_warning() {
+    fn t019_c_adr_rule_one_tier_below_no_warning() {
         let body = Doc::new()
             .prefix("GND")
             .tier("C")
@@ -2003,7 +2089,7 @@ params = { min_words = 20, max_words = 200 }
     }
 
     #[test]
-    fn t019_unknown_prefix_no_carve_out_needed() {
+    fn t019_zzz_prefix_rule_two_tiers_below_adr_tier_no_warning() {
         let body = Doc::new()
             .prefix("ZZZ")
             .tier("S")
