@@ -472,13 +472,23 @@ pub(crate) fn parse_adr_file(
     let (last_reviewed, _) = find_field(&lines, "Last-reviewed:");
     let (tier, _) = find_tier_field(&lines);
 
-    let (status, status_line, status_raw, status_from_section, legacy_status_section) =
-        resolve_status(&lines, &outside);
+    let ResolvedStatus {
+        status,
+        status_line,
+        status_raw,
+        status_from_section,
+        legacy_status_section,
+    } = resolve_status(&lines, &outside);
 
     let (related, related_diagnostics) = find_relationships(&outside, path);
     diagnostics.extend(related_diagnostics);
 
-    let (has_context, has_decision, has_consequences, has_retirement) = section_presence(&outside);
+    let SectionPresence {
+        has_context,
+        has_decision,
+        has_consequences,
+        has_retirement,
+    } = section_presence(&outside);
 
     let (section_order, section_word_counts) = analyze_sections(&outside);
 
@@ -544,16 +554,15 @@ fn empty_file_outcome(path: &Path, expected_prefix: &str) -> ParseFileOutcome {
     }
 }
 
-fn resolve_status(
-    lines: &[&str],
-    outside: &OutsideLines<'_>,
-) -> (
-    Option<Status>,
-    usize,
-    Option<String>,
-    bool,
-    LegacyStatusSection,
-) {
+struct ResolvedStatus {
+    status: Option<Status>,
+    status_line: usize,
+    status_raw: Option<String>,
+    status_from_section: bool,
+    legacy_status_section: LegacyStatusSection,
+}
+
+fn resolve_status(lines: &[&str], outside: &OutsideLines<'_>) -> ResolvedStatus {
     let (metadata_status, metadata_status_line, metadata_status_raw) = find_status_field(lines);
     let legacy_status_section = match find_heading_line(outside, "Status") {
         None => LegacyStatusSection::Absent,
@@ -568,22 +577,33 @@ fn resolve_status(
         (metadata_status, metadata_status_line, metadata_status_raw)
     };
 
-    (
+    ResolvedStatus {
         status,
         status_line,
         status_raw,
         status_from_section,
         legacy_status_section,
-    )
+    }
 }
 
-fn section_presence(outside: &OutsideLines<'_>) -> (bool, bool, bool, bool) {
-    (
-        has_heading(outside, "Context"),
-        has_heading(outside, "Decision"),
-        has_heading(outside, "Consequences"),
-        has_heading(outside, "Retirement"),
-    )
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent parser-detected section-presence facts read individually into AdrRecord::from_parser_fields; collapsing to a flags enum would lose the per-field access pattern and overconstrain independent booleans, mirroring AdrRecord's own struct-level expect"
+)]
+struct SectionPresence {
+    has_context: bool,
+    has_decision: bool,
+    has_consequences: bool,
+    has_retirement: bool,
+}
+
+fn section_presence(outside: &OutsideLines<'_>) -> SectionPresence {
+    SectionPresence {
+        has_context: has_heading(outside, "Context"),
+        has_decision: has_heading(outside, "Decision"),
+        has_consequences: has_heading(outside, "Consequences"),
+        has_retirement: has_heading(outside, "Retirement"),
+    }
 }
 
 fn parse_title(
