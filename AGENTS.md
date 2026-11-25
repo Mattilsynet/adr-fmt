@@ -156,19 +156,13 @@ by design. For each changed constrained type, review all construction routes:
 Independent booleans remain valid booleans; genuine optionality remains `Option`.
 Do not invent artificial domain restrictions where none exist.
 
-### Closed Error Enum Policy (C4.5/C4.6) — provisional ratchet
-No new `pub enum` error type declared in `src/` (item-level `pub`; includes two
-types that are not re-exported) may carry `#[non_exhaustive]`. Seven existing such error
-enums do, recorded in `tests/closed_error_policy.rs` as a baseline whose entries each
-cite AFM-0026:R6 and that enum's recorded growth, or state plainly that there is none.
-The check fails on a new occurrence and on a stale entry, so the baseline cannot rot,
-and it does not grow without a successor ADR.
-
-This is provisional containment of an open conflict, not a resolution: RST-0006 requires
-closed enums (exhaustive matching) while AFM-0026:R6 permits adding error variants in
-minor versions. The two coherent settlements — amend RST-0006 out of scope for this
-repository, or amend AFM-0026:R6 and drop the attribute from the seven on a breaking
-version — are recorded in adr-fmt-6zxu.
+### Closed Error Enum Policy (C4.5/C4.6) — resolved (RST-0006 enforced)
+No `pub enum` error type declared in `src/` (item-level `pub`; includes two types
+that are not re-exported) may carry `#[non_exhaustive]`. RST-0006 is enforced as a
+zero-violation prohibition: the variant sets of the seven public error enums are
+closed, and adding or removing a variant is a breaking change under AFM-0036:R3/R4.
+AFM-0041 records the decision and amends AFM-0026:R6 in place to the closed-enum
+position; the conflict recorded in adr-fmt-6zxu is no longer open.
 
 Enforced by `tests/closed_error_policy.rs`, which parses the crate's sources with `syn`
 and fails closed on unreadable input, in both `scripts/verify.sh` and CI.
@@ -182,10 +176,11 @@ BOUNDARY gate before pushing.
 
 ### Governance
 This repo carries its own ADR corpus at `docs/adr/adr-fmt/` (prefix
-`AFM`, 30 Accepted), with 10 retired stubs in `docs/adr/stale/`
-(40 ADRs total). Start with [the corpus guide](docs/adr/README.md).
-AFM-0040 is the newest: it records the 0.4.0 MSRV floor raises and the
-AFM-0039 reconciliation. These ADRs are binding — read the relevant ones
+`AFM`, 31 Accepted), with 10 retired stubs in `docs/adr/stale/`
+(41 ADRs total). Start with [the corpus guide](docs/adr/README.md).
+AFM-0041 is the newest: it records the closed public error enum sets and
+amends AFM-0026:R6 in place; AFM-0040 records the 0.4.0 MSRV floor raises
+and the AFM-0039 reconciliation. These ADRs are binding — read the relevant ones
 before changing behaviour they govern. Read them with `adr-fmt --tree`
 / `adr-fmt --context adr-fmt` or directly as markdown; the config file
 `adr-fmt.toml` lives at the **project root**, not inside

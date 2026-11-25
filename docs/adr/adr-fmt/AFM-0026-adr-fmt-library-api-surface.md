@@ -1,7 +1,7 @@
 # AFM-0026. adr-fmt Library API Surface
 
 Date: 2026-05-18
-Last-reviewed: 2026-09-06
+Last-reviewed: 2026-11-25
 Tier: S
 Status: Accepted
 
@@ -70,10 +70,10 @@ R5 [7]: The library MUST NOT widen what the binary's CLI promises;
   AFM-0017 (P0xx namespace) further pin the shape of items already
   exposed.
 
-R6 [5]: Variant field shape of public error types in the R1 set is
-  v0.1-stable, the reading AFM-0028:R3 already assumes. New variants
-  may be added in minor versions; removing or reshaping one requires
-   a recorded amendment and version transition under AFM-0036:R4.
+R6 [5]: Variant field shape of the public error types in the R1 set is
+  v0.1-stable, the reading AFM-0028:R3 already assumes, and each variant
+  set is CLOSED per RST-0006: adding or removing a variant is a breaking
+  change under AFM-0036:R3 and R4.
 
 R7 [5]: R1 pins field shape transitively: a type reachable through a
   pinned item's public signature is v0.1-stable on R3's terms, since a

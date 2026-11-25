@@ -4,8 +4,9 @@
 //! RST-0006 requires closed public error/state/outcome enums: a variant set is
 //! complete within a major semver line, so an unhandled state is
 //! unrepresentable at compile time rather than a crash or silent default. The
-//! open-enum provision AFM-0026:R6 granted — new variants may be added in minor
-//! versions — is withdrawn in this repository; no successor ADR reopens it.
+//! open-enum provision AFM-0026:R6 granted is amended in place to the closed
+//! position; AFM-0041 records the decision, and reopening the variant sets
+//! requires a new ADR.
 //!
 //! AFM-0037:R3 — guard claims only what its mechanism reaches. This guard
 //! reaches error types ONLY, via the derive path and the Error-trait suffix

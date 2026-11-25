@@ -71,13 +71,13 @@ jobs:
             exit 1
           fi
 
-  # In-repo ratchet for the closed error enum policy (C4.5/C4.6) against
-  # AFM-0026:R6, plus the `forbid(unsafe_code)` crate-root gates. The ratchet
-  # fails on a new `#[non_exhaustive]` public error enum and on a stale baseline
-  # entry; seven existing enums are recorded with evidence in
-  # tests/closed_error_policy.rs (see bd adr-fmt-6zxu).
+  # Prohibition on `#[non_exhaustive]` for public error enums (C4.5/C4.6) per
+  # RST-0006 and AFM-0041, plus the `forbid(unsafe_code)` crate-root gates. The
+  # prohibition fails on any `#[non_exhaustive]` public error enum in `src/`; the
+  # seven public error enums are closed and the check is recorded in
+  # tests/closed_error_policy.rs.
   closed-error-and-unsafe-gate:
-    name: closed-error ratchet + forbid-unsafe gates
+    name: closed-error prohibition + forbid-unsafe gates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
