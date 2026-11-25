@@ -124,9 +124,11 @@ Run the same native check from the repository root locally and in CI:
 comment-free --check-doc-budget --doc-advisory-words 80 --doc-max-words 120 --max-warning-files 0 .
 ```
 
-Requires comment-free 0.2.0 at the canonical revision below:
+Install from the canonical git repo on the default branch — no revision or
+version pin (fleet rule for unpublished in-house CLIs), only the toolchain
+and `--locked` are pinned:
 ```sh
-cargo +1.100.0 install --git https://github.com/acje/comment-free --rev e45de7ef3b0fcd9a1ec299b9026b14fb5b0cf534 --locked comment-free
+cargo +1.100.0 install --git https://github.com/acje/comment-free --locked comment-free
 ```
 
 The read-only native gate recursively scans Rust sources under `.` with the

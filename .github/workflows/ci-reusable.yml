@@ -22,7 +22,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
         with:
           toolchain: 1.100.0
-      - run: cargo +1.100.0 install --git https://github.com/acje/comment-free --rev e45de7ef3b0fcd9a1ec299b9026b14fb5b0cf534 --locked comment-free
+      - run: cargo +1.100.0 install --git https://github.com/acje/comment-free --locked comment-free
       - run: comment-free --check-doc-budget --doc-advisory-words 80 --doc-max-words 120 --max-warning-files 0 .
 
   build-test-lint:
