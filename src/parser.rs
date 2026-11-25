@@ -1181,7 +1181,7 @@ fn absorb_rule_continuation(
         if RULE_SHAPED_RE.is_match(next) {
             break;
         }
-        let indented_continuation = next.len() >= 2 && next.starts_with("  ");
+        let indented_continuation = next.starts_with("  ");
         if !indented_continuation {
             break;
         }
