@@ -2,6 +2,6 @@
 .ooda/
 .beads*
 *.pem
-graphify-out/
+/graphify-out/
 .DS_Store
 /.repowise/
