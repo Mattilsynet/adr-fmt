@@ -126,7 +126,9 @@ jobs:
           toolchain: 1.100.0
           components: clippy, rustfmt
       - run: sh scripts/verify.sh
-      # `adr-lint-gate.sh` carries a bash shebang and uses bash-only constructs
-      # (`[[ =~ ]]`, `BASH_SOURCE`), so it is invoked through `bash`: ubuntu's
-      # `sh` is dash, where the gate cannot run and reports exit 2 (no verdict).
+      # `adr-lint-gate-test.sh` and `adr-lint-gate.sh` carry bash shebangs and
+      # use bash-only constructs (`[[ =~ ]]`, `BASH_SOURCE`), so both are invoked
+      # through `bash`: ubuntu's `sh` is dash, where they cannot run and report
+      # exit 2 (no verdict).
+      - run: bash scripts/adr-lint-gate-test.sh
       - run: bash scripts/adr-lint-gate.sh
