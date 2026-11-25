@@ -1,8 +1,3 @@
-#![expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "the syn AST enums matched here (syn::Type, syn::Item, syn::GenericArgument) carry a large external variant vocabulary; the census models the few it needs and the wildcard arm carries the rest"
-)]
-
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -89,6 +84,10 @@ fn is_public(vis: &syn::Visibility) -> bool {
     matches!(vis, syn::Visibility::Public(_))
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "syn::Type has many variants; only Path identifies the self type"
+)]
 fn self_type_name(ty: &syn::Type) -> Option<String> {
     match ty {
         syn::Type::Path(path) => Some(path.path.segments.last()?.ident.to_string()),
@@ -144,6 +143,10 @@ fn collect_dep_bindings(
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "syn::Item has many variants; only Use/Impl/Struct/Enum/Fn/Type kinds are indexed here"
+)]
 fn index_module(path: &Path, deps: &BTreeSet<String>) -> Module {
     let ast = parse(path);
     let file = path.display().to_string();
@@ -196,6 +199,10 @@ struct Spelling {
     site: String,
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "syn::Type has many variants; only type-position variants that can carry a spelling are traversed"
+)]
 fn push_type(ty: &syn::Type, site: &str, out: &mut Vec<Spelling>) {
     match ty {
         syn::Type::Path(node) => {
@@ -233,6 +240,10 @@ fn push_type(ty: &syn::Type, site: &str, out: &mut Vec<Spelling>) {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "syn::GenericArgument has many variants; only Type/AssocType/Constraint carry a spelling"
+)]
 fn push_path_arguments(arguments: &syn::PathArguments, site: &str, out: &mut Vec<Spelling>) {
     match arguments {
         syn::PathArguments::AngleBracketed(args) => {
@@ -319,6 +330,10 @@ fn push_fields(fields: &syn::Fields, owner: &str, all_public: bool, out: &mut Ve
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "syn::Item has many variants; only Struct/Enum/Fn/Type carry spellings"
+)]
 fn spellings_of(
     module: &str,
     name: &str,

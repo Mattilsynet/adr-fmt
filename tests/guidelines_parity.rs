@@ -13,11 +13,6 @@
 //! `RuleEntry::diagnostic`, the intended severity decision. Exemptions assert
 //! those roles, not within-file uniqueness; internal bypasses remain trusted.
 
-#![expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "the syn AST enums matched here (syn::Type, syn::UseTree, syn::Expr, syn::Item, syn::ImplItem) carry a large external variant vocabulary; the guard models the few it needs and the wildcard arm carries the rest"
-)]
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
@@ -87,6 +82,10 @@ fn parse(file: &Path) -> syn::File {
         .unwrap_or_else(|e| panic!("{}: source does not parse: {e}", file.display()))
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "syn::Type has many variants; only Path names a type here"
+)]
 fn type_name(ty: &syn::Type) -> Option<String> {
     match ty {
         syn::Type::Path(path) => Some(path.path.segments.last()?.ident.to_string()),
@@ -156,6 +155,10 @@ fn catalog_entries() -> BTreeMap<String, String> {
 struct LocalDiagnosticSpellings(BTreeSet<String>);
 
 impl<'ast> Visit<'ast> for LocalDiagnosticSpellings {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "syn::UseTree has many variants; only Name and Rename spell a Diagnostic"
+    )]
     fn visit_use_tree(&mut self, node: &'ast syn::UseTree) {
         match node {
             syn::UseTree::Name(name) if name.ident == DIAGNOSTIC_TYPE => {
@@ -218,6 +221,10 @@ impl Sites<'_> {
     }
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "syn::Expr has many variants; only Reference is stripped here"
+)]
 fn strip_reference(expr: &syn::Expr) -> &syn::Expr {
     match expr {
         syn::Expr::Reference(reference) => strip_reference(&reference.expr),
@@ -264,6 +271,10 @@ impl<'ast> Visit<'ast> for Sites<'_> {
         syn::visit::visit_expr_path(self, node);
     }
 
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "syn::Expr has many variants; only Path is modeled here"
+    )]
     fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
         if node.method == CONSTRUCTION_METHOD {
             match Sites::catalog_entry_name(&node.receiver) {
@@ -394,6 +405,10 @@ fn directly_constructed_rule_ids() -> BTreeSet<String> {
     ids
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "syn::Item has many variants; only Struct can define the Diagnostic"
+)]
 fn defines_diagnostic(ast: &syn::File) -> bool {
     ast.items.iter().any(|item| match item {
         syn::Item::Struct(item) => item.ident == DIAGNOSTIC_TYPE,
@@ -401,6 +416,10 @@ fn defines_diagnostic(ast: &syn::File) -> bool {
     })
 }
 
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "syn::Item and syn::ImplItem have many variants; only Impl and Fn guard the construction path"
+)]
 fn defines_construction(ast: &syn::File) -> bool {
     ast.items.iter().any(|item| match item {
         syn::Item::Impl(item) => {
