@@ -540,7 +540,14 @@ fn try_marker(marker_dir: &Path) -> Result<MarkerVerdict, String> {
                     segment.escape_debug()
                 )));
             }
-            Err(_) => any_domain_intended = true,
+            Err(
+                containment::ContainmentError::Absolute(_)
+                | containment::ContainmentError::ParentTraversal(_)
+                | containment::ContainmentError::Empty
+                | containment::ContainmentError::RootCanonicalizeFailed { .. }
+                | containment::ContainmentError::TargetCanonicalizeFailed { .. }
+                | containment::ContainmentError::EscapesRoot { .. },
+            ) => any_domain_intended = true,
             Ok(Some(p)) => any_domain_intended |= p.is_dir(),
             Ok(None) => {}
         }

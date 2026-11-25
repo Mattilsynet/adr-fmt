@@ -1,17 +1,22 @@
-//! Ratchet for the closed-error-enum policy (C4.5/C4.6) against AFM-0026:R6.
+//! Prohibition on `#[non_exhaustive]` for public error enums in `src/`
+//! (item-level `pub`; includes two types not re-exported).
 //!
-//! Seven `pub enum` error types in `src/` (item-level `pub`; two not re-exported)
-//! carry `#[non_exhaustive]` by binding decision, each recorded in BASELINE with
-//! evidence. A new occurrence fails and a stale entry fails, so the list cannot
-//! grow implicitly or rot. RST-0006 vs AFM-0026:R6 is OPEN in `adr-fmt-6zxu`.
+//! RST-0006 requires closed public error/state/outcome enums: a variant set is
+//! complete within a major semver line, so an unhandled state is
+//! unrepresentable at compile time rather than a crash or silent default. The
+//! open-enum provision AFM-0026:R6 granted — new variants may be added in minor
+//! versions — is withdrawn in this repository; no successor ADR reopens it.
 //!
-//! AFM-0037:R3 — the guard claims only what its mechanism reaches. It matches an
-//! impl trait path whose last segment ends in `Error` (`std::error::Error`,
-//! `StdError`, ...), so it errs toward flagging without name resolution. Silent
-//! gaps (false cleans): a trait alias unrelated to `Error` (`use
-//! std::error::Error as Boom;`, `impl Boom for X {}`); a non-`Path` self type
-//! (`impl Error for &FooError`); an aliased self type (`type A = FooError;`,
-//! `impl Error for A`).
+//! AFM-0037:R3 — guard claims only what its mechanism reaches. This guard
+//! reaches error types ONLY, via the derive path and the Error-trait suffix
+//! heuristic; it matches an impl trait path whose last segment ends in `Error`
+//! (`std::error::Error`, `StdError`, ...), so it errs toward flagging without
+//! name resolution. Silent gaps (false cleans): a trait alias unrelated to
+//! `Error` (`use std::error::Error as Boom;`, `impl Boom for X {}`); a
+//! non-`Path` self type (`impl Error for &FooError`); an aliased self type
+//! (`type A = FooError;`, `impl Error for A`). A non-error `pub enum` carrying
+//! `#[non_exhaustive]` — for example a state or outcome enum — is a documented
+//! false-clean: state/outcome enum gaps are not mechanically covered.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -20,50 +25,6 @@ use std::path::{Path, PathBuf};
 mod common;
 
 use common::{manifest_dir, rust_sources};
-
-struct Baseline {
-    path: &'static str,
-    enum_name: &'static str,
-    reason: &'static str,
-}
-
-const BASELINE: [Baseline; 7] = [
-    Baseline {
-        path: "src/config.rs",
-        enum_name: "LoadError",
-        reason: "AFM-0026:R6. Recorded growth: NotAMarker added in 1bcfbee; DuplicateRuleId added in 622567e.",
-    },
-    Baseline {
-        path: "src/config.rs",
-        enum_name: "ResolveCorpusError",
-        reason: "AFM-0026:R6. No recorded growth; retained under R6 as the mechanism for a future minor addition.",
-    },
-    Baseline {
-        path: "src/containment.rs",
-        enum_name: "ContainmentError",
-        reason: "AFM-0026:R6. Recorded growth: 0a14132 split CanonicalizeFailed into RootCanonicalizeFailed and TargetCanonicalizeFailed, and added MetadataProbeFailed.",
-    },
-    Baseline {
-        path: "src/model.rs",
-        enum_name: "RuleIdError",
-        reason: "AFM-0026:R6. No recorded growth; retained under R6 as the mechanism for a future minor addition.",
-    },
-    Baseline {
-        path: "src/model.rs",
-        enum_name: "AdrIdError",
-        reason: "AFM-0026:R6. No recorded growth; retained under R6 as the mechanism for a future minor addition.",
-    },
-    Baseline {
-        path: "src/parser.rs",
-        enum_name: "ParseError",
-        reason: "AFM-0026:R6. No recorded growth; retained under R6 as the mechanism for a future minor addition.",
-    },
-    Baseline {
-        path: "src/refs.rs",
-        enum_name: "RefsError",
-        reason: "AFM-0026:R6. Recorded growth: 506d8b0 added TargetIndeterminate and ReferrerIndeterminate to distinguish unresolvable from absent targets.",
-    },
-];
 
 const FILES_FLOOR: usize = 19;
 const PUB_ENUM_FLOOR: usize = 14;
@@ -117,92 +78,44 @@ struct SourceFile {
 }
 
 #[test]
-fn no_unrecorded_public_non_exhaustive_error_enum() {
+fn no_public_non_exhaustive_error_enum() {
     let scan = scan_live();
     let files = scan.files;
     let pub_enums = scan.pub_enums;
     let all_enums = scan.all_enums;
     let manual_impls = scan.manual_impls.len();
-    let baseline_entries = BASELINE.len();
     println!(
-        "closed-error ratchet summary: {files} files, pub enums: {pub_enums}, all enums: \
-         {all_enums}, {manual_impls} manual Error impls, {baseline_entries} baseline entries; \
-         scope: `pub enum` error types declared in `src/` (item-level `pub`; includes two types \
-         that are not re-exported)"
+        "closed-error prohibition summary: {files} files, pub enums: {pub_enums}, all enums: \
+         {all_enums}, {manual_impls} manual Error impls; scope: `pub enum` error types declared \
+         in `src/` (item-level `pub`; includes two types that are not re-exported)"
     );
     assert!(
         files >= FILES_FLOOR,
         "the scan parsed only {files} Rust sources under src/; the walker is broken and this \
-         ratchet would pass vacuously"
+         prohibition would pass vacuously"
     );
     assert!(
         pub_enums >= PUB_ENUM_FLOOR,
         "the scan collected only {pub_enums} public enums under src/; the collector is broken \
-         and this ratchet would pass vacuously"
+         and this prohibition would pass vacuously"
     );
     assert!(
         manual_impls >= MANUAL_IMPL_FLOOR,
         "the scan found only {manual_impls} manual `std::error::Error`/`core::error::Error` \
-         implementations; without them the manual shape would be invisible and this ratchet \
+         implementations; without them the manual shape would be invisible and this prohibition \
          would pass vacuously"
     );
-    assert_eq!(
-        BASELINE.len(),
-        7,
-        "the baseline changed size: growth requires a successor ADR settling RST-0006 against \
-         AFM-0026:R6; see adr-fmt-6zxu"
-    );
-    let recorded: BTreeSet<(&str, &str)> = BASELINE
-        .iter()
-        .map(|entry| (entry.path, entry.enum_name))
-        .collect();
-    let found: BTreeSet<(&str, &str)> = scan
+    let violations = scan
         .occurrences
         .iter()
-        .map(|occurrence| (occurrence.path.as_str(), occurrence.enum_name.as_str()))
-        .collect();
-
-    let new: Vec<String> = scan
-        .occurrences
-        .iter()
-        .filter(|occurrence| {
-            !recorded.contains(&(occurrence.path.as_str(), occurrence.enum_name.as_str()))
-        })
         .map(Occurrence::describe)
-        .collect();
+        .collect::<Vec<_>>();
     assert!(
-        new.is_empty(),
-        "unrecorded public error enum(s) carry #[non_exhaustive]. Remove the attribute, or record \
-         the enum in BASELINE with the AFM-0026:R6 evidence for keeping it; growth requires a \
-         successor ADR (see adr-fmt-6zxu):\n{}",
-        new.join("\n")
+        violations.is_empty(),
+        "public error enum(s) carry #[non_exhaustive]. RST-0006 closes them here; \
+         drop the attribute from each occurrence:\n{}",
+        violations.join("\n")
     );
-
-    let stale: Vec<String> = BASELINE
-        .iter()
-        .filter(|entry| !found.contains(&(entry.path, entry.enum_name)))
-        .map(|entry| {
-            let path = entry.path;
-            let name = entry.enum_name;
-            let reason = entry.reason;
-            format!("stale baseline entry: {path} {name} - {reason}")
-        })
-        .collect();
-    assert!(
-        stale.is_empty(),
-        "baseline entries no longer describe the tree, so the recorded reasons are now claims \
-         nobody can check. Delete each entry together with its justification:\n{}",
-        stale.join("\n")
-    );
-
-    for entry in &BASELINE {
-        let name = entry.enum_name;
-        let reason = entry.reason;
-        assert!(
-            reason.starts_with("AFM-0026:R6"),
-            "{name}: every baseline reason must cite the clause that keeps the enum open: {reason}"
-        );
-    }
 }
 
 #[test]
@@ -489,7 +402,7 @@ fn declaration_line(source: &SourceFile, item_enum: &syn::ItemEnum) -> usize {
         })
         .unwrap_or_else(|| {
             panic!(
-                "{}: cannot locate the declaration line of {name}; the ratchet must not report a \
+                "{}: cannot locate the declaration line of {name}; the guard must not report a \
                  finding it cannot point at",
                 source.relative
             )

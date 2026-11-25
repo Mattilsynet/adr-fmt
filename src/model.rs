@@ -37,7 +37,6 @@ pub struct RuleId {
 /// Error returned by [`RuleId::from_digits`]. Implements `Display` +
 /// `Debug` + `std::error::Error` per the AFM-0028:R1 trait floor.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum RuleIdError {
     /// The digit run was empty.
     EmptyDigits,
@@ -155,7 +154,6 @@ pub struct AdrId {
 /// `TryFrom<&str>`). Implements `Display` + `Debug` + `std::error::Error`
 /// per the AFM-0028:R1 trait floor. See AFM-0032.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum AdrIdError {
     /// `prefix.len()` was not in `2..=4`.
     PrefixLength {

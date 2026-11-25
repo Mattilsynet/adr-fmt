@@ -210,6 +210,5 @@ fn adr_id_error_reachable_and_matchable_at_crate_root() {
         | adr_fmt::AdrIdError::PrefixNotUppercaseAscii { .. }
         | adr_fmt::AdrIdError::NumberOutOfRange { .. }
         | adr_fmt::AdrIdError::Malformed { .. } => {}
-        _ => panic!("unexpected AdrIdError variant"),
     }
 }

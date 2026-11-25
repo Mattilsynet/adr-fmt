@@ -178,7 +178,6 @@ pub fn load_quiet(marker_dir: &Path) -> Result<Config, LoadError> {
 /// well-formed TOML file with no `[corpus]` table — it makes no marker
 /// claim, so discovery may skip it and continue walking up.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum LoadError {
     Io(String),
     Parse(String),
@@ -268,7 +267,6 @@ pub fn resolve_corpus_root(
 /// [`crate::containment::ContainmentError`] rather than re-deriving its
 /// variants.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum ResolveCorpusError {
     Containment(crate::containment::ContainmentError),
 }

@@ -9,8 +9,8 @@ use regex::Regex;
 use crate::config::Config;
 use crate::model::{
     AdrId, AdrRecord, CrossDomainDefect, CrossDomainParent, DomainDir, LegacyStatusSection,
-    MalformedReason, MalformedRule, RelVerb, Related, Relationship, RuleId, Status, TaggedRule,
-    Tier, TierField, parse_adr_id, parse_adr_id_from_filename_stem,
+    MalformedReason, MalformedRule, RelVerb, Related, Relationship, RuleId, RuleIdError, Status,
+    TaggedRule, Tier, TierField, parse_adr_id, parse_adr_id_from_filename_stem,
 };
 use crate::report::Diagnostic;
 use crate::rules::naming;
@@ -109,7 +109,6 @@ impl FileParseFailure {
 /// reported as `P001` diagnostics on the returned `ParseOutcome`
 /// instead.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum ParseError {
     ReadDir {
         path: PathBuf,
@@ -1078,7 +1077,9 @@ fn classify_rule_line(line: &str) -> RuleCandidate<'_> {
     {
         match RuleId::from_digits(num) {
             Ok(id) => RuleCandidate::Tagged { id, layer, text },
-            Err(_) => RuleCandidate::Malformed,
+            Err(RuleIdError::EmptyDigits | RuleIdError::NonDigit { .. }) => {
+                RuleCandidate::Malformed
+            }
         }
     } else if let Some((_, [rule, layer, _])) =
         RULE_TAG_SHAPED_RE.captures(line).map(|caps| caps.extract())

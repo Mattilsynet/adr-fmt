@@ -114,7 +114,6 @@ fn verb_sort_key(verb: RelVerb) -> u8 {
 }
 
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum RefsError {
     TargetNotFound {
         target: AdrId,
