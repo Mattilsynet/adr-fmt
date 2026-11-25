@@ -299,10 +299,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "test assertion over a closed enum; an unexpected variant must fail loudly"
-    )]
     fn unparsed_target_resolves_indeterminate_not_absent() {
         let records = vec![make_record("CHE", 1, "docs/adr/cherry/CHE-0001-a.md")];
         let diags = vec![parse_failure(
@@ -312,13 +308,12 @@ mod tests {
         let scan = scanned(records, diags);
         let index = CorpusIndex::build(&scan).expect("unique ids must build");
 
-        match index.resolve(&make_id("CHE", 2)) {
-            Resolution::Indeterminate(unparsed) => {
-                assert_eq!(unparsed.rule, "P002");
-                assert_eq!(unparsed.path, "docs/adr/cherry/CHE-0002-broken-h1.md");
-            }
-            other => panic!("expected Indeterminate, got {other:?}"),
-        }
+        let resolution = index.resolve(&make_id("CHE", 2));
+        let Resolution::Indeterminate(unparsed) = &resolution else {
+            panic!("expected Indeterminate, got {resolution:?}")
+        };
+        assert_eq!(unparsed.rule, "P002");
+        assert_eq!(unparsed.path, "docs/adr/cherry/CHE-0002-broken-h1.md");
     }
 
     #[test]

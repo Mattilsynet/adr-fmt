@@ -1831,19 +1831,13 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "test assertion over a closed enum; an unexpected variant must fail loudly"
-    )]
     fn parse_status_superseded() {
         let s = Status::parse("Superseded by CHE-0099");
-        match s {
-            Status::SupersededBy(id) => {
-                assert_eq!(id.prefix, "CHE");
-                assert_eq!(id.number, 99);
-            }
-            other => panic!("expected SupersededBy, got {other:?}"),
-        }
+        let Status::SupersededBy(id) = &s else {
+            panic!("expected SupersededBy, got {s:?}")
+        };
+        assert_eq!(id.prefix, "CHE");
+        assert_eq!(id.number, 99);
     }
 
     #[test]
