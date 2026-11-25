@@ -1,4 +1,4 @@
-#![allow(clippy::wildcard_enum_match_arm)]
+#![expect(clippy::wildcard_enum_match_arm, reason = "the syn AST enums matched here (syn::Type, syn::Item, syn::GenericArgument) carry a large external variant vocabulary; the census models the few it needs and the wildcard arm carries the rest")]
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;

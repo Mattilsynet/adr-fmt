@@ -13,7 +13,7 @@
 //! `RuleEntry::diagnostic`, the intended severity decision. Exemptions assert
 //! those roles, not within-file uniqueness; internal bypasses remain trusted.
 
-#![allow(clippy::wildcard_enum_match_arm)]
+#![expect(clippy::wildcard_enum_match_arm, reason = "the syn AST enums matched here (syn::Type, syn::UseTree, syn::Expr, syn::Item, syn::ImplItem) carry a large external variant vocabulary; the guard models the few it needs and the wildcard arm carries the rest")]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
