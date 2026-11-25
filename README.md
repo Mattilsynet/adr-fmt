@@ -34,6 +34,11 @@ for threshold enforcement and its distinct no-verdict result.
 
 ### Releases
 
+Version 0.5.0 is a breaking release: the seven public error enum variant sets
+are closed per [RST-0006](docs/adr/adr-fmt/AFM-0041-closed-public-error-enum-sets.md)
+([AFM-0041](docs/adr/adr-fmt/AFM-0041-closed-public-error-enum-sets.md)), so
+adding or removing a public error variant now requires the recorded breaking
+transition to the next 0.y series (0.(y+1).0) under AFM-0036:R4.
 Version 0.4.0 is by the maintainer's ruling the first published release and
 raises the MSRV floor to 1.100 per
 [AFM-0040](docs/adr/adr-fmt/AFM-0040-the-040-msrv-floor-raises.md); the same
@@ -159,9 +164,10 @@ project's `Cargo.lock` takes over and this one is ignored.
 ## Governance
 
 This tool's own design decisions live in `docs/adr/adr-fmt/` (prefix
-`AFM`): 30 Accepted decisions and 10 retired stubs, 40 total.
+`AFM`): 31 Accepted decisions and 10 retired stubs, 41 total.
 AFM-0038 records the 0.2.0 warning-output break; AFM-0039 records 0.3.0
-under AFM-0036; AFM-0040 records the 0.4.0 MSRV floor raises. The independent
+under AFM-0036; AFM-0040 records the 0.4.0 MSRV floor raises; AFM-0041 records
+the 0.5.0 closed public error enum sets. The independent
 factory corpus retains 24 Accepted decisions.
 
 ## License
