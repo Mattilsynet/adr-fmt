@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let path = entry.expect("readable directory entry").path();
@@ -17,12 +17,12 @@ pub fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub fn markdown_files(dir: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = fs::read_dir(dir)
         .expect("ADR directory is readable")
@@ -33,14 +33,14 @@ pub fn markdown_files(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub struct Corpus {
     pub live: BTreeMap<String, BTreeSet<u32>>,
     pub stale: BTreeSet<String>,
 }
 
 impl Corpus {
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
     pub fn load() -> Self {
         let root = manifest_dir().join("docs").join("adr");
         let id_re = Regex::new(r"^(AFM-\d{4})").expect("ADR filename pattern compiles");
@@ -80,7 +80,7 @@ impl Corpus {
     }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub struct Citation {
     pub site: String,
     pub adr: String,
@@ -88,7 +88,7 @@ pub struct Citation {
     pub text: String,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub struct Patterns {
     pub adr: Regex,
     pub suffix: Regex,
@@ -99,7 +99,7 @@ pub struct Patterns {
 }
 
 impl Patterns {
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
     pub fn new() -> Self {
         Self {
             adr: Regex::new(r"AFM-\d{4}").expect("citation pattern compiles"),
@@ -121,13 +121,13 @@ impl Default for Patterns {
     }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub struct Extracted {
     pub citations: Vec<(String, BTreeSet<u32>)>,
     pub trailing_bare_adr: bool,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub fn extract_citations(text: &str, patterns: &Patterns) -> Result<Extracted, String> {
     let body = text.trim_end();
     let mut citations = Vec::new();
@@ -195,7 +195,7 @@ pub fn extract_citations(text: &str, patterns: &Patterns) -> Result<Extracted, S
     })
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub fn unresolved_citation_findings(citations: &[Citation], corpus: &Corpus) -> Vec<String> {
     let mut findings = Vec::new();
     for citation in citations {
@@ -226,7 +226,7 @@ pub fn unresolved_citation_findings(citations: &[Citation], corpus: &Corpus) -> 
     findings
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub const COVERAGE_RESIDUAL: &str = "\
 Existence is checked for every extracted citation, and so for every rule a citation names. \
 Coverage is narrower: a rule is covered only when some citation text contains its catalog id \
@@ -240,7 +240,7 @@ never delete an entry to make the guard pass; shrink-to-pass is a review-visible
 /// Parses catalog ids out of `entry("…")` and `wrapped("…")` construction only. A new
 /// `RuleEntry` construction form must extend this parser, otherwise its ids are invisible to
 /// coverage.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub fn catalog_rule_ids() -> BTreeSet<String> {
     let path = manifest_dir().join("src").join("rules").join("catalog.rs");
     let text = fs::read_to_string(&path)
@@ -260,7 +260,7 @@ pub fn catalog_rule_ids() -> BTreeSet<String> {
     ids
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub fn rules_named_in(text: &str, catalog: &BTreeSet<String>) -> BTreeSet<String> {
     catalog
         .iter()
@@ -290,7 +290,7 @@ fn names_whole_token(text: &str, id: &str) -> bool {
     false
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub fn covered_rules(citations: &[Citation], catalog: &BTreeSet<String>) -> BTreeSet<String> {
     citations
         .iter()
@@ -298,7 +298,7 @@ pub fn covered_rules(citations: &[Citation], catalog: &BTreeSet<String>) -> BTre
         .collect()
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared integration-test fixture helper; used by a subset of the test binaries, so it silences dead_code in a binary that does not use it and stays harmless where it does")]
 pub fn assert_rule_coverage(
     kind: &str,
     declared: &[&str],
