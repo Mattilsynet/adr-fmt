@@ -42,5 +42,6 @@ Version 0.3.0 was not published (AFM-0040:R3).
 - Context output preserves each rule's normative strength and ancestry stops at
   stale/Rejected/Deprecated/Superseded per AFM-0039 R5–R6.
 
-[Unreleased]: https://github.com/Mattilsynet/adr-fmt/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Mattilsynet/adr-fmt/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Mattilsynet/adr-fmt/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Mattilsynet/adr-fmt/releases/tag/v0.4.0
