@@ -101,14 +101,10 @@ by BOUNDARY.
   - `--no-fail-fast` is mandatory on the test line to ensure full blast-radius
     visibility in a single pass.
 
-- **Plant proofs and readers never share a tree.** Run four-step mutation proofs
-  in a scratch copy under `.ooda/tmp/<mission>-plant/` (a plain recursive copy, not
-  a git worktree — no parallel git state) whenever a reviewer or assurance pass is
-  active; otherwise freeze the checkout — no review is dispatched until the revert
-  is confirmed and `git status --porcelain` is empty. After each revert record that
-  status and the restored file's sha256 equal to its pre-plant value: exit codes
-  alone do not establish restoration. A reviewer that sees the tree move stops and
-  reports `Unknown` for the affected claim, naming the range it can still certify.
+- **Guards are proven by planted failure.** A changed guard MUST land with a
+  recorded four-step cycle — plant a violation, observe the failure, revert,
+  observe clean — with all four exit codes recorded and the planted violation
+  compiling (AFM-0037:R1–R2).
 
 - `clippy::pedantic` is the standing bar (`[lints.clippy] pedantic = warn`
   in `Cargo.toml`), not an elevation — new code passes it with zero
