@@ -54,6 +54,7 @@ High-assurance testing techniques—such as property-based testing (proptest), f
   template and link-integrity validator. It discovers `adr-fmt.toml` by
   walking up from cwd, then lints/inspects an ADR corpus. See `README.md`
   for modes, bootstrap, and usage.
+- `software-factory/` is an adr-fmt-compatible corpus + verifier used as a toolchain fixture (its `verify.py` drives the adr-fmt binary against factory profiles and `tests/warning_factory.py` imports it), not stray doctrine.
 - Exit codes describe analysis completeness, not finding count:
   - `0`: analysis complete, including advisory warnings.
   - `1`: infrastructure failure, or retrieval that could not establish
