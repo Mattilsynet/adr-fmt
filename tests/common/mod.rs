@@ -81,7 +81,6 @@ impl Corpus {
 }
 
 #[allow(dead_code)]
-#[derive(Clone)]
 pub struct Citation {
     pub site: String,
     pub adr: String,
@@ -229,10 +228,18 @@ pub fn unresolved_citation_findings(citations: &[Citation], corpus: &Corpus) -> 
 
 #[allow(dead_code)]
 pub const COVERAGE_RESIDUAL: &str = "\
-Existence is checked for every citation. Coverage is per rule only where the text literally \
-names a catalog rule id as a whole token; entailment is not checked (AFM-0037:R7/R8 \
-existence-only).";
+Existence is checked for every extracted citation, and so for every rule a citation names. \
+Coverage is narrower: a rule is covered only when some citation text contains its catalog id \
+as a literal whole token, so coverage is reachability by name, not a rule-reference claim. A \
+bare citation that merely names the rule in prose covers it, and a citation that mentions an \
+already-declared rule counts even when it governs nothing. Citations that name no catalog id \
+reach no coverage set and gain only the existence check, so a scanner regression that stops \
+reading just those citations is not caught here. DECLARED_COVERAGE is a deliberate contract: \
+never delete an entry to make the guard pass; shrink-to-pass is a review-visible act.";
 
+/// Parses catalog ids out of `entry("…")` and `wrapped("…")` construction only. A new
+/// `RuleEntry` construction form must extend this parser, otherwise its ids are invisible to
+/// coverage.
 #[allow(dead_code)]
 pub fn catalog_rule_ids() -> BTreeSet<String> {
     let path = manifest_dir().join("src").join("rules").join("catalog.rs");
@@ -284,17 +291,11 @@ fn names_whole_token(text: &str, id: &str) -> bool {
 }
 
 #[allow(dead_code)]
-pub fn covered_rules<'a>(
-    citations: &'a [Citation],
-    catalog: &BTreeSet<String>,
-) -> BTreeMap<String, Vec<&'a Citation>> {
-    let mut coverage: BTreeMap<String, Vec<&Citation>> = BTreeMap::new();
-    for citation in citations {
-        for rule in rules_named_in(&citation.text, catalog) {
-            coverage.entry(rule).or_default().push(citation);
-        }
-    }
-    coverage
+pub fn covered_rules(citations: &[Citation], catalog: &BTreeSet<String>) -> BTreeSet<String> {
+    citations
+        .iter()
+        .flat_map(|citation| rules_named_in(&citation.text, catalog))
+        .collect()
 }
 
 #[allow(dead_code)]
@@ -303,10 +304,8 @@ pub fn assert_rule_coverage(
     declared: &[&str],
     citations: &[Citation],
     catalog: &BTreeSet<String>,
-    corpus: &Corpus,
 ) {
-    let coverage = covered_rules(citations, catalog);
-    let computed: BTreeSet<String> = coverage.keys().cloned().collect();
+    let computed = covered_rules(citations, catalog);
     let declared_set: BTreeSet<String> = declared.iter().copied().map(str::to_owned).collect();
 
     let unknown: Vec<&String> = declared_set.difference(catalog).collect();
@@ -334,21 +333,4 @@ pub fn assert_rule_coverage(
          {computed:?}. New citation-bearing text appeared, so pin exactly the rules it covers \
          and no others"
     );
-
-    for rule in &declared_set {
-        let sites: &[&Citation] = coverage.get(rule).map_or(&[], Vec::as_slice);
-        assert!(
-            !sites.is_empty(),
-            "{rule} is declared as covered by {kind} citations but maps to no site; a declared \
-             rule must have at least one citation, otherwise it is a quantity no text backs"
-        );
-        let owned: Vec<Citation> = sites.iter().map(|citation| (*citation).clone()).collect();
-        let findings = unresolved_citation_findings(&owned, corpus);
-        assert!(
-            findings.is_empty(),
-            "{kind} citations that name {rule} do not resolve to a live corpus rule:\n{}\n\n\
-             {COVERAGE_RESIDUAL}",
-            findings.join("\n")
-        );
-    }
 }

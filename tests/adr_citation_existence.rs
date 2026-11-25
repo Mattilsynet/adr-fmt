@@ -1,10 +1,11 @@
+use std::collections::BTreeSet;
 use std::fs;
 use syn::visit::Visit;
 
 mod common;
 use common::{
     COVERAGE_RESIDUAL, Citation, Corpus, Patterns, assert_rule_coverage, catalog_rule_ids,
-    extract_citations, manifest_dir, rust_sources, unresolved_citation_findings,
+    extract_citations, manifest_dir, rules_named_in, rust_sources, unresolved_citation_findings,
 };
 
 const DECLARED_COVERAGE: &[&str] = &["L006", "S007"];
@@ -160,7 +161,6 @@ fn doc_attribute_citations_resolve_to_a_live_corpus_rule() {
         DECLARED_COVERAGE,
         &scan.citations,
         &catalog,
-        &corpus,
     );
 }
 
@@ -272,4 +272,24 @@ fn a_citation_left_open_at_the_end_of_a_doc_line_is_flagged_for_the_wrap_check()
     );
     assert!(patterns.continuation.is_match(" R1\u{2013}R3 apply"));
     assert!(!patterns.continuation.is_match(" Rules apply"));
+}
+
+#[test]
+fn catalog_ids_match_only_as_whole_tokens() {
+    let catalog = BTreeSet::from(["T005".to_owned(), "T005c".to_owned()]);
+    assert_eq!(
+        rules_named_in("the Status field per T005.", &catalog),
+        BTreeSet::from(["T005".to_owned()]),
+        "T005 standing alone is a whole-token match"
+    );
+    assert_eq!(
+        rules_named_in("the legacy T005c section.", &catalog),
+        BTreeSet::from(["T005c".to_owned()]),
+        "T005c is covered, and its T005 prefix does not also match"
+    );
+    assert_eq!(
+        rules_named_in("xT005 and T005C.", &catalog),
+        BTreeSet::new(),
+        "an alphanumeric neighbour on either side is not a token boundary"
+    );
 }

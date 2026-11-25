@@ -267,6 +267,5 @@ fn assertion_message_citations_resolve_to_a_live_corpus_rule() {
         DECLARED_COVERAGE,
         &scan.citations,
         &catalog,
-        &corpus,
     );
 }
