@@ -626,11 +626,44 @@ fn parse_title(
     None
 }
 
+fn metadata_head<'a>(lines: &'a [&'a str]) -> &'a [&'a str] {
+    let end = lines
+        .iter()
+        .position(|line| line.starts_with("## "))
+        .unwrap_or(lines.len());
+    &lines[..end]
+}
+
+fn section_heading_line(outside: &[(usize, &str)], name: &str) -> Option<usize> {
+    let target = format!("## {name}");
+    outside
+        .iter()
+        .copied()
+        .find(|(_, line)| *line == target)
+        .map(|(line_no, _)| line_no)
+}
+
+fn section_lines<'a>(
+    outside: &'a [(usize, &'a str)],
+    name: &str,
+) -> Option<impl Iterator<Item = (usize, &'a str)> + 'a> {
+    let target = format!("## {name}");
+    let start = outside.iter().position(|(_, line)| *line == target)?;
+    let begin = start + 1;
+    let end = outside[begin..]
+        .iter()
+        .position(|(_, line)| line.starts_with("## ") && *line != target)
+        .map_or(outside.len(), |offset| begin + offset);
+    Some(
+        outside[begin..end]
+            .iter()
+            .copied()
+            .filter(move |(_, line)| *line != target),
+    )
+}
+
 fn find_field(lines: &[&str], key: &str) -> (Option<String>, usize) {
-    for (i, line) in lines.iter().enumerate() {
-        if line.starts_with("## ") {
-            break;
-        }
+    for (i, line) in metadata_head(lines).iter().enumerate() {
         if let Some(value) = line.strip_prefix(key) {
             let value = value.trim();
             if !value.is_empty() {
@@ -642,10 +675,7 @@ fn find_field(lines: &[&str], key: &str) -> (Option<String>, usize) {
 }
 
 fn find_tier_field(lines: &[&str]) -> (TierField, usize) {
-    for (i, line) in lines.iter().enumerate() {
-        if line.starts_with("## ") {
-            break;
-        }
+    for (i, line) in metadata_head(lines).iter().enumerate() {
         if let Some(value) = line.strip_prefix("Tier:") {
             let value = value.trim();
             let field = match Tier::parse(value) {
@@ -661,10 +691,7 @@ fn find_tier_field(lines: &[&str]) -> (TierField, usize) {
 }
 
 fn find_status_field(lines: &[&str]) -> (Option<Status>, usize, Option<String>) {
-    for (i, line) in lines.iter().enumerate() {
-        if line.starts_with("## ") {
-            break;
-        }
+    for (i, line) in metadata_head(lines).iter().enumerate() {
         if let Some(value) = line.strip_prefix("Status:") {
             let value = value.trim();
             if !value.is_empty() {
@@ -678,18 +705,10 @@ fn find_status_field(lines: &[&str]) -> (Option<Status>, usize, Option<String>) 
 }
 
 fn find_status_in_section(outside: &OutsideLines<'_>) -> (Option<Status>, usize, Option<String>) {
-    let mut in_status = false;
-    for (line_no, line) in outside.iter() {
-        if line == "## Status" {
-            in_status = true;
-            continue;
-        }
-        if !in_status {
-            continue;
-        }
-        if line.starts_with("## ") {
-            break;
-        }
+    let Some(body) = section_lines(&outside.lines, "Status") else {
+        return (None, 0, None);
+    };
+    for (line_no, line) in body {
         let value = line.trim();
         if value.is_empty() {
             continue;
@@ -700,26 +719,16 @@ fn find_status_in_section(outside: &OutsideLines<'_>) -> (Option<Status>, usize,
 }
 
 fn find_relationships(outside: &OutsideLines<'_>, path: &Path) -> (Related, Vec<Diagnostic>) {
+    let Some(body) = section_lines(&outside.lines, "Related") else {
+        return (Related::Absent, Vec::new());
+    };
     let mut rels = Vec::new();
-    let mut in_related = false;
-    let mut found_section = false;
     let mut malformed: Option<(String, MalformedReason)> = None;
     let mut diagnostics = Vec::new();
 
-    for (line_no, line) in outside.iter() {
-        if line == "## Related" {
-            in_related = true;
-            found_section = true;
-            continue;
-        }
-        if !in_related {
-            continue;
-        }
+    for (line_no, line) in body {
         if line.is_empty() {
             continue;
-        }
-        if line.starts_with("## ") {
-            break;
         }
         let trimmed = line.trim();
         if trimmed == "—" || trimmed == "- —" {
@@ -748,8 +757,7 @@ fn find_relationships(outside: &OutsideLines<'_>, path: &Path) -> (Related, Vec<
             reason,
             relationships: rels,
         },
-        None if found_section => Related::Parsed(rels),
-        None => Related::Absent,
+        None => Related::Parsed(rels),
     };
 
     (related, diagnostics)
@@ -974,7 +982,7 @@ fn analyze_sections(outside: &OutsideLines<'_>) -> (Vec<String>, HashMap<String,
 }
 
 fn find_crates_field(lines: &[&str]) -> Vec<String> {
-    for line in lines {
+    for line in metadata_head(lines) {
         if let Some(value) = line.strip_prefix("Crates:") {
             let value = value.trim();
             if value.is_empty() {
@@ -982,18 +990,12 @@ fn find_crates_field(lines: &[&str]) -> Vec<String> {
             }
             return value.split(',').map(|s| s.trim().to_owned()).collect();
         }
-        if line.starts_with("## ") {
-            break;
-        }
     }
     Vec::new()
 }
 
 fn find_parent_cross_domain_field(lines: &[&str]) -> CrossDomainParent {
-    for line in lines {
-        if line.starts_with("## ") {
-            break;
-        }
+    for line in metadata_head(lines) {
         if let Some(value) = line.strip_prefix("Parent-cross-domain:") {
             let value = value.trim();
             if value.is_empty() {
@@ -1263,15 +1265,11 @@ fn measure_code_blocks(source: &SourceLines<'_>) -> (usize, usize) {
 }
 
 fn has_heading(outside: &OutsideLines<'_>, name: &str) -> bool {
-    find_heading_line(outside, name).is_some()
+    section_heading_line(&outside.lines, name).is_some()
 }
 
 fn find_heading_line(outside: &OutsideLines<'_>, name: &str) -> Option<usize> {
-    let target = format!("## {name}");
-    outside
-        .iter()
-        .find(|(_, line)| *line == target)
-        .map(|(line_no, _)| line_no)
+    section_heading_line(&outside.lines, name)
 }
 
 #[cfg(test)]
