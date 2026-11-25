@@ -70,7 +70,7 @@ distinguishes over-threshold findings (exit 1) from no verdict (exit 2).
 Its default producer is `cargo run -q --locked -- --lint`.
 
 The measured corpus has 3 warnings across 41 ADRs on 2026-11-25: L016 × 1
-and T020 × 2. The count names the binary revision (commit `75980d2`) and the
+and T020 × 2. The count names the binary revision (commit `8dcb230`) and the
 corpus state (these 41 ADRs); neither is inferable from the other.
 These remaining tier/parent and reference
 count advisories warrant review, not automatic governance changes. The gate

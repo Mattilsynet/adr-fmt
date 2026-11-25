@@ -49,4 +49,6 @@ risks/migration: the closure forecloses minor-version variant additions on the
 
 Evidence: the 0.5.0 release carries the version in `Cargo.toml`;
 `tests/closed_error_policy.rs` now asserts the zero-violation prohibition over
-the seven, replacing its prior per-enum baseline that cited AFM-0026:R6.
+the seven, replacing its prior per-enum baseline that cited AFM-0026:R6. Per
+AFM-0037:R3 the guard reaches error types only: a non-error `pub enum` carrying
+`#[non_exhaustive]` is a documented false-clean, not mechanically covered.
