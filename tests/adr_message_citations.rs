@@ -4,15 +4,11 @@ use syn::visit::Visit;
 
 mod common;
 use common::{
-    Citation, Corpus, Patterns, extract_citations, manifest_dir, rust_sources,
-    unresolved_citation_findings,
+    COVERAGE_RESIDUAL, Citation, Corpus, Patterns, assert_rule_coverage, catalog_rule_ids,
+    extract_citations, manifest_dir, rust_sources, unresolved_citation_findings,
 };
 
-const MESSAGE_CITATION_SITE_FLOOR: usize = 44;
-
-const MESSAGE_RULE_REFERENCE_FLOOR: usize = 36;
-
-const LIVE_ADR_FLOOR: usize = 27;
+const DECLARED_COVERAGE: &[&str] = &["L011", "P002", "P005", "S007", "T007", "T016", "T019"];
 
 const DECLARED_RESIDUAL: &str = "\
 This guard reads argument position, so it records as a claim only the message arguments of the \
@@ -236,6 +232,7 @@ impl Scan {
 fn assertion_message_citations_resolve_to_a_live_corpus_rule() {
     let scan = Scan::run();
     let corpus = Corpus::load();
+    let catalog = catalog_rule_ids();
 
     assert!(
         scan.src_files > 0 && scan.test_files > 0,
@@ -246,32 +243,14 @@ fn assertion_message_citations_resolve_to_a_live_corpus_rule() {
         scan.test_files
     );
     assert!(
-        corpus.live.len() >= LIVE_ADR_FLOOR,
-        "loaded only {} live ADR(s) from docs/adr/adr-fmt/. Every citation resolves against \
-         this map, so an empty or truncated one turns real violations into passes",
-        corpus.live.len()
+        !corpus.live.is_empty(),
+        "loaded no live ADR from docs/adr/adr-fmt/. Every citation resolves against this map, \
+         so an empty one turns real violations into passes"
     );
     assert!(
         !corpus.stale.is_empty(),
         "loaded no ADRs from docs/adr/stale/. Without them a citation of a retired ADR is \
          reported as merely absent, losing the AFM-0022 distinction this guard draws"
-    );
-    assert!(
-        scan.citations.len() >= MESSAGE_CITATION_SITE_FLOOR,
-        "extracted only {} citation(s) from assertion, panic and expect message arguments; the \
-         floor is {MESSAGE_CITATION_SITE_FLOOR}, the count measured on this corpus. A scope \
-         predicate that silently stops matching yields an empty set, which is indistinguishable \
-         from a corpus with nothing to check, so a shortfall is a broken guard and not a clean \
-         tree",
-        scan.citations.len()
-    );
-    let rule_references: usize = scan.citations.iter().map(|c| c.rules.len()).sum();
-    assert!(
-        rule_references >= MESSAGE_RULE_REFERENCE_FLOOR,
-        "extracted {rule_references} rule reference(s) from those citations; the floor is \
-         {MESSAGE_RULE_REFERENCE_FLOOR}, the count measured on this corpus. The citation floor \
-         above counts ADR tokens and stays green even when every rule suffix is dropped, so this \
-         second floor is what notices a suffix parser that quietly stops matching"
     );
 
     let findings = unresolved_citation_findings(&scan.citations, &corpus);
@@ -279,7 +258,15 @@ fn assertion_message_citations_resolve_to_a_live_corpus_rule() {
     assert!(
         findings.is_empty(),
         "assertion, panic and expect message citations that do not resolve to a live corpus \
-         entry:\n{}\n\nScope of this guard: {DECLARED_RESIDUAL}",
+         entry:\n{}\n\nScope of this guard: {DECLARED_RESIDUAL}\n\n{COVERAGE_RESIDUAL}",
         findings.join("\n")
+    );
+
+    assert_rule_coverage(
+        "assertion-message",
+        DECLARED_COVERAGE,
+        &scan.citations,
+        &catalog,
+        &corpus,
     );
 }

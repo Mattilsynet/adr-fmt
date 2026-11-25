@@ -81,6 +81,7 @@ impl Corpus {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct Citation {
     pub site: String,
     pub adr: String,
@@ -224,4 +225,130 @@ pub fn unresolved_citation_findings(citations: &[Citation], corpus: &Corpus) -> 
         }
     }
     findings
+}
+
+#[allow(dead_code)]
+pub const COVERAGE_RESIDUAL: &str = "\
+Existence is checked for every citation. Coverage is per rule only where the text literally \
+names a catalog rule id as a whole token; entailment is not checked (AFM-0037:R7/R8 \
+existence-only).";
+
+#[allow(dead_code)]
+pub fn catalog_rule_ids() -> BTreeSet<String> {
+    let path = manifest_dir().join("src").join("rules").join("catalog.rs");
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{}: catalog is readable: {e}", path.display()));
+    let pattern =
+        Regex::new(r#"\b(?:entry|wrapped)\(\s*"([^"]+)""#).expect("catalog entry pattern compiles");
+    let ids: BTreeSet<String> = pattern
+        .captures_iter(&text)
+        .map(|caps| caps[1].to_owned())
+        .collect();
+    assert!(
+        !ids.is_empty(),
+        "{}: no `entry(\"...\")` or `wrapped(\"...\")` id was parsed. An empty catalog makes \
+         per-rule coverage vacuous, so this guard fails rather than passing on nothing",
+        path.display()
+    );
+    ids
+}
+
+#[allow(dead_code)]
+pub fn rules_named_in(text: &str, catalog: &BTreeSet<String>) -> BTreeSet<String> {
+    catalog
+        .iter()
+        .filter(|id| names_whole_token(text, id))
+        .cloned()
+        .collect()
+}
+
+fn names_whole_token(text: &str, id: &str) -> bool {
+    let mut searched = 0;
+    while let Some(offset) = text[searched..].find(id) {
+        let start = searched + offset;
+        let end = start + id.len();
+        let before_is_boundary = text[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_ascii_alphanumeric());
+        let after_is_boundary = text[end..]
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_ascii_alphanumeric());
+        if before_is_boundary && after_is_boundary {
+            return true;
+        }
+        searched = start + 1;
+    }
+    false
+}
+
+#[allow(dead_code)]
+pub fn covered_rules<'a>(
+    citations: &'a [Citation],
+    catalog: &BTreeSet<String>,
+) -> BTreeMap<String, Vec<&'a Citation>> {
+    let mut coverage: BTreeMap<String, Vec<&Citation>> = BTreeMap::new();
+    for citation in citations {
+        for rule in rules_named_in(&citation.text, catalog) {
+            coverage.entry(rule).or_default().push(citation);
+        }
+    }
+    coverage
+}
+
+#[allow(dead_code)]
+pub fn assert_rule_coverage(
+    kind: &str,
+    declared: &[&str],
+    citations: &[Citation],
+    catalog: &BTreeSet<String>,
+    corpus: &Corpus,
+) {
+    let coverage = covered_rules(citations, catalog);
+    let computed: BTreeSet<String> = coverage.keys().cloned().collect();
+    let declared_set: BTreeSet<String> = declared.iter().copied().map(str::to_owned).collect();
+
+    let unknown: Vec<&String> = declared_set.difference(catalog).collect();
+    assert!(
+        unknown.is_empty(),
+        "declared {kind} coverage rule(s) that name no catalog RuleEntry: {unknown:?}. A \
+         declared id that is not in src/rules/catalog.rs is a typo, a retired rule, or a \
+         decorative id; no citation can ever cover it"
+    );
+
+    let uncited: Vec<&String> = declared_set.difference(&computed).collect();
+    assert!(
+        uncited.is_empty(),
+        "declared {kind} coverage rule(s) with no citation naming them: {uncited:?}; computed \
+         {computed:?}. Either the scanner stopped reaching text it used to read, or the last \
+         truthful citation of this rule was removed. Repair the scanner, or remove the \
+         declaration deliberately; an empty per-rule map is the vacuity this guard replaces the \
+         count floor to catch"
+    );
+
+    let undeclared: Vec<&String> = computed.difference(&declared_set).collect();
+    assert!(
+        undeclared.is_empty(),
+        "{kind} citations now name rule(s) with no declaration: {undeclared:?}; computed \
+         {computed:?}. New citation-bearing text appeared, so pin exactly the rules it covers \
+         and no others"
+    );
+
+    for rule in &declared_set {
+        let sites: &[&Citation] = coverage.get(rule).map_or(&[], Vec::as_slice);
+        assert!(
+            !sites.is_empty(),
+            "{rule} is declared as covered by {kind} citations but maps to no site; a declared \
+             rule must have at least one citation, otherwise it is a quantity no text backs"
+        );
+        let owned: Vec<Citation> = sites.iter().map(|citation| (*citation).clone()).collect();
+        let findings = unresolved_citation_findings(&owned, corpus);
+        assert!(
+            findings.is_empty(),
+            "{kind} citations that name {rule} do not resolve to a live corpus rule:\n{}\n\n\
+             {COVERAGE_RESIDUAL}",
+            findings.join("\n")
+        );
+    }
 }

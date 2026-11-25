@@ -3,15 +3,11 @@ use syn::visit::Visit;
 
 mod common;
 use common::{
-    Citation, Corpus, Patterns, extract_citations, manifest_dir, rust_sources,
-    unresolved_citation_findings,
+    COVERAGE_RESIDUAL, Citation, Corpus, Patterns, assert_rule_coverage, catalog_rule_ids,
+    extract_citations, manifest_dir, rust_sources, unresolved_citation_findings,
 };
 
-const CITATION_SITE_FLOOR: usize = 46;
-
-const RULE_REFERENCE_FLOOR: usize = 33;
-
-const LIVE_ADR_FLOOR: usize = 27;
+const DECLARED_COVERAGE: &[&str] = &["L006", "S007"];
 
 struct DocScan<'a> {
     site: &'a str,
@@ -129,6 +125,7 @@ impl Scan {
 fn doc_attribute_citations_resolve_to_a_live_corpus_rule() {
     let scan = Scan::run();
     let corpus = Corpus::load();
+    let catalog = catalog_rule_ids();
 
     assert!(
         scan.src_files > 0 && scan.test_files > 0,
@@ -139,39 +136,31 @@ fn doc_attribute_citations_resolve_to_a_live_corpus_rule() {
         scan.test_files
     );
     assert!(
-        corpus.live.len() >= LIVE_ADR_FLOOR,
-        "loaded only {} live ADR(s) from docs/adr/adr-fmt/. Every citation resolves against \
-         this map, so an empty or truncated one turns real violations into passes",
-        corpus.live.len()
+        !corpus.live.is_empty(),
+        "loaded no live ADR from docs/adr/adr-fmt/. Every citation resolves against this map, \
+         so an empty one turns real violations into passes"
     );
     assert!(
         !corpus.stale.is_empty(),
         "loaded no ADRs from docs/adr/stale/. Without them a citation of a retired ADR is \
          reported as merely absent, losing the AFM-0022 distinction this guard draws"
     );
-    assert!(
-        scan.citations.len() >= CITATION_SITE_FLOOR,
-        "extracted only {} doc-attribute citation(s); the floor is {CITATION_SITE_FLOOR}, the \
-         count measured on this corpus after removing the unsupported retired-ADR claim from \
-         src/output.rs. Extraction that silently stops matching is indistinguishable from a \
-         corpus with nothing to check, so a shortfall is a broken guard and not a clean tree",
-        scan.citations.len()
-    );
-    let rule_references: usize = scan.citations.iter().map(|c| c.rules.len()).sum();
-    assert!(
-        rule_references >= RULE_REFERENCE_FLOOR,
-        "extracted {rule_references} rule reference(s) from those citations; the floor is \
-         {RULE_REFERENCE_FLOOR}, the count measured on this corpus. The citation floor above \
-         counts ADR tokens and stays green even when every rule suffix is dropped, so this \
-         second floor is what notices a suffix parser that quietly stops matching"
-    );
 
     let findings = unresolved_citation_findings(&scan.citations, &corpus);
 
     assert!(
         findings.is_empty(),
-        "doc-attribute citations that do not resolve to a live corpus entry:\n{}",
+        "doc-attribute citations that do not resolve to a live corpus entry:\n{}\n\n\
+         {COVERAGE_RESIDUAL}",
         findings.join("\n")
+    );
+
+    assert_rule_coverage(
+        "doc-attribute",
+        DECLARED_COVERAGE,
+        &scan.citations,
+        &catalog,
+        &corpus,
     );
 }
 
