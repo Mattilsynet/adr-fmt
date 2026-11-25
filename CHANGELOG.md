@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-25
+
+### Changed
+
+- Wire the AFM-0038 bounded warning-details proof
+  (`tests/warning_factory.py`) into `cargo test` so the shipped
+  restriction-surfacing behaviour actually runs instead of being orphaned.
+- Root-anchor the `graphify-out/` gitignore entry per sf-sdlc so a graphify
+  index anywhere under the tree stays untracked.
+- Keep stray `.DS_Store` and scratch artifacts out of tracking via gitignore.
+
 ## [0.4.0] - 2026-11-25
 
 First release with a recorded changelog; the entries describe the capabilities
