@@ -1,23 +1,11 @@
-//! Prohibition on `#[non_exhaustive]` for public error enums in `src/`
-//! (item-level `pub`; includes two types not re-exported).
+//! Prohibition on `#[non_exhaustive]` public error enums in `src/`
+//! (item-level `pub`; RST-0006, recorded by AFM-0041 amending AFM-0026:R6).
 //!
-//! RST-0006 requires closed public error/state/outcome enums: a variant set is
-//! complete within a major semver line, so an unhandled state is
-//! unrepresentable at compile time rather than a crash or silent default. The
-//! open-enum provision AFM-0026:R6 granted is amended in place to the closed
-//! position; AFM-0041 records the decision, and reopening the variant sets
-//! requires a new ADR.
-//!
-//! AFM-0037:R3 — guard claims only what its mechanism reaches. This guard
-//! reaches error types ONLY, via the derive path and the Error-trait suffix
-//! heuristic; it matches an impl trait path whose last segment ends in `Error`
-//! (`std::error::Error`, `StdError`, ...), so it errs toward flagging without
-//! name resolution. Silent gaps (false cleans): a trait alias unrelated to
-//! `Error` (`use std::error::Error as Boom;`, `impl Boom for X {}`); a
-//! non-`Path` self type (`impl Error for &FooError`); an aliased self type
-//! (`type A = FooError;`, `impl Error for A`). A non-error `pub enum` carrying
-//! `#[non_exhaustive]` — for example a state or outcome enum — is a documented
-//! false-clean: state/outcome enum gaps are not mechanically covered.
+//! AFM-0037:R3: this guard reaches error types only via the derive path and
+//! the Error-trait suffix heuristic; it errs toward flagging without name
+//! resolution. False cleans: a trait alias unrelated to `Error`, a non-`Path`
+//! self type, an aliased self type, and a non-error `#[non_exhaustive]`
+//! state/outcome enum (not mechanically covered).
 
 use std::collections::BTreeSet;
 use std::fs;

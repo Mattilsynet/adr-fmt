@@ -1,6 +1,6 @@
 //! Typed rule catalog: one source for diagnostic IDs and descriptions.
 //!
-//! AFM-0004:R2 [L5] requires guidance generated from validation structures.
+//! AFM-0004:R2 [`L5`] requires guidance generated from validation structures.
 //!
 //! Validators use `RuleEntry::id`; `guidelines.rs` renders these section
 //! slices. Deleting an entry breaks its emitting validator at compile time.
