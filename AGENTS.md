@@ -125,12 +125,16 @@ Run the same native check from the repository root locally and in CI:
 comment-free --check-doc-budget --doc-advisory-words 80 --doc-max-words 120 --max-warning-files 0 .
 ```
 
-Install from the canonical git repo on the default branch — no revision or
-version pin (fleet rule for unpublished in-house CLIs), only the toolchain
-and `--locked` are pinned:
+Install from the canonical git repo pinned at `--rev v0.3.0` — the tagged
+0.3.0 release (comment-free's own Consumption guidance for new installs) —
+with the toolchain and `--locked` also pinned:
 ```sh
-cargo +1.100.0 install --git https://github.com/acje/comment-free --locked comment-free
+cargo +1.100.0 install --git https://github.com/acje/comment-free --rev v0.3.0 --locked comment-free
 ```
+
+`scripts/verify.sh` version-gates the installed binary to 0.3.0:
+`comment-free --version` must equal `0.3.0`, else it reinstalls, so a local
+run stays aligned with CI's freshly installed v0.3.0.
 
 The read-only native gate recursively scans Rust sources under `.` with the
 tool's build/hidden pruning: 80 prose words is advisory; 120 is enforced.
