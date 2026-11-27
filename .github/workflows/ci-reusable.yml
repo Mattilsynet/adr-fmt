@@ -86,6 +86,26 @@ jobs:
             exit 1
           }
 
+  # Guard-proof tripwire: mechanically prove the closed-error gate bites.
+  # Runs the plant -> fail -> revert -> clean four-step harness
+  # (tools/tripwire-regression.sh) that plants a compiling #[non_exhaustive]
+  # public error enum, observes the gate fail closed, reverts, then observes a
+  # clean run — proving the CI-blocking closed-error gate cannot fail open
+  # (AFM-0037:R1-R2). Mirrors comment-free's guard-proof job pattern; uses
+  # `toolchain: stable` (follow-latest) for this brand-new reference rather
+  # than the pinned 1.100.0 used by the pre-existing jobs.
+  guard-proof-tripwire:
+    name: guard-proof (tripwire-regression)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: prove closed-error gate bites (plant -> fail -> revert -> clean)
+        run: sh tools/tripwire-regression.sh
+
   supply-chain:
     name: supply-chain (audit + deny)
     runs-on: ubuntu-latest
